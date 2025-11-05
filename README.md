@@ -13,22 +13,17 @@ A comprehensive media request management system for Jellyfin with enhanced searc
 
 ## Installation
 
-### Method 1: Via Jellyfin Plugin Catalog (Recommended when available)
+### Via Jellyfin Plugin Repository (Recommended)
 
-1. In Jellyfin, go to **Dashboard** → **Plugins** → **Catalog**
-2. Search for "Baklava"
-3. Click **Install**
-4. Restart Jellyfin
-
-### Method 2: Manual Installation
-
-1. Download the latest release from the [Releases](https://github.com/j4ckgrey/jellyfin-plugin-baklava/releases) page
-2. Extract the zip file
-3. Copy the folder to your Jellyfin plugins directory:
-   - **Linux**: `/var/lib/jellyfin/plugins/Baklava_0.1.0.0/`
-   - **Windows**: `C:\ProgramData\Jellyfin\Server\plugins\Baklava_0.1.0.0\`
-   - **Docker**: `{config}/plugins/Baklava_0.1.0.0/`
-4. Restart Jellyfin
+1. In Jellyfin, go to **Dashboard** → **Plugins** → **Repositories**
+2. Click **+** to add a new repository
+3. Enter this manifest URL:
+   ```
+   https://raw.githubusercontent.com/j4ckgrey/jellyfin-plugin-baklava/main/manifest.json
+   ```
+4. Click the new repository in the list to view plugins
+5. Find "Baklava" and click **Install**
+6. Restart Jellyfin
 
 ### Dependencies
 
