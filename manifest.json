@@ -12,9 +12,9 @@
         "version": "0.1.0.0",
         "changelog": "Initial release:\n- Media request system with approval workflow\n- Admin/user role-based buttons\n- Request status tracking (pending/approved)\n- Search integration with request indicators\n- Header dropdown menu with carousel\n- Library status detection\n- Local/global search toggle",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/j4ckgrey/jellyfin-plugin-baklava/releases/download/v0.1.0.0/baklava_0.1.0.0.zip",
-        "checksum": "UPDATE_AFTER_BUILD",
-        "timestamp": "2025-11-05T00:00:00Z"
+        "sourceUrl": "https://github.com/j4ckgrey/jellyfin-plugin-baklava/releases/download/v0.1.0.0/Baklava_0.1.0.0.zip",
+        "checksum": "50e39396be5cb92fc5a09aa4a5a380b365ce4d6516c3dc7d6311c0ec72ac1eb2",
+        "timestamp": "2025-11-05T22:00:00Z"
       }
     ]
   }
