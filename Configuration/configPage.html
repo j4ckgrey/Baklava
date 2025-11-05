@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Baklava - Media Request Manager</title>
+</head>
+<body>
+    <div id="BaklavaConfigPage" data-role="page" class="page type-interior pluginConfigurationPage">
+        <div data-role="content">
+            <div class="content-primary">
+                <h2>Baklava - Media Request Manager</h2>
+                <p>A comprehensive media request management system for Jellyfin.</p>
+                
+                <h3>Features</h3>
+                <ul>
+                    <li><strong>Request System:</strong> Users can request movies and TV shows from search results</li>
+                    <li><strong>Admin Approval:</strong> Administrators can approve or remove requests</li>
+                    <li><strong>Status Tracking:</strong> Track request status (pending/approved) with visual badges</li>
+                    <li><strong>Search Integration:</strong> Enhanced search with local/global toggle and request indicators</li>
+                    <li><strong>Request Menu:</strong> Header dropdown showing all media requests with carousel layout</li>
+                    <li><strong>Library Integration:</strong> Automatically detects if requested media is in your library</li>
+                </ul>
+                
+                <h3>Usage</h3>
+                <p>Search for a movie or TV show, open the details modal, and click the "Request" button. Administrators will see pending requests in the requests menu (list icon in header) and can approve or remove them.</p>
+                
+                <p><em>Note: All features are automatically injected into the Jellyfin web UI. No additional configuration required.</em></p>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        console.log('[Baklava] Configuration page loaded');
+    </script>
+</body>
+</html>

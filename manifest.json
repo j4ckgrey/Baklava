@@ -1,0 +1,21 @@
+[
+  {
+    "guid": "109470b0-d97c-4540-89b7-856d4e5831c7",
+    "name": "Baklava",
+    "description": "Media request management system for Jellyfin with search enhancements",
+    "overview": "Allows users to request movies and TV shows, with admin approval workflow, status tracking, and enhanced search features. Includes local/global search toggle, request dropdown menu with carousel layout, and library integration.",
+    "owner": "j4ckgrey",
+    "category": "General",
+    "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/jellyfin-plugin-baklava/main/logo.png",
+    "versions": [
+      {
+        "version": "0.1.0.0",
+        "changelog": "Initial release:\n- Media request system with approval workflow\n- Admin/user role-based buttons\n- Request status tracking (pending/approved)\n- Search integration with request indicators\n- Header dropdown menu with carousel\n- Library status detection\n- Local/global search toggle",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/jellyfin-plugin-baklava/releases/download/v0.1.0.0/baklava_0.1.0.0.zip",
+        "checksum": "UPDATE_AFTER_BUILD",
+        "timestamp": "2025-11-05T00:00:00Z"
+      }
+    ]
+  }
+]
