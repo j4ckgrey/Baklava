@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AssemblyName>Baklava</AssemblyName>
+    <RootNamespace>Baklava</RootNamespace>
+    <!-- Do NOT copy framework/runtime assemblies into the plugin folder.
+         Leaving these out ensures the server's runtime assemblies are used
+         and avoids strong-name / public-key mismatches when loading the plugin. -->
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Version wildcard used; adjust as needed for compatibility with your Jellyfin server -->
+    <PackageReference Include="Jellyfin.Model" Version="10.*" />
+    <PackageReference Include="Jellyfin.Controller" Version="10.*" />
+  </ItemGroup>
+  
+  <!-- Include plugin web assets and embedded config page -->
+  <ItemGroup>
+    <Content Include="Files/wwwroot/**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <EmbeddedResource Include="Configuration/configPage.html" />
+    <!-- Embed ALL JavaScript files so they can be inlined into index.html at transform time -->
+    <EmbeddedResource Include="Files/wwwroot/*.js" />
+    <!-- Embed CSS file for injection -->
+    <EmbeddedResource Include="Files/wwwroot/*.css" />
+  </ItemGroup>
+</Project>

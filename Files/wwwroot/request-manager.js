@@ -1,0 +1,530 @@
+(function() {
+    'use strict';
+
+    let initialized = false;
+
+    function init() {
+        if (initialized) return;
+        
+        const UI = window.MediaServerUI;
+        if (!UI) {
+            console.warn('[RequestManager] MediaServerUI not ready, retrying in 100ms');
+            setTimeout(init, 100);
+            return;
+        }
+        
+        initialized = true;
+        console.log('[RequestManager] Initializing...');
+
+    const STORAGE_KEY = 'mediaRequests';
+    let isLoadingRequests = false;
+
+    // API endpoints - using Jellyfin's API base
+    const API_BASE = 'api/baklava/requests';
+
+    // Listen for new requests from details-modal.js (only once)
+    document.addEventListener('mediaRequest', async (e) => {
+        const item = e.detail;
+        await saveRequest(item);
+        await loadAndDisplayRequests();
+    }, { once: false });
+
+    function getPanel() {
+        return document.querySelector('.requests-tab-panel');
+    }
+
+    async function isAdmin() {
+        try {
+            const userId = window.ApiClient.getCurrentUserId();
+            const user = await window.ApiClient.getUser(userId);
+            const isAdminUser = user?.Policy?.IsAdministrator || false;
+            console.log('[RequestManager] User admin check:', user?.Name, 'isAdmin:', isAdminUser);
+            return isAdminUser;
+        } catch (err) {
+            console.error('[RequestManager] Error checking admin status:', err);
+            return false;
+        }
+    }
+
+    async function getCurrentUsername() {
+        try {
+            const userId = window.ApiClient.getCurrentUserId();
+            const user = await window.ApiClient.getUser(userId);
+            return user?.Name || 'Unknown';
+        } catch {
+            return 'Unknown';
+        }
+    }
+
+    async function createRequestCard(request, adminView) {
+        const card = document.createElement('div');
+        card.className = 'request-card';
+        card.dataset.requestId = request.id;
+        card.style.cssText = `
+            display: inline-block;
+            width: 140px;
+            margin: 10px;
+            cursor: pointer;
+            text-align: center;
+            color: #ccc;
+            position: relative;
+        `;
+
+        const imgDiv = document.createElement('div');
+        imgDiv.style.cssText = `
+            width: 100%;
+            height: 210px;
+            background-size: cover;
+            background-position: center;
+            border-radius: 6px;
+            margin-bottom: 8px;
+        `;
+        imgDiv.style.backgroundImage = request.img;
+        card.appendChild(imgDiv);
+
+        // Show username badge for admins
+        if (adminView && request.username) {
+            const userBadge = document.createElement('div');
+            userBadge.textContent = request.username;
+            userBadge.style.cssText = `
+                position: absolute;
+                top: 8px;
+                left: 8px;
+                background: rgba(30, 144, 255, 0.9);
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: 600;
+            `;
+            card.appendChild(userBadge);
+        }
+
+        const titleEl = document.createElement('div');
+        titleEl.textContent = request.title;
+        titleEl.style.fontSize = '14px';
+        titleEl.style.fontWeight = '600';
+        titleEl.style.color = '#fff';
+        card.appendChild(titleEl);
+
+        const yearEl = document.createElement('div');
+        yearEl.textContent = request.year || '';
+        yearEl.style.fontSize = '12px';
+        yearEl.style.color = '#aaa';
+        card.appendChild(yearEl);
+
+        // Click handler - reuse existing details modal
+        card.addEventListener('click', async () => {
+            console.log('[RequestManager] Opening modal for request:', request.id);
+            
+                        // Create a fake item object that looks like what details-modal expects
+            const fakeItem = {
+                Id: request.tmdbId || request.imdbId,
+                Name: request.title,
+                Type: request.itemType === 'series' ? 'Series' : 'Movie',
+                ProductionYear: request.year ? parseInt(request.year) : null,
+                tmdbId: request.tmdbId,
+                imdbId: request.imdbId,
+                itemType: request.itemType
+            };
+            
+            // Trigger click on details modal with our fake item
+            // This will open the existing modal with all the working functionality
+            const event = new CustomEvent('openDetailsModal', { 
+                detail: { 
+                    item: fakeItem,
+                    isRequestMode: true,
+                    requestId: request.id,
+                    isAdmin: adminView
+                } 
+            });
+            document.dispatchEvent(event);
+        });
+
+        return card;
+    }
+
+    // ===========================================
+    // CREATE REQUEST MODAL (unused - kept for reference)
+    // Now using shared details-modal instead
+    // ===========================================
+
+    function createRequestModal() {
+        });
+
+        return card;
+    }
+
+    function openRequestModal(request, isAdminUser) {
+        // Get or create OUR OWN modal (separate from details-modal)
+        let modal = UI.qs('#request-modal-overlay');
+        if (!modal) {
+            modal = createRequestModal();
+        }
+        
+        // Populate modal with request data
+        const titleEl = UI.qs('#request-modal-title', modal);
+        const metaEl = UI.qs('#request-modal-meta', modal);
+        const overviewEl = UI.qs('#request-modal-overview', modal);
+        const imageEl = UI.qs('#request-modal-image', modal);
+        
+        if (titleEl) titleEl.textContent = request.title;
+        if (metaEl) metaEl.textContent = request.year || '';
+        if (overviewEl) overviewEl.textContent = '';
+        if (imageEl) UI.setBackgroundImage(imageEl, request.img);
+        
+        modal.dataset.itemId = request.tmdbId || request.imdbId;
+        modal.dataset.imdbId = request.imdbId;
+        modal.dataset.tmdbId = request.tmdbId;
+        modal.dataset.itemType = request.itemType;
+        modal.dataset.requestId = request.id;
+
+        const importBtn = UI.qs('#request-modal-import', modal);
+        const openBtn = UI.qs('#request-modal-open', modal);
+        const discardBtn = UI.qs('#request-modal-discard', modal);
+        const closeBtn = UI.qs('#request-modal-close', modal);
+
+        if (!closeBtn) {
+            console.error('[RequestManager] Modal buttons not found');
+            return;
+        }
+
+        // Hide all action buttons initially
+        if (importBtn) importBtn.style.display = 'none';
+        if (openBtn) openBtn.style.display = 'none';
+        if (discardBtn) discardBtn.style.display = 'none';
+
+        if (isAdminUser) {
+            console.log('[RequestManager] Opening modal in ADMIN mode for request:', request.id);
+            // Show Import and Discard for admins
+            if (importBtn) importBtn.style.display = 'inline-block';
+            if (discardBtn) {
+                discardBtn.style.display = 'inline-block';
+                discardBtn.onclick = async (e) => {
+                    e.stopPropagation();
+                    console.log('[RequestManager] Discarding request:', request.id);
+                    await discardRequest(request.id);
+                    hideRequestModal();
+                    await loadAndDisplayRequests();
+                };
+            }
+        } else {
+            console.log('[RequestManager] Opening modal in USER mode for request:', request.id);
+        }
+
+        // Fetch metadata and show modal
+        if (request.tmdbId || request.imdbId) {
+            fetchRequestMetadata(request, modal);
+        }
+        
+        showRequestModal(modal);
+    }
+
+    async function fetchRequestMetadata(request, modal) {
+        try {
+            const tmdbData = await UI.getTMDBData(
+                request.tmdbId, 
+                request.imdbId, 
+                request.itemType, 
+                request.title, 
+                request.year
+            );
+
+            if (tmdbData) {
+                const displayTitle = tmdbData.title || tmdbData.name;
+                const titleEl = UI.qs('#request-modal-title', modal);
+                const overviewEl = UI.qs('#request-modal-overview', modal);
+                const imageEl = UI.qs('#request-modal-image', modal);
+                
+                if (displayTitle && titleEl) titleEl.textContent = displayTitle;
+                if (tmdbData.overview && overviewEl) overviewEl.textContent = tmdbData.overview;
+                if (tmdbData.poster_path && imageEl) {
+                    UI.setBackgroundImage(
+                        imageEl, 
+                        'https://image.tmdb.org/t/p/w500' + tmdbData.poster_path
+                    );
+                }
+
+                const { credits } = await UI.fetchTMDBCreditsAndReviews(
+                    request.itemType === 'series' ? 'tv' : 'movie', 
+                    tmdbData.id
+                );
+                
+                if (credits) {
+                    populateCredits(modal, tmdbData, credits);
+                }
+            }
+
+            hideLoading(modal);
+        } catch (err) {
+            console.error('[RequestManager] Error fetching metadata:', err);
+            hideLoading(modal);
+        }
+    }
+
+    function showRequestModal(modal) {
+        modal.classList.add('open');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function hideRequestModal() {
+        const modal = UI.qs('#request-modal-overlay');
+        if (modal) {
+            modal.classList.remove('open');
+            document.body.style.overflow = '';
+        }
+    }
+
+    function hideLoading(modal) {
+        const overlay = UI.qs('#request-modal-loading', modal);
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    function populateCredits(modal, data, credits) {
+        let html = '';
+        const genreStr = UI.formatGenres(data.genres, data.genre_ids);
+        if (genreStr) html += '<div><strong style="color:#1e90ff;">Genre:</strong> ' + genreStr + '</div>';
+        if (data.vote_average) html += '<div><strong style="color:#1e90ff;">Rating:</strong> ' + UI.formatRating(data.vote_average) + '</div>';
+        if (data.runtime) html += '<div><strong style="color:#1e90ff;">Runtime:</strong> ' + UI.formatRuntime(data.runtime) + '</div>';
+
+        if (credits.crew) {
+            const directors = credits.crew.filter(c => c.job === 'Director');
+            if (directors.length) html += '<div style="margin-top:12px;"><strong style="color:#1e90ff;">Director:</strong> ' + directors.map(d => d.name).join(', ') + '</div>';
+        }
+
+        const infoEl = UI.qs('#request-modal-info', modal);
+        if (infoEl) infoEl.innerHTML = html;
+    }
+
+    function showModal(modal) {
+        modal.classList.add('open');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function hideModal() {
+        const modal = UI.qs('#item-detail-modal-overlay');
+        if (modal) {
+            modal.classList.remove('open');
+            document.body.style.overflow = '';
+        }
+    }
+
+    function hideLoading(modal) {
+        const overlay = UI.qs('#item-detail-loading-overlay', modal);
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    function populateCredits(modal, data, credits) {
+        let html = '';
+        const genreStr = UI.formatGenres(data.genres, data.genre_ids);
+        if (genreStr) html += '<div><strong style="color:#1e90ff;">Genre:</strong> ' + genreStr + '</div>';
+        if (data.vote_average) html += '<div><strong style="color:#1e90ff;">Rating:</strong> ' + UI.formatRating(data.vote_average) + '</div>';
+        if (data.runtime) html += '<div><strong style="color:#1e90ff;">Runtime:</strong> ' + UI.formatRuntime(data.runtime) + '</div>';
+
+        if (credits.crew) {
+            const directors = credits.crew.filter(c => c.job === 'Director');
+            if (directors.length) html += '<div style="margin-top:12px;"><strong style="color:#1e90ff;">Director:</strong> ' + directors.map(d => d.name).join(', ') + '</div>';
+        }
+
+        UI.qs('#item-detail-info', modal).innerHTML = html;
+    }
+
+    function createRequestModal() {
+        // Create SEPARATE modal for requests (don't interfere with details-modal)
+        const overlay = document.createElement('div');
+        overlay.className = 'item-detail-modal-overlay';
+        overlay.id = 'request-modal-overlay';
+
+        overlay.innerHTML = `
+            <div id="request-modal-loading" style="position:absolute;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:1;">
+                <div class="mdl-spinner mdl-spinner--single-color mdl-js-spinner is-active" style="width:60px;height:60px;"></div>
+            </div>
+            <div class="item-detail-modal">
+                <div class="item-detail-backdrop" id="request-modal-image"></div>
+                <div class="item-detail-content">
+                    <div class="item-detail-header">
+                        <h2 id="request-modal-title"></h2>
+                        <p id="request-modal-meta" style="color:#888;margin:0;"></p>
+                    </div>
+                    <div class="item-detail-body">
+                        <div id="request-modal-info" style="margin-bottom:1em;line-height:1.6;"></div>
+                        <div id="request-modal-overview" style="line-height:1.6;color:#ccc;"></div>
+                    </div>
+                    <div class="item-detail-actions">
+                        <button id="request-modal-import" is="emby-button" class="raised button-submit emby-button" style="background:#4caf50;margin-right:10px;">
+                            <div class="emby-button-foreground">Import</div>
+                        </button>
+                        <button id="request-modal-open" is="emby-button" class="raised button-submit emby-button" style="background:#ff9800;margin-right:10px;">
+                            <div class="emby-button-foreground">Open in Jellyfin</div>
+                        </button>
+                        <button id="request-modal-discard" is="emby-button" class="raised button-submit emby-button" style="background:#f44336;margin-right:10px;">
+                            <div class="emby-button-foreground">Discard</div>
+                        </button>
+                        <button id="request-modal-close" is="emby-button" class="raised button-cancel emby-button">
+                            <div class="emby-button-foreground">Close</div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        // Close button handler
+        overlay.querySelector('#request-modal-close').addEventListener('click', () => {
+            overlay.classList.remove('open');
+            document.body.style.overflow = '';
+        });
+
+        // Click outside to close
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                overlay.classList.remove('open');
+                document.body.style.overflow = '';
+            }
+        });
+
+        return overlay;
+    }
+
+    async function saveRequest(item) {
+        const username = await getCurrentUsername();
+        const userId = window.ApiClient.getCurrentUserId();
+        const requestId = `${username}_${item.tmdbId || item.imdbId}_${Date.now()}`;
+        
+        const request = {
+            id: requestId,
+            username: username,
+            userId: userId,
+            timestamp: Date.now(),
+            title: item.title,
+            year: item.year,
+            img: item.img,
+            imdbId: item.imdbId,
+            tmdbId: item.tmdbId,
+            itemType: item.itemType
+        };
+
+        try {
+            const response = await window.ApiClient.ajax({
+                type: 'POST',
+                url: window.ApiClient.getUrl(API_BASE),
+                data: JSON.stringify(request),
+                contentType: 'application/json',
+                dataType: 'json'
+            });
+            
+            console.log('[RequestManager] Saved request to server:', response);
+            return response;
+        } catch (err) {
+            console.error('[RequestManager] Error saving request:', err);
+            throw err;
+        }
+    }
+
+    async function discardRequest(requestId) {
+        try {
+            await window.ApiClient.ajax({
+                type: 'DELETE',
+                url: window.ApiClient.getUrl(`${API_BASE}/${requestId}`)
+            });
+            
+            console.log('[RequestManager] Discarded request:', requestId);
+        } catch (err) {
+            console.error('[RequestManager] Error discarding request:', err);
+            throw err;
+        }
+    }
+
+    async function getRequests() {
+        try {
+            const response = await window.ApiClient.ajax({
+                type: 'GET',
+                url: window.ApiClient.getUrl(API_BASE),
+                dataType: 'json'
+            });
+            
+            return response || [];
+        } catch (err) {
+            console.error('[RequestManager] Error fetching requests:', err);
+            return [];
+        }
+    }
+
+    async function loadAndDisplayRequests() {
+        const panel = getPanel();
+        if (!panel) {
+            return;
+        }
+
+        // Prevent multiple simultaneous loads
+        if (isLoadingRequests) {
+            console.log('[RequestManager] Already loading, skipping...');
+            return;
+        }
+
+        isLoadingRequests = true;
+        console.log('[RequestManager] Panel found, loading requests from server...');
+        console.log('[RequestManager] Panel element:', panel);
+        console.log('[RequestManager] Panel visible?', panel.offsetWidth, 'x', panel.offsetHeight);
+
+        // Clear existing cards
+        panel.innerHTML = '';
+
+        const requests = await getRequests();
+        const adminView = await isAdmin();
+
+        console.log(`[RequestManager] Found ${requests.length} requests from server, adminView: ${adminView}`);
+
+        if (requests.length === 0) {
+            panel.innerHTML = '<div style="color:#888;padding:20px;text-align:center;">No requests yet</div>';
+            isLoadingRequests = false;
+            return;
+        }
+
+        for (const request of requests) {
+            const card = await createRequestCard(request, adminView);
+            panel.appendChild(card);
+            console.log('[RequestManager] Appended card for:', request.title, 'to panel');
+        }
+
+        console.log(`[RequestManager] Displayed ${requests.length} request cards`);
+        console.log('[RequestManager] Panel HTML:', panel.innerHTML.substring(0, 200));
+        isLoadingRequests = false;
+    }
+
+    // Load requests when navigating to requests tab (only once)
+    document.addEventListener('requestsTabOpened', () => {
+        console.log('[RequestManager] Requests tab opened');
+        loadAndDisplayRequests();
+    }, { once: false });
+
+    // Watch for panel appearing in DOM
+    const observer = new MutationObserver(() => {
+        const panel = getPanel();
+        if (panel && !isLoadingRequests) {
+            // Only load if panel is empty
+            if (panel.children.length === 0) {
+                loadAndDisplayRequests();
+            }
+        }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Initial load - single attempt after delay
+    setTimeout(() => {
+        const panel = getPanel();
+        if (panel) {
+            loadAndDisplayRequests();
+        }
+    }, 1000);
+    }
+    
+    // Start initialization
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
