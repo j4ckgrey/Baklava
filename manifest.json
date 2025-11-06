@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/jellyfin-plugin-baklava/main/logo.png",
     "versions": [
       {
-        "version": "0.1.0.0",
-        "changelog": "Initial release:\n- Media request system with approval workflow\n- Admin/user role-based buttons\n- Request status tracking (pending/approved)\n- Search integration with request indicators\n- Header dropdown menu with carousel\n- Library status detection\n- Local/global search toggle",
+        "version": "0.1.0.1",
+        "changelog": "Improvements and fixes:\n- Make search global by default (users can toggle to local)\n- Remove hardcoded TMDB API key - add via plugin settings\n- Comment out custom logo - use Jellyfin's default logo\n- Add ApiClient polyfills for import functionality\n- Global search now default instead of local search",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/j4ckgrey/jellyfin-plugin-baklava/releases/download/v0.1.0.0/Baklava_0.1.0.0.zip",
-        "checksum": "b0594a114fe50cda2658bcadcb839953",
-        "timestamp": "2025-11-05T22:00:00Z"
+        "sourceUrl": "https://github.com/j4ckgrey/jellyfin-plugin-baklava/releases/download/v0.1.0.1/Baklava_0.1.0.1.zip",
+        "checksum": "64142235f20d7d3c775c3b4f3aec1438",
+        "timestamp": "2025-11-06T00:00:00Z"
       }
     ]
   }

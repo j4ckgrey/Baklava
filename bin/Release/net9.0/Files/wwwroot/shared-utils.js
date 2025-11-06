@@ -123,8 +123,36 @@
     // TMDB API HELPERS
     // ============================================
 
-    const TMDB_API_KEY = '53e8a159d4635813b94f8c5876c604be';
+    // TMDB API key will be loaded from plugin configuration
+    let TMDB_API_KEY = '';
     const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+    
+    // Expose TMDB API key
+    window.MediaServerUI.tmdbApiKey = TMDB_API_KEY;
+    
+    // Load TMDB API key from plugin configuration
+    async function loadTmdbApiKey() {
+        try {
+            if (window.ApiClient) {
+                const response = await window.ApiClient.ajax({
+                    type: 'GET',
+                    url: window.ApiClient.getUrl('plugins/baklava/config')
+                });
+                TMDB_API_KEY = response.tmdbApiKey || '';
+                window.MediaServerUI.tmdbApiKey = TMDB_API_KEY;
+                console.log('[MediaServerUI] TMDB API key loaded from plugin config');
+            }
+        } catch (err) {
+            console.warn('[MediaServerUI] Could not load TMDB API key from config:', err);
+        }
+    }
+    
+    // Initialize on load
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', loadTmdbApiKey);
+    } else {
+        loadTmdbApiKey();
+    }
 
     /**
      * Genre ID to name mapping
@@ -530,6 +558,62 @@
 
         return result;
     };
+    
+    // Polyfills for missing ApiClient methods
+    if (window.ApiClient) {
+        // Add item to library via external providers
+        window.ApiClient.addItemToLibrary = async function(options) {
+            console.log('[ApiClient.polyfill] addItemToLibrary called with:', options);
+            try {
+                // Use Jellyfin's external provider search API
+                const searchType = options.type === 'series' ? 'Series' : 'Movie';
+                const query = `tmdb_id=${options.tmdbId || ''}&imdb_id=${options.imdbId || ''}`;
+                
+                // Call external provider API
+                const response = await this.ajax({
+                    type: 'POST',
+                    url: this.getUrl('Items/RemoteSearch/Provider'),
+                    data: JSON.stringify({
+                        ProviderName: 'TMDb',
+                        SearchInfo: {
+                            Name: options.title || '',
+                            ProviderIds: {
+                                Tmdb: options.tmdbId,
+                                Imdb: options.imdbId
+                            },
+                            IsMovie: options.type === 'movie',
+                            IsSeries: options.type === 'series'
+                        }
+                    }),
+                    contentType: 'application/json'
+                });
+                
+                console.log('[ApiClient.polyfill] addItemToLibrary response:', response);
+                return response;
+            } catch (err) {
+                console.error('[ApiClient.polyfill] addItemToLibrary error:', err);
+                throw err;
+            }
+        };
+        
+        // Refresh library
+        window.ApiClient.refreshLibrary = async function() {
+            console.log('[ApiClient.polyfill] refreshLibrary called');
+            try {
+                // Trigger library refresh
+                const response = await this.ajax({
+                    type: 'POST',
+                    url: this.getUrl('ScheduledTasks/Running/12')
+                });
+                
+                console.log('[ApiClient.polyfill] refreshLibrary response:', response);
+                return response;
+            } catch (err) {
+                console.error('[ApiClient.polyfill] refreshLibrary error:', err);
+                throw err;
+            }
+        };
+    }
     
     console.log('[MediaServerUI] Shared utilities loaded');
 

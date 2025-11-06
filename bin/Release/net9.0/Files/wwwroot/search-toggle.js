@@ -93,8 +93,8 @@
     // Toggle state getter/setter
     function getSearchToggleState() {
         const stored = localStorage.getItem(SEARCH_STORAGE_KEY);
-        // Default to local search (true) when no preference is stored
-        return stored === null ? true : stored === 'true';
+        // Default to global search (false) when no preference is stored
+        return stored === null ? false : stored === 'true';
     }
 
     function setSearchToggleState(state) {

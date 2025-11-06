@@ -6,7 +6,7 @@ using System.Reflection;
 [assembly: AssemblyCompany("j4ckgrey")]
 [assembly: AssemblyProduct("Baklava")]
 
-// Version 0.1.0.0
-[assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyFileVersion("0.1.0.0")]
-[assembly: AssemblyInformationalVersion("0.1.0.0")]
+// Version 0.1.0.1
+[assembly: AssemblyVersion("0.1.0.1")]
+[assembly: AssemblyFileVersion("0.1.0.1")]
+[assembly: AssemblyInformationalVersion("0.1.0.1")]

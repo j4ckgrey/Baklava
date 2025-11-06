@@ -1,0 +1,12 @@
+{
+  "guid": "109470b0-d97c-4540-89b7-856d4e5831c7",
+  "name": "Baklava",
+  "description": "Media request management system for Jellyfin with search enhancements",
+  "overview": "Allows users to request movies and TV shows, with admin approval workflow, status tracking, and enhanced search features",
+  "owner": "j4ckgrey",
+  "category": "General",
+  "version": "0.1.0.1",
+  "changelog": "Initial release with full request management and search integration",
+  "targetAbi": "10.11.0.0",
+  "timestamp": "2025-11-06T07:35:06Z"
+}

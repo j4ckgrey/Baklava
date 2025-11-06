@@ -16,6 +16,7 @@
 /mnt/d/media-server/plugin/Baklava/obj/Release/net9.0/Baklava.csproj.AssemblyReference.cache
 /mnt/d/media-server/plugin/Baklava/obj/Release/net9.0/Baklava.GeneratedMSBuildEditorConfig.editorconfig
 /mnt/d/media-server/plugin/Baklava/obj/Release/net9.0/Baklava.csproj.CoreCompileInputs.cache
+/mnt/d/media-server/plugin/Baklava/obj/Release/net9.0/Baklava.sourcelink.json
 /mnt/d/media-server/plugin/Baklava/obj/Release/net9.0/Baklava.dll
 /mnt/d/media-server/plugin/Baklava/obj/Release/net9.0/refint/Baklava.dll
 /mnt/d/media-server/plugin/Baklava/obj/Release/net9.0/Baklava.pdb

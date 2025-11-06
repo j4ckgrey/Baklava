@@ -237,10 +237,11 @@ a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root::after {
 }
 
 .pageTitleWithDefaultLogo {
+    /* Commented out custom logo - using Jellyfin's default logo
     background-image: url("https://i.postimg.cc/5tJJN4tF/film-reel-cinema-svgrepo-com.png") !important;
     background-repeat: no-repeat;
     background-size: contain;
-    background-position: left center;
+    background-position: left center; */
 }
 
 .headerTop {

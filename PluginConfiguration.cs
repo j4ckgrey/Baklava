@@ -8,5 +8,7 @@ namespace Baklava
     public class PluginConfiguration : BasePluginConfiguration
     {
         public List<MediaRequest> Requests { get; set; } = new List<MediaRequest>();
+        public string TmdbApiKey { get; set; } = string.Empty;
+        public bool GlobalSearchByDefault { get; set; } = true;
     }
 }

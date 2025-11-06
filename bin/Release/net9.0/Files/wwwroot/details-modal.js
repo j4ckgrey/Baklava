@@ -20,6 +20,12 @@
         });
     }
     
+    // Get TMDB API key from plugin configuration
+    function getTmdbApiKey() {
+        // This will be set by shared-utils.js
+        return window.MediaServerUI?.tmdbApiKey || '';
+    }
+    
     // Create the modal element
     function createModal() {
         const overlay = document.createElement('div');
@@ -254,7 +260,7 @@
             
             // If we don't have IMDB ID yet, try to fetch external IDs
             if (!imdbIdFromResponse && tmdbIdFromResponse) {
-                const externalIdsUrl = `https://api.themoviedb.org/3/${actualType === 'series' ? 'tv' : 'movie'}/${tmdbIdFromResponse}/external_ids?api_key=53e8a159d4635813b94f8c5876c604be`;
+                const externalIdsUrl = `https://api.themoviedb.org/3/${actualType === 'series' ? 'tv' : 'movie'}/${tmdbIdFromResponse}/external_ids?api_key=${getTmdbApiKey()}`;
                 const externalRes = await fetch(externalIdsUrl);
                 if (externalRes.ok) {
                     const externalData = await externalRes.json();

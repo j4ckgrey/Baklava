@@ -3,7 +3,7 @@
 
 set -e
 
-VERSION="0.1.0.0"
+VERSION="0.1.0.1"
 PLUGIN_NAME="Baklava"
 OUTPUT_DIR="release"
 
