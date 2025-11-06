@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text.RegularExpressions;
-using MyJellyfinPlugin.Model;
+using Baklava.Model;
 
 namespace Baklava
 {

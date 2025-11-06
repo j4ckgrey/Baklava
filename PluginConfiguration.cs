@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using MediaBrowser.Model.Plugins;
-using MyJellyfinPlugin.Api;
+using Baklava.Api;
 
 namespace Baklava
 {
