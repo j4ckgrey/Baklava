@@ -46,40 +46,44 @@
     <script type="text/javascript">
         console.log('[Baklava] Configuration page loaded');
         
+        let currentConfig = {};
+        
         // Load current settings
-        async function loadSettings() {
-            try {
-                const config = await ApiClient.getPluginConfiguration('baklava');
+        function loadSettings() {
+            console.log('[Baklava] Loading settings...');
+            ApiClient.getPluginConfiguration('109470b0-d97c-4540-89b7-856d4e5831c7').then(config => {
                 console.log('[Baklava] Loaded configuration:', config);
+                currentConfig = config;
                 
                 if (config.TmdbApiKey) {
                     document.getElementById('tmdbApiKey').value = config.TmdbApiKey;
                 }
                 document.getElementById('globalSearchDefault').checked = config.GlobalSearchByDefault !== false;
-            } catch (err) {
+            }).catch(err => {
                 console.error('[Baklava] Error loading settings:', err);
-            }
+            });
         }
         
-        // Save settings
-        async function saveSettings() {
-            try {
-                const config = {
-                    TmdbApiKey: document.getElementById('tmdbApiKey').value,
-                    GlobalSearchByDefault: document.getElementById('globalSearchDefault').checked
-                };
-                
-                console.log('[Baklava] Saving configuration:', config);
-                
-                await ApiClient.updatePluginConfiguration('baklava', config);
-                Dashboard.processPluginConfigurationUpdate('baklava');
-                
+        // Save settings - called by Jellyfin's save button
+        window.BaklavaPlugin = window.BaklavaPlugin || {};
+        window.BaklavaPlugin.onSave = function() {
+            console.log('[Baklava] Saving configuration...');
+            
+            const updatedConfig = Object.assign({}, currentConfig, {
+                TmdbApiKey: document.getElementById('tmdbApiKey').value,
+                GlobalSearchByDefault: document.getElementById('globalSearchDefault').checked
+            });
+            
+            console.log('[Baklava] Updated config:', updatedConfig);
+            
+            return ApiClient.updatePluginConfiguration('109470b0-d97c-4540-89b7-856d4e5831c7', updatedConfig).then(() => {
                 console.log('[Baklava] Configuration saved successfully');
-            } catch (err) {
+                Dashboard.processPluginConfigurationUpdate('109470b0-d97c-4540-89b7-856d4e5831c7');
+            }).catch(err => {
                 console.error('[Baklava] Error saving settings:', err);
                 alert('Failed to save settings: ' + err.message);
-            }
-        }
+            });
+        };
         
         // Load settings when page loads
         if (document.readyState === 'loading') {
@@ -87,13 +91,6 @@
         } else {
             loadSettings();
         }
-        
-        // Save when Save button is clicked (standard Jellyfin pattern)
-        document.addEventListener('pagebeforeshow', function (e) {
-            if (e.target.id === 'BaklavaConfigPage') {
-                loadSettings();
-            }
-        });
     </script>
 </body>
 </html>

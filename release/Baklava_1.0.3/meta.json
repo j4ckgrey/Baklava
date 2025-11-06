@@ -5,8 +5,8 @@
   "overview": "Allows users to request movies and TV shows, with admin approval workflow, status tracking, and enhanced search features",
   "owner": "j4ckgrey",
   "category": "General",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "changelog": "Initial release with full request management and search integration",
   "targetAbi": "10.11.0.0",
-  "timestamp": "2025-11-06T07:52:47Z"
+  "timestamp": "2025-11-06T07:59:23Z"
 }

@@ -9,11 +9,11 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/jellyfin-plugin-baklava/main/logo.png",
     "versions": [
       {
-        "version": "1.0.2",
-        "changelog": "Settings page added:\n- TMDB API Key configuration field\n- Global search default toggle\n- Improved plugin UI\n- Fixed import functionality\n- Previous: Global search by default, removed hardcoded TMDB API key",
+        "version": "1.0.3",
+        "changelog": "Critical fixes:\n- Fixed settings page save button (now properly hooks into Jellyfin's save flow)\n- Fixed modal loading when TMDB API key is not configured\n- Improved error handling and logging for missing API key\n- API key endpoint fix for proper configuration loading",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/j4ckgrey/jellyfin-plugin-baklava/releases/download/v1.0.2/Baklava_1.0.2.zip",
-        "checksum": "81bfc697708dd5f2567c3285f7b50b73",
+        "sourceUrl": "https://github.com/j4ckgrey/jellyfin-plugin-baklava/releases/download/v1.0.3/Baklava_1.0.3.zip",
+        "checksum": "e602686f1834ca19fffebee585414568",
         "timestamp": "2025-11-06T00:00:00Z"
       }
     ]

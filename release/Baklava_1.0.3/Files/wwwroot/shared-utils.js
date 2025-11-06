@@ -136,11 +136,15 @@
             if (window.ApiClient) {
                 const response = await window.ApiClient.ajax({
                     type: 'GET',
-                    url: window.ApiClient.getUrl('plugins/baklava/config')
+                    url: window.ApiClient.getUrl('Plugins/Baklava/Configuration')
                 });
-                TMDB_API_KEY = response.tmdbApiKey || '';
-                window.MediaServerUI.tmdbApiKey = TMDB_API_KEY;
-                console.log('[MediaServerUI] TMDB API key loaded from plugin config');
+                if (response && response.TmdbApiKey) {
+                    TMDB_API_KEY = response.TmdbApiKey;
+                    window.MediaServerUI.tmdbApiKey = TMDB_API_KEY;
+                    console.log('[MediaServerUI] TMDB API key loaded from plugin config:', TMDB_API_KEY ? '✓ Set' : '✗ Empty');
+                } else {
+                    console.warn('[MediaServerUI] No TMDB API key configured. Please set it in plugin settings.');
+                }
             }
         } catch (err) {
             console.warn('[MediaServerUI] Could not load TMDB API key from config:', err);
@@ -247,6 +251,12 @@
      * Get TMDB data by various identifiers
      */
     window.MediaServerUI.getTMDBData = async function(tmdbId, imdbId, itemType, title, year) {
+        // Check if API key is set
+        if (!TMDB_API_KEY) {
+            console.warn('[getTMDBData] TMDB API key not configured. Please set it in Baklava plugin settings.');
+            return null;
+        }
+        
         const mediaType = itemType === 'series' ? 'tv' : 'movie';
         let data = null;
 
