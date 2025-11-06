@@ -11,6 +11,22 @@
                 <h2>Baklava - Media Request Manager</h2>
                 <p>A comprehensive media request management system for Jellyfin.</p>
                 
+                <h3>Configuration</h3>
+                <div style="margin: 20px 0;">
+                    <div class="inputContainer">
+                        <label for="tmdbApiKey">TMDB API Key:</label>
+                        <input type="password" id="tmdbApiKey" placeholder="Enter your TMDB API key" style="width: 100%; padding: 8px; margin: 8px 0;">
+                        <p style="font-size: 12px; color: #aaa;">Get your free API key from <a href="https://www.themoviedb.org/settings/api" target="_blank">The Movie Database (TMDB)</a>. This is required for fetching movie and TV show metadata.</p>
+                    </div>
+                    <div class="inputContainer" style="margin-top: 15px;">
+                        <label for="globalSearchDefault">
+                            <input type="checkbox" id="globalSearchDefault">
+                            Global Search by Default
+                        </label>
+                        <p style="font-size: 12px; color: #aaa;">When enabled, search will default to global search. Users can toggle to local search using the globe icon.</p>
+                    </div>
+                </div>
+                
                 <h3>Features</h3>
                 <ul>
                     <li><strong>Request System:</strong> Users can request movies and TV shows from search results</li>
@@ -23,14 +39,61 @@
                 
                 <h3>Usage</h3>
                 <p>Search for a movie or TV show, open the details modal, and click the "Request" button. Administrators will see pending requests in the requests menu (list icon in header) and can approve or remove them.</p>
-                
-                <p><em>Note: All features are automatically injected into the Jellyfin web UI. No additional configuration required.</em></p>
             </div>
         </div>
     </div>
 
     <script type="text/javascript">
         console.log('[Baklava] Configuration page loaded');
+        
+        // Load current settings
+        async function loadSettings() {
+            try {
+                const config = await ApiClient.getPluginConfiguration('baklava');
+                console.log('[Baklava] Loaded configuration:', config);
+                
+                if (config.TmdbApiKey) {
+                    document.getElementById('tmdbApiKey').value = config.TmdbApiKey;
+                }
+                document.getElementById('globalSearchDefault').checked = config.GlobalSearchByDefault !== false;
+            } catch (err) {
+                console.error('[Baklava] Error loading settings:', err);
+            }
+        }
+        
+        // Save settings
+        async function saveSettings() {
+            try {
+                const config = {
+                    TmdbApiKey: document.getElementById('tmdbApiKey').value,
+                    GlobalSearchByDefault: document.getElementById('globalSearchDefault').checked
+                };
+                
+                console.log('[Baklava] Saving configuration:', config);
+                
+                await ApiClient.updatePluginConfiguration('baklava', config);
+                Dashboard.processPluginConfigurationUpdate('baklava');
+                
+                console.log('[Baklava] Configuration saved successfully');
+            } catch (err) {
+                console.error('[Baklava] Error saving settings:', err);
+                alert('Failed to save settings: ' + err.message);
+            }
+        }
+        
+        // Load settings when page loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadSettings);
+        } else {
+            loadSettings();
+        }
+        
+        // Save when Save button is clicked (standard Jellyfin pattern)
+        document.addEventListener('pagebeforeshow', function (e) {
+            if (e.target.id === 'BaklavaConfigPage') {
+                loadSettings();
+            }
+        });
     </script>
 </body>
 </html>
