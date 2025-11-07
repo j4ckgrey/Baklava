@@ -302,42 +302,9 @@ namespace Baklava.Api
         }
 
         /// <summary>
-        /// Get display name for a language code
-        /// </summary>
-        [HttpGet("language/{code}")]
-        public string GetLanguageDisplayName(string code)
-        {
-            if (string.IsNullOrEmpty(code)) return "Unknown";
-            try
-            {
-                var culture = System.Globalization.CultureInfo.GetCultureInfo(code);
-                return culture.DisplayName;
-            }
-            catch
-            {
-                // Fallback to common mappings
-                var common = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    {"en", "English"},
-                    {"es", "Spanish"},
-                    {"fr", "French"},
-                    {"de", "German"},
-                    {"it", "Italian"},
-                    {"pt", "Portuguese"},
-                    {"ru", "Russian"},
-                    {"ja", "Japanese"},
-                    {"ko", "Korean"},
-                    {"zh", "Chinese"},
-                    {"ar", "Arabic"},
-                    {"hi", "Hindi"},
-                    // Add more as needed
-                };
-                return common.TryGetValue(code, out var name) ? name : code;
-            }
-        }
-
-        /// <summary>
         /// Get media streams (audio/subtitle tracks) for an item
+        /// This proxies Jellyfin's PlaybackInfo endpoint with optimizations
+        /// </summary>
         [HttpGet("streams")]
         public async Task<ActionResult> GetMediaStreams(
             [FromQuery] string itemId,
@@ -416,7 +383,7 @@ namespace Baklava.Api
                         audioDtos.AddRange(probe.Audio.Select(a => new AudioStreamDto
                         {
                             Index = a.Index,
-                            Title = a.Title ?? ($"Audio {a.Index}"),
+                            Title = BuildDescriptiveAudioTitle(a),
                             Language = a.Language,
                             Codec = a.Codec,
                             Channels = a.Channels,
@@ -426,7 +393,7 @@ namespace Baklava.Api
                         subtitleDtos.AddRange(probe.Subtitles.Select(s => new SubtitleStreamDto
                         {
                             Index = s.Index,
-                            Title = s.Title ?? ($"Subtitle {s.Index}"),
+                            Title = BuildDescriptiveSubtitleTitle(s),
                             Language = s.Language,
                             Codec = s.Codec,
                             IsForced = s.IsForced,
@@ -447,7 +414,6 @@ namespace Baklava.Api
                     index = a.Index,
                     title = a.Title,
                     language = a.Language,
-                    displayLanguage = GetLanguageDisplayName(a.Language),
                     codec = a.Codec,
                     channels = a.Channels,
                     bitrate = a.Bitrate.HasValue ? (int?)(a.Bitrate.Value > int.MaxValue ? int.MaxValue : (int)a.Bitrate.Value) : null
@@ -457,7 +423,6 @@ namespace Baklava.Api
                     index = s.Index,
                     title = s.Title,
                     language = s.Language,
-                    displayLanguage = GetLanguageDisplayName(s.Language),
                     codec = s.Codec,
                     isForced = s.IsForced,
                     isDefault = s.IsDefault
@@ -468,19 +433,189 @@ namespace Baklava.Api
 
         private string BuildStreamTitle(MediaBrowser.Model.Entities.MediaStream stream)
         {
-            var title = stream.DisplayTitle ?? stream.Title ?? $"{stream.Type} {stream.Index}";
+            // If we have a meaningful title, use it with language/codec info
+            var baseTitle = stream.DisplayTitle ?? stream.Title;
+            if (!string.IsNullOrEmpty(baseTitle) && baseTitle != $"{stream.Type} {stream.Index}")
+            {
+                var title = baseTitle;
+                
+                if (!string.IsNullOrEmpty(stream.Language))
+                {
+                    title += $" ({GetLanguageName(stream.Language)})";
+                }
+                
+                if (!string.IsNullOrEmpty(stream.Codec))
+                {
+                    title += $" [{stream.Codec.ToUpperInvariant()}]";
+                }
+                
+                return title;
+            }
+            
+            // Build descriptive title for streams without good titles (common for remote streams)
+            var parts = new List<string>();
             
             if (!string.IsNullOrEmpty(stream.Language))
             {
-                title += $" ({stream.Language})";
+                parts.Add(GetLanguageName(stream.Language));
             }
             
-            if (!string.IsNullOrEmpty(stream.Codec))
+            if (stream.Type == MediaBrowser.Model.Entities.MediaStreamType.Audio)
             {
-                title += $" [{stream.Codec.ToUpperInvariant()}]";
+                if (!string.IsNullOrEmpty(stream.Codec))
+                {
+                    parts.Add(stream.Codec.ToUpperInvariant());
+                }
+                
+                if (stream.Channels.HasValue)
+                {
+                    parts.Add(GetChannelLayout(stream.Channels.Value));
+                }
+            }
+            else if (stream.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle)
+            {
+                if (!string.IsNullOrEmpty(stream.Codec))
+                {
+                    parts.Add(stream.Codec.ToUpperInvariant());
+                }
+                
+                var flags = new List<string>();
+                if (stream.IsForced) flags.Add("Forced");
+                if (stream.IsDefault) flags.Add("Default");
+                if (flags.Any())
+                {
+                    parts.Add($"[{string.Join(", ", flags)}]");
+                }
             }
             
-            return title;
+            // Fallback to type and index if no info
+            if (!parts.Any())
+            {
+                parts.Add($"{stream.Type} {stream.Index}");
+            }
+            
+            return string.Join(" ", parts);
+        }
+
+        private static readonly Dictionary<string, string> LanguageMap = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["eng"] = "English", ["spa"] = "Spanish", ["fre"] = "French", ["ger"] = "German",
+            ["ita"] = "Italian", ["por"] = "Portuguese", ["rus"] = "Russian", ["jpn"] = "Japanese",
+            ["chi"] = "Chinese", ["kor"] = "Korean", ["ara"] = "Arabic", ["hin"] = "Hindi",
+            ["tur"] = "Turkish", ["pol"] = "Polish", ["dut"] = "Dutch", ["swe"] = "Swedish",
+            ["dan"] = "Danish", ["nor"] = "Norwegian", ["fin"] = "Finnish", ["cze"] = "Czech",
+            ["hun"] = "Hungarian", ["rum"] = "Romanian", ["bul"] = "Bulgarian", ["gre"] = "Greek",
+            ["heb"] = "Hebrew", ["tha"] = "Thai", ["vie"] = "Vietnamese", ["ind"] = "Indonesian",
+            ["mal"] = "Malay", ["tam"] = "Tamil", ["tel"] = "Telugu", ["kan"] = "Kannada",
+            ["mar"] = "Marathi", ["ben"] = "Bengali", ["urd"] = "Urdu", ["fas"] = "Persian"
+        };
+
+        private string GetLanguageName(string languageCode)
+        {
+            if (string.IsNullOrEmpty(languageCode)) return languageCode;
+            
+            // Try 3-letter codes first
+            if (LanguageMap.TryGetValue(languageCode, out var name))
+            {
+                return name;
+            }
+            
+            // Try 2-letter codes by converting to 3-letter
+            try
+            {
+                var culture = new System.Globalization.CultureInfo(languageCode);
+                return culture.DisplayName;
+            }
+            catch
+            {
+                // Return original code if can't map
+                return languageCode;
+            }
+        }
+
+        private string BuildDescriptiveAudioTitle(FfprobeAudio audio)
+        {
+            if (!string.IsNullOrEmpty(audio.Title))
+            {
+                var title = audio.Title;
+                if (!string.IsNullOrEmpty(audio.Language))
+                {
+                    title += $" ({GetLanguageName(audio.Language)})";
+                }
+                if (!string.IsNullOrEmpty(audio.Codec))
+                {
+                    title += $" [{audio.Codec.ToUpperInvariant()}]";
+                }
+                return title;
+            }
+
+            var parts = new List<string>();
+            if (!string.IsNullOrEmpty(audio.Language))
+            {
+                parts.Add(GetLanguageName(audio.Language));
+            }
+            if (!string.IsNullOrEmpty(audio.Codec))
+            {
+                parts.Add(audio.Codec.ToUpperInvariant());
+            }
+            if (audio.Channels.HasValue)
+            {
+                parts.Add(GetChannelLayout(audio.Channels.Value));
+            }
+            return parts.Any() ? string.Join(" ", parts) : $"Audio {audio.Index}";
+        }
+
+        private string BuildDescriptiveSubtitleTitle(FfprobeSubtitle subtitle)
+        {
+            if (!string.IsNullOrEmpty(subtitle.Title))
+            {
+                var title = subtitle.Title;
+                if (!string.IsNullOrEmpty(subtitle.Language))
+                {
+                    title += $" ({GetLanguageName(subtitle.Language)})";
+                }
+                if (!string.IsNullOrEmpty(subtitle.Codec))
+                {
+                    title += $" [{subtitle.Codec.ToUpperInvariant()}]";
+                }
+                return title;
+            }
+
+            var parts = new List<string>();
+            if (!string.IsNullOrEmpty(subtitle.Language))
+            {
+                parts.Add(GetLanguageName(subtitle.Language));
+            }
+            if (!string.IsNullOrEmpty(subtitle.Codec))
+            {
+                parts.Add(subtitle.Codec.ToUpperInvariant());
+            }
+            var flags = new List<string>();
+            if (subtitle.IsForced) flags.Add("Forced");
+            if (subtitle.IsDefault) flags.Add("Default");
+            if (flags.Any())
+            {
+                parts.Add($"[{string.Join(", ", flags)}]");
+            }
+            return parts.Any() ? string.Join(" ", parts) : $"Subtitle {subtitle.Index}";
+        }
+
+        private string GetChannelLayout(int channels)
+        {
+            return channels switch
+            {
+                1 => "Mono",
+                2 => "Stereo",
+                3 => "2.1",
+                4 => "Quad",
+                5 => "4.1",
+                6 => "5.1",
+                7 => "6.1",
+                8 => "7.1",
+                9 => "7.1.2",
+                10 => "7.1.4",
+                _ => $"{channels}ch"
+            };
         }
 
         #region Private Helpers
