@@ -12,9 +12,9 @@
         "changelog": "UI improvements: removed custom logo overrides, removed carousel arrows and card padding in details modal. Added C# language parsing for audio/subtitle tracks.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://raw.githubusercontent.com/j4ckgrey/jellyfin-plugin-baklava/main/Baklava_0.1.4.zip",
-        "checksum": "cbd6545d4f9f61939137725bee4df398",
+        "checksum": "fa504439d89548832679d77f294dc8ee",
         "checksumType": "md5",
-        "timestamp": "2025-11-07T22:26:36Z"
+        "timestamp": "2025-11-07T22:38:11Z"
       }
     ]
   }
