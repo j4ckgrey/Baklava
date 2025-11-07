@@ -13,10 +13,8 @@ namespace Baklava
     // pattern and callback to execute.
     internal static class TransformationRegistrar
     {
-    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);
-    // Increase attempts to allow the FileTransformation plugin more time to initialize
-    // before we attempt to invoke its registration method.
-    private const int MaxAttempts = 60;
+        private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);
+        private const int MaxAttempts = 10;
 
         public static void Register()
         {
@@ -251,56 +249,13 @@ namespace Baklava
 
             PluginLogger.Log($"Found registration method '{usedName}' on {t.FullName}. Preparing payload...");
 
-            // Before invoking, check whether the FileTransformation plugin has finished
-            // initializing its static service provider / file provider fields. If these
-            // are null, invoking RegisterTransformation can throw NullReferenceException
-            // in some versions. Try to detect readiness and retry if not ready.
-            try
-            {
-                var svcProp = t.GetProperty("ServiceProvider", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                if (svcProp != null)
-                {
-                    var svcVal = svcProp.GetValue(null);
-                    if (svcVal == null)
-                    {
-                        PluginLogger.Log("FileTransformation appears not ready: ServiceProvider is null; will retry later.");
-                        return false;
-                    }
-                }
-                else
-                {
-                    var svcField = t.GetField("serviceProvider", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-                    if (svcField != null)
-                    {
-                        var svcVal = svcField.GetValue(null);
-                        if (svcVal == null)
-                        {
-                            PluginLogger.Log("FileTransformation appears not ready: serviceProvider field is null; will retry later.");
-                            return false;
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                PluginLogger.Log("Readiness check for FileTransformation failed: " + ex);
-                // Do not block registration permanently; we'll still attempt invocation below
-            }
-
             // Build payload describing the transformation as a Dictionary first
-            // Build a defensive payload: some versions of FileTransformation expect
-            // string IDs and/or the short assembly name. Include multiple key names
-            // to improve compatibility across plugin versions.
-            var executingAsm = Assembly.GetExecutingAssembly();
             var payloadDict = new Dictionary<string, object>
             {
-                ["id"] = Guid.NewGuid().ToString(),
+                ["id"] = Guid.NewGuid(),
                 // Use a simple filename match that other plugins use (index.html)
                 ["fileNamePattern"] = "index.html",
-                ["pattern"] = "index.html",
-                ["callbackAssembly"] = executingAsm.GetName().Name,
-                ["callbackAssemblyFullName"] = executingAsm.FullName,
-                ["callbackAssemblyName"] = executingAsm.GetName().Name,
+                ["callbackAssembly"] = Assembly.GetExecutingAssembly().FullName,
                 ["callbackClass"] = typeof(FileTransformations).FullName,
                 ["callbackMethod"] = nameof(FileTransformations.Transform)
             };

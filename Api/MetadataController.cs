@@ -302,9 +302,42 @@ namespace Baklava.Api
         }
 
         /// <summary>
-        /// Get media streams (audio/subtitle tracks) for an item
-        /// This proxies Jellyfin's PlaybackInfo endpoint with optimizations
+        /// Get display name for a language code
         /// </summary>
+        [HttpGet("language/{code}")]
+        public string GetLanguageDisplayName(string code)
+        {
+            if (string.IsNullOrEmpty(code)) return "Unknown";
+            try
+            {
+                var culture = System.Globalization.CultureInfo.GetCultureInfo(code);
+                return culture.DisplayName;
+            }
+            catch
+            {
+                // Fallback to common mappings
+                var common = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    {"en", "English"},
+                    {"es", "Spanish"},
+                    {"fr", "French"},
+                    {"de", "German"},
+                    {"it", "Italian"},
+                    {"pt", "Portuguese"},
+                    {"ru", "Russian"},
+                    {"ja", "Japanese"},
+                    {"ko", "Korean"},
+                    {"zh", "Chinese"},
+                    {"ar", "Arabic"},
+                    {"hi", "Hindi"},
+                    // Add more as needed
+                };
+                return common.TryGetValue(code, out var name) ? name : code;
+            }
+        }
+
+        /// <summary>
+        /// Get media streams (audio/subtitle tracks) for an item
         [HttpGet("streams")]
         public async Task<ActionResult> GetMediaStreams(
             [FromQuery] string itemId,
@@ -414,6 +447,7 @@ namespace Baklava.Api
                     index = a.Index,
                     title = a.Title,
                     language = a.Language,
+                    displayLanguage = GetLanguageDisplayName(a.Language),
                     codec = a.Codec,
                     channels = a.Channels,
                     bitrate = a.Bitrate.HasValue ? (int?)(a.Bitrate.Value > int.MaxValue ? int.MaxValue : (int)a.Bitrate.Value) : null
@@ -423,6 +457,7 @@ namespace Baklava.Api
                     index = s.Index,
                     title = s.Title,
                     language = s.Language,
+                    displayLanguage = GetLanguageDisplayName(s.Language),
                     codec = s.Codec,
                     isForced = s.IsForced,
                     isDefault = s.IsDefault

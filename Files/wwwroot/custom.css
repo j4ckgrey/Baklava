@@ -317,7 +317,7 @@ a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root {
 /* Review carousel styling */
 .item-detail-modal .reviews-carousel {
     display: flex !important;
-    gap: 15px !important;
+    gap: 10px !important;
     flex-wrap: nowrap !important;
     scroll-behavior: smooth !important;
     transition: transform 0.3s ease !important;
@@ -325,9 +325,9 @@ a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root {
 .item-detail-modal .review-card {
     background: #1a1a1a !important;
     border-radius: 8px !important;
-    min-width: 300px !important;
-    max-width: 300px !important;
-    width: 300px !important;
+    min-width: 250px !important;
+    max-width: 250px !important;
+    width: 250px !important;
     flex-shrink: 0 !important;
     box-sizing: border-box !important;
     display: flex !important;
@@ -341,7 +341,7 @@ a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root {
 /* Carousel wrapper container */
 .item-detail-modal .reviews-carousel-wrapper {
     position: relative !important;
-    margin-top: 10px !important;
+    margin-top: 5px !important;
     overflow: hidden !important;
     border-radius: 8px !important;
 }
@@ -419,9 +419,9 @@ a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root {
     }
     /* Smaller review cards on narrow viewports */
     .item-detail-modal .review-card {
-        min-width: 250px !important;
-        max-width: 250px !important;
-        width: 250px !important;
+        min-width: 200px !important;
+        max-width: 200px !important;
+        width: 200px !important;
     }
 }
 
@@ -446,9 +446,9 @@ a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root {
     }
     /* Smaller review cards on medium screens */
     .item-detail-modal .review-card {
-        min-width: 280px !important;
-        max-width: 280px !important;
-        width: 280px !important;
+        min-width: 220px !important;
+        max-width: 220px !important;
+        width: 220px !important;
     }
 }
 }

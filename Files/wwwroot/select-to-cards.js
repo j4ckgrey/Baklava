@@ -72,7 +72,7 @@
                             Index: a.index,
                             DisplayTitle: a.title,
                             Title: a.title,
-                            Language: a.language,
+                            Language: a.displayLanguage || a.language,
                             Codec: a.codec,
                             Channels: a.channels,
                             BitRate: a.bitrate
@@ -82,7 +82,7 @@
                             Index: s.index,
                             DisplayTitle: s.title,
                             Title: s.title,
-                            Language: s.language,
+                            Language: s.displayLanguage || s.language,
                             Codec: s.codec,
                             IsForced: s.isForced,
                             IsDefault: s.isDefault
@@ -194,22 +194,7 @@
             }
             .emby-select-cards::-webkit-scrollbar { display: none !important; }
             
-            .emby-select-wrapper { position: relative !important; padding: 0 45px !important; }
-            
-            .emby-select-arrow {
-                position: absolute !important; top: 50% !important; transform: translateY(-50%) !important;
-                width: 50px !important; height: 50px !important; background: rgba(30,144,255,0.85) !important;
-                border: none !important; border-radius: 50% !important;
-                color: #fff !important; font-size: 28px !important; font-weight: bold !important; cursor: pointer !important;
-                transition: all 0.2s ease !important; z-index: 10 !important; display: flex !important;
-                align-items: center !important; justify-content: center !important;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
-            }
-            .emby-select-arrow:hover { background: rgba(30,144,255,1) !important; transform: translateY(-50%) scale(1.15) !important; box-shadow: 0 6px 16px rgba(0,0,0,0.5) !important; }
-            .emby-select-arrow:active { transform: translateY(-50%) scale(1.0) !important; }
-            .emby-select-arrow.left { left: -15px !important; }
-            .emby-select-arrow.right { right: -15px !important; }
-            .emby-select-arrow:disabled { opacity: 0.3 !important; cursor: not-allowed !important; }
+            .emby-select-wrapper { position: relative !important; padding: 0 !important; }
             
             .carousel-label {
                 font-size: 1.1em !important; font-weight: 500 !important; color: rgba(255,255,255,0.9) !important;
@@ -415,7 +400,7 @@
         }
 
         setTimeout(() => {
-            createArrows(container);
+            // createArrows(container); // Removed arrows
             createPagination(container);
             const selectedCard = container.querySelector('.emby-select-card.selected');
             if (selectedCard && select.classList.contains('selectSource')) {
