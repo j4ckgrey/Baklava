@@ -17,15 +17,15 @@ namespace Baklava.Services
         {
             await Task.Run(() =>
             {
-                try
-                {
-                    PluginLogger.Log("StartupService: Executing, will register transformations");
-                    TransformationRegistrar.Register();
-                }
-                catch (Exception ex)
-                {
-                    PluginLogger.Log($"StartupService error: {ex.Message}");
-                }
+                // try
+                // {
+                //     PluginLogger.Log("StartupService: Executing, will register transformations");
+                //     TransformationRegistrar.Register();
+                // }
+                // catch (Exception ex)
+                // {
+                //     PluginLogger.Log($"StartupService error: {ex.Message}");
+                // }
             }, cancellationToken);
         }
 
