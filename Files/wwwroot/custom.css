@@ -222,25 +222,16 @@
 }
 
 a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root {
+    /* keep default Jellyfin icon container layout; do not override the icon */
     position: relative;
 }
 
-a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root img[src*="icon-transparent.baba78f2a106d9baee83.png"] {
-    visibility: hidden;
-}
-
-a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: url("https://i.postimg.cc/5tJJN4tF/film-reel-cinema-svgrepo-com.png") center/contain no-repeat;
-}
+/* Removed custom replacement of the home icon so Jellyfin's default icon is used */
+/* Earlier rules hid the built-in icon and added a ::after background image; those are removed */
 
 .pageTitleWithDefaultLogo {
-    background-image: url("https://i.postimg.cc/5tJJN4tF/film-reel-cinema-svgrepo-com.png") !important;
-    background-repeat: no-repeat;
-    background-size: contain;
-    background-position: left center;
+    /* Ensure we do not override the stock Jellyfin logo */
+    background-image: none !important;
 }
 
 .headerTop {
@@ -248,16 +239,11 @@ a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root::after {
 }
 
 .je-loader-content h1 img {
-    display: none;
+    /* Ensure the default loader image is visible */
+    display: inline-block !important;
 }
 
-.je-loader-content h1::before {
-    content: "";
-    display: block;
-    width: 200px;
-    height: 200px;
-    background: url("https://i.postimg.cc/5tJJN4tF/film-reel-cinema-svgrepo-com.png") no-repeat center/contain;
-}
+/* Removed ::before pseudo-element that injected a custom image into the loader */
 
 /* Modal for item details (opened when clicking a title) */
 .item-detail-modal-overlay {

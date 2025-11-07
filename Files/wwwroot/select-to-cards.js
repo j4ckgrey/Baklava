@@ -573,6 +573,8 @@
     function initSelects() {
         const form = document.querySelector('form.trackSelections');
         if (!form || form._selectToCardsInitialized) return;
+        // Ensure plugin styles are injected before manipulating the DOM
+        try { ensureStyle(); } catch (e) { console.warn('[SelectToCards] ensureStyle failed', e); }
         
         form._selectToCardsInitialized = true;
         console.log('[SelectToCards] Initializing track selections form');
@@ -727,6 +729,8 @@
     
     // Check if form already exists
     if (document.querySelector('form.trackSelections')) {
+        // Ensure styles are present before initializing an existing form
+        try { ensureStyle(); } catch (e) { console.warn('[SelectToCards] ensureStyle failed', e); }
         initSelects();
     }
 
