@@ -223,6 +223,21 @@
             .emby-select-pagination-dot:hover { background: rgba(255,255,255,0.5) !important; transform: scale(1.2) !important; }
             .emby-select-pagination-dot.active { background: #00a4dc !important; width: 24px !important; border-radius: 4px !important; }
             
+            .emby-select-arrow {
+                position: absolute !important; top: 50% !important; transform: translateY(-50%) !important;
+                width: 40px !important; height: 40px !important; border-radius: 50% !important;
+                background: rgba(128, 128, 128, 0.7) !important; border: none !important;
+                color: #fff !important; font-size: 20px !important; font-weight: bold !important;
+                cursor: pointer !important; z-index: 10 !important; transition: all 0.2s ease !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                opacity: 0 !important; pointer-events: none !important;
+            }
+            .emby-select-arrow.left { left: -20px !important; }
+            .emby-select-arrow.right { right: -20px !important; }
+            .emby-select-wrapper:hover .emby-select-arrow { opacity: 1 !important; pointer-events: auto !important; }
+            .emby-select-arrow:hover { background: rgba(128, 128, 128, 0.9) !important; transform: translateY(-50%) scale(1.1) !important; }
+            .emby-select-arrow:disabled { opacity: 0.3 !important; cursor: not-allowed !important; }
+            
             .formatter-display { 
                 margin-bottom: 16px !important; padding: 12px 16px !important; 
                 background: rgba(255,255,255,0.1) !important; border: 1px solid rgba(255,255,255,0.2) !important; 
@@ -400,7 +415,7 @@
         }
 
         setTimeout(() => {
-            // createArrows(container); // Removed arrows
+            createArrows(container);
             createPagination(container);
             const selectedCard = container.querySelector('.emby-select-card.selected');
             if (selectedCard && select.classList.contains('selectSource')) {

@@ -742,7 +742,7 @@
     function populateReviews(modal, reviews) {
         if (!reviews.length) return;
         const reviewsDiv = qs('#item-detail-reviews', modal);
-        let html = '<strong style="color:#1e90ff;">Reviews:</strong><div class="reviews-carousel-wrapper" style="position:relative;margin-top:10px;padding:0 50px;"><button class="carousel-prev" style="position:absolute;left:0;top:50%;z-index:10;background:rgba(30,144,255,0.8);border:none;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;transform:translateY(-50%);">‹</button><button class="carousel-next" style="position:absolute;right:0;top:50%;z-index:10;background:rgba(30,144,255,0.8);border:none;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;transform:translateY(-50%);">›</button><div class="reviews-carousel" style="display:flex;gap:15px;transition:transform 0.3s ease;">';
+        let html = '<strong style="color:#1e90ff;">Reviews:</strong><div class="reviews-carousel-wrapper" style="position:relative;margin-top:10px;padding:0 50px;"><button class="carousel-prev" style="position:absolute;left:0;top:50%;z-index:10;background:rgba(128,128,128,0.7);border:none;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;transform:translateY(-50%);transition:all 0.2s ease;opacity:0;pointer-events:none;">‹</button><button class="carousel-next" style="position:absolute;right:0;top:50%;z-index:10;background:rgba(128,128,128,0.7);border:none;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;transform:translateY(-50%);transition:all 0.2s ease;opacity:0;pointer-events:none;">›</button><div class="reviews-carousel" style="display:flex;gap:15px;transition:transform 0.3s ease;">';
 
         reviews.forEach(review => {
             const author = review.author || 'Anonymous';
@@ -758,6 +758,36 @@
         const carousel = qs('.reviews-carousel', reviewsDiv);
         const prevBtn = qs('.carousel-prev', reviewsDiv);
         const nextBtn = qs('.carousel-next', reviewsDiv);
+        const wrapper = qs('.reviews-carousel-wrapper', reviewsDiv);
+        
+        // Add hover effects for arrows
+        const showArrows = () => {
+            prevBtn.style.opacity = '1';
+            prevBtn.style.pointerEvents = 'auto';
+            nextBtn.style.opacity = '1';
+            nextBtn.style.pointerEvents = 'auto';
+        };
+        const hideArrows = () => {
+            prevBtn.style.opacity = '0';
+            prevBtn.style.pointerEvents = 'none';
+            nextBtn.style.opacity = '0';
+            nextBtn.style.pointerEvents = 'none';
+        };
+        
+        wrapper.addEventListener('mouseenter', showArrows);
+        wrapper.addEventListener('mouseleave', hideArrows);
+        
+        // Add hover effects for individual arrows
+        [prevBtn, nextBtn].forEach(btn => {
+            btn.addEventListener('mouseenter', () => {
+                btn.style.background = 'rgba(128,128,128,0.9)';
+                btn.style.transform = 'translateY(-50%) scale(1.1)';
+            });
+            btn.addEventListener('mouseleave', () => {
+                btn.style.background = 'rgba(128,128,128,0.7)';
+                btn.style.transform = 'translateY(-50%)';
+            });
+        });
         let idx = 0;
 
         for (let i = 0; i < reviews.length; i++) {
