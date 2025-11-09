@@ -169,15 +169,6 @@
                 margin: 8px 0;
             }
             
-            /* Carousel label */
-            .stc-label {
-                font-size: 1.1em;
-                font-weight: 500;
-                color: rgba(255,255,255,0.9);
-                margin-bottom: 12px;
-                text-align: center;
-            }
-            
             /* Cards container */
             .stc-cards {
                 display: flex;
@@ -187,6 +178,7 @@
                 padding: 8px 48px;
                 scrollbar-width: none;
                 -ms-overflow-style: none;
+                position: relative;
             }
             .stc-cards::-webkit-scrollbar { display: none; }
             
@@ -280,8 +272,8 @@
                 cursor: default;
             }
             
-            .stc-arrow.stc-arrow-left { left: 0; }
-            .stc-arrow.stc-arrow-right { right: 0; }
+            .stc-arrow.stc-arrow-left { left: 48px; }
+            .stc-arrow.stc-arrow-right { right: 48px; }
             
             /* Loading state */
             .stc-loading {
@@ -301,18 +293,6 @@
                 text-align: center;
                 color: rgba(255,255,255,0.8);
                 font-size: 14px;
-            }
-            
-            /* Filename display */
-            .stc-filename {
-                margin-top: 8px;
-                padding: 8px 12px;
-                background: rgba(0,0,0,0.3);
-                border-radius: 4px;
-                color: rgba(255,255,255,0.6);
-                font-size: 12px;
-                text-align: center;
-                font-family: monospace;
             }
             
             /* Separator line after carousels */
@@ -379,7 +359,7 @@
         return card;
     }
 
-    function createArrows(wrapper, cardsContainer) {
+    function createArrows(cardsContainer) {
         const leftArrow = document.createElement('button');
         leftArrow.className = 'stc-arrow stc-arrow-left';
         leftArrow.innerHTML = '‹';
@@ -407,8 +387,8 @@
         
         cardsContainer.addEventListener('scroll', debounce(updateArrows, 100));
         
-        wrapper.appendChild(leftArrow);
-        wrapper.appendChild(rightArrow);
+        cardsContainer.appendChild(leftArrow);
+        cardsContainer.appendChild(rightArrow);
         
         setTimeout(updateArrows, 100);
     }
@@ -431,15 +411,6 @@
             wrapper.querySelectorAll('.stc-card').forEach(card => {
                 card.classList.toggle('stc-selected', card.dataset.value === value);
             });
-            
-            // Update filename display if version select
-            if (type === 'version') {
-                const selectedOption = Array.from(select.options).find(opt => opt.value === value);
-                const filenameDiv = wrapper.querySelector('.stc-filename');
-                if (selectedOption && filenameDiv) {
-                    filenameDiv.textContent = selectedOption.textContent;
-                }
-            }
         }
         
         // Emit change events
@@ -557,19 +528,12 @@
         let cardsContainer = select._stcCards;
         
         if (!wrapper) {
-            const label = getLabel(select, type);
-            
             wrapper = document.createElement('div');
             wrapper.className = 'stc-wrapper';
-            
-            const labelDiv = document.createElement('div');
-            labelDiv.className = 'stc-label';
-            labelDiv.textContent = label;
             
             cardsContainer = document.createElement('div');
             cardsContainer.className = 'stc-cards';
             
-            wrapper.appendChild(labelDiv);
             wrapper.appendChild(cardsContainer);
             
             // Insert after the select's container
@@ -584,11 +548,14 @@
             select._stcWrapper = wrapper;
             select._stcCards = cardsContainer;
             
-            createArrows(wrapper, cardsContainer);
+            createArrows(cardsContainer);
         }
         
         // Clear and populate cards
         cardsContainer.innerHTML = '';
+        
+        // Re-add arrows after clearing
+        createArrows(cardsContainer);
         
         if (select.options.length === 0) {
             cardsContainer.appendChild(createPlaceholderCard());
@@ -598,23 +565,6 @@
         Array.from(select.options).forEach(option => {
             cardsContainer.appendChild(createCard(option, type, select));
         });
-        
-        // Add filename display if version select
-        if (type === 'version' && select.options.length > 0) {
-            const selectedOption = Array.from(select.options).find(opt => opt.selected) || select.options[0];
-            if (selectedOption && selectedOption.textContent) {
-                // Remove existing filename if any
-                const existingFilename = wrapper.querySelector('.stc-filename');
-                if (existingFilename) {
-                    existingFilename.remove();
-                }
-                
-                const filenameDiv = document.createElement('div');
-                filenameDiv.className = 'stc-filename';
-                filenameDiv.textContent = selectedOption.textContent;
-                wrapper.appendChild(filenameDiv);
-            }
-        }
         
         // Add separator line after each carousel
         const existingSeparator = wrapper.nextElementSibling;
@@ -631,21 +581,6 @@
                 selectedCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
             }
         }, 100);
-    }
-
-    function getLabel(select, type) {
-        // Try to get label from previous sibling
-        const prevSibling = select.previousElementSibling;
-        if (prevSibling && prevSibling.textContent) {
-            return prevSibling.textContent.trim();
-        }
-        
-        // Fallback to type-based labels
-        if (select.classList.contains('selectSource')) return 'Version';
-        if (select.classList.contains('selectAudio')) return 'Audio Track';
-        if (select.classList.contains('selectSubtitles')) return 'Subtitles';
-        
-        return type.charAt(0).toUpperCase() + type.slice(1);
     }
 
     // ============================================
