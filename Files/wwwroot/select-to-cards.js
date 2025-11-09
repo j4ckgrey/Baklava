@@ -391,6 +391,12 @@
                 <div class="stc-card-lang">${lang}</div>
                 <div class="stc-card-type">${trackType}</div>
             `;
+        } else if (isTrack && option.value === '-1') {
+            // Special "None" card for subtitles
+            card.innerHTML = `
+                <div class="stc-card-lang">None</div>
+                <div class="stc-card-type">No Subtitles</div>
+            `;
         } else {
             // Version cards - show compact title
             const text = option.textContent || option.value;
@@ -598,12 +604,18 @@
         
         // Populate subtitle tracks
         if (subtitleSelect && streams.subs && streams.subs.length > 0) {
+            // Add "None" option first
+            const noneOption = document.createElement('option');
+            noneOption.value = '-1';
+            noneOption.textContent = 'None';
+            noneOption.selected = true; // Default to no subtitles
+            subtitleSelect.appendChild(noneOption);
+            
             streams.subs.forEach((track, idx) => {
                 const option = document.createElement('option');
                 option.value = String(track.index);
                 option.textContent = track.title;
                 option._meta = track;
-                if (idx === 0) option.selected = true;
                 subtitleSelect.appendChild(option);
             });
             populateCarousel(subtitleSelect, 'subtitle');
