@@ -169,14 +169,50 @@
                 margin: 8px 0;
             }
             
+            /* Control bar for arrows and label */
+            .stc-controls {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 8px;
+                min-height: 32px;
+            }
+            
             /* Carousel label (only for audio and subtitle) */
             .stc-label {
                 font-size: 1.1em;
                 font-weight: 500;
                 color: rgba(255,255,255,0.9);
-                margin-bottom: 8px;
                 text-align: center;
+                flex: 1;
             }
+            
+            /* Navigation arrows */
+            .stc-arrow {
+                width: 32px;
+                height: 32px;
+                background: rgba(128,128,128,0.5);
+                border: none;
+                color: #fff;
+                font-size: 20px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: background 0.15s;
+            }
+            
+            .stc-arrow:hover:not(:disabled) {
+                background: rgba(128,128,128,0.8);
+            }
+            
+            .stc-arrow:disabled {
+                opacity: 0.3;
+                cursor: default;
+            }
+            
+            .stc-arrow.stc-arrow-left { order: -1; }
+            .stc-arrow.stc-arrow-right { order: 1; }
             
             /* Cards container */
             .stc-cards {
@@ -184,7 +220,7 @@
                 gap: 12px;
                 overflow-x: auto;
                 scroll-behavior: smooth;
-                padding: 8px 50px;
+                padding: 8px 4px;
                 scrollbar-width: none;
                 -ms-overflow-style: none;
                 position: relative;
@@ -228,6 +264,36 @@
                 cursor: default;
             }
             
+            .stc-card.stc-loading {
+                border-style: dashed;
+                border-color: rgba(255,255,255,0.2);
+                background: rgba(100,150,255,0.1);
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .stc-card.stc-loading::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+                animation: shimmer 1.5s infinite;
+            }
+            
+            @keyframes shimmer {
+                to { left: 100%; }
+            }
+            
+            .stc-card.stc-empty {
+                border-style: dashed;
+                border-color: rgba(255,255,255,0.15);
+                background: transparent;
+                cursor: default;
+            }
+            
             /* Track cards (audio/subtitle) - smaller & compact */
             .stc-card.stc-track {
                 width: 80px;
@@ -252,38 +318,6 @@
                 word-break: break-word;
             }
             
-            /* Navigation arrows */
-            .stc-arrow {
-                position: absolute;
-                top: 50%;
-                transform: translateY(-50%);
-                width: 40px;
-                height: 40px;
-                border-radius: 50%;
-                background: rgba(0,0,0,0.6);
-                border: none;
-                color: #fff;
-                font-size: 24px;
-                cursor: pointer;
-                z-index: 10;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                transition: background 0.15s;
-            }
-            
-            .stc-arrow:hover:not(:disabled) {
-                background: rgba(0,0,0,0.8);
-            }
-            
-            .stc-arrow:disabled {
-                opacity: 0.3;
-                cursor: default;
-            }
-            
-            .stc-arrow.stc-arrow-left { left: 4px; }
-            .stc-arrow.stc-arrow-right { right: 4px; }
-            
             /* Loading state */
             .stc-loading {
                 color: rgba(255,255,255,0.6);
@@ -302,6 +336,18 @@
                 text-align: center;
                 color: rgba(255,255,255,0.8);
                 font-size: 14px;
+            }
+            
+            /* Filename display */
+            .stc-filename {
+                margin-top: 8px;
+                padding: 8px 12px;
+                background: rgba(0,0,0,0.3);
+                border-radius: 4px;
+                color: rgba(255,255,255,0.6);
+                font-size: 12px;
+                text-align: center;
+                font-family: monospace;
             }
             
             /* Separator line after carousels */
@@ -368,7 +414,21 @@
         return card;
     }
 
-    function createArrows(cardsContainer) {
+    function createLoadingCard() {
+        const card = document.createElement('div');
+        card.className = 'stc-card stc-track stc-loading';
+        card.tabIndex = -1;
+        return card;
+    }
+
+    function createEmptyCard() {
+        const card = document.createElement('div');
+        card.className = 'stc-card stc-track stc-empty';
+        card.tabIndex = -1;
+        return card;
+    }
+
+    function createArrows(controlsDiv, cardsContainer) {
         const leftArrow = document.createElement('button');
         leftArrow.className = 'stc-arrow stc-arrow-left';
         leftArrow.innerHTML = '‹';
@@ -396,8 +456,8 @@
         
         cardsContainer.addEventListener('scroll', debounce(updateArrows, 100));
         
-        cardsContainer.appendChild(leftArrow);
-        cardsContainer.appendChild(rightArrow);
+        controlsDiv.appendChild(leftArrow);
+        controlsDiv.appendChild(rightArrow);
         
         setTimeout(updateArrows, 100);
     }
@@ -420,6 +480,15 @@
             wrapper.querySelectorAll('.stc-card').forEach(card => {
                 card.classList.toggle('stc-selected', card.dataset.value === value);
             });
+            
+            // Update filename display if version select
+            if (type === 'version') {
+                const selectedOption = Array.from(select.options).find(opt => opt.value === value);
+                const filenameDiv = wrapper.querySelector('.stc-filename');
+                if (selectedOption && filenameDiv) {
+                    filenameDiv.textContent = selectedOption.textContent;
+                }
+            }
         }
         
         // Emit change events
@@ -445,14 +514,22 @@
         if (audioSelect) {
             audioSelect.innerHTML = '';
             if (audioSelect._stcCards) {
-                audioSelect._stcCards.innerHTML = '<div class="stc-loading">Loading audio tracks...</div>';
+                audioSelect._stcCards.innerHTML = '';
+                // Add 3 loading cards
+                for (let i = 0; i < 3; i++) {
+                    audioSelect._stcCards.appendChild(createLoadingCard());
+                }
             }
         }
         
         if (subtitleSelect) {
             subtitleSelect.innerHTML = '';
             if (subtitleSelect._stcCards) {
-                subtitleSelect._stcCards.innerHTML = '<div class="stc-loading">Loading subtitles...</div>';
+                subtitleSelect._stcCards.innerHTML = '';
+                // Add 3 loading cards
+                for (let i = 0; i < 3; i++) {
+                    subtitleSelect._stcCards.appendChild(createLoadingCard());
+                }
             }
         }
         
@@ -467,11 +544,15 @@
             console.warn('[SelectToCards] No itemId available after capture attempt');
             if (audioSelect?._stcCards) {
                 audioSelect._stcCards.innerHTML = '';
-                audioSelect._stcCards.appendChild(createPlaceholderCard('No item ID'));
+                for (let i = 0; i < 3; i++) {
+                    audioSelect._stcCards.appendChild(createEmptyCard());
+                }
             }
             if (subtitleSelect?._stcCards) {
                 subtitleSelect._stcCards.innerHTML = '';
-                subtitleSelect._stcCards.appendChild(createPlaceholderCard('No item ID'));
+                for (let i = 0; i < 3; i++) {
+                    subtitleSelect._stcCards.appendChild(createEmptyCard());
+                }
             }
             return;
         }
@@ -483,11 +564,15 @@
             console.error('[SelectToCards] Failed to fetch streams');
             if (audioSelect?._stcCards) {
                 audioSelect._stcCards.innerHTML = '';
-                audioSelect._stcCards.appendChild(createPlaceholderCard('Error loading'));
+                for (let i = 0; i < 3; i++) {
+                    audioSelect._stcCards.appendChild(createEmptyCard());
+                }
             }
             if (subtitleSelect?._stcCards) {
                 subtitleSelect._stcCards.innerHTML = '';
-                subtitleSelect._stcCards.appendChild(createPlaceholderCard('Error loading'));
+                for (let i = 0; i < 3; i++) {
+                    subtitleSelect._stcCards.appendChild(createEmptyCard());
+                }
             }
             return;
         }
@@ -505,7 +590,10 @@
             populateCarousel(audioSelect, 'audio');
         } else if (audioSelect?._stcCards) {
             audioSelect._stcCards.innerHTML = '';
-            audioSelect._stcCards.appendChild(createPlaceholderCard('No audio'));
+            // Add 3 empty state cards
+            for (let i = 0; i < 3; i++) {
+                audioSelect._stcCards.appendChild(createEmptyCard());
+            }
         }
         
         // Populate subtitle tracks
@@ -521,7 +609,10 @@
             populateCarousel(subtitleSelect, 'subtitle');
         } else if (subtitleSelect?._stcCards) {
             subtitleSelect._stcCards.innerHTML = '';
-            subtitleSelect._stcCards.appendChild(createPlaceholderCard('No subtitles'));
+            // Add 3 empty state cards
+            for (let i = 0; i < 3; i++) {
+                subtitleSelect._stcCards.appendChild(createEmptyCard());
+            }
         }
     }
 
@@ -535,18 +626,25 @@
         // Get or create wrapper
         let wrapper = select._stcWrapper;
         let cardsContainer = select._stcCards;
+        let controlsDiv = select._stcControls;
         
         if (!wrapper) {
             wrapper = document.createElement('div');
             wrapper.className = 'stc-wrapper';
             
-            // Add label only for audio and subtitle tracks, not for version
+            // Create controls div above carousel
+            controlsDiv = document.createElement('div');
+            controlsDiv.className = 'stc-controls';
+            
+            // Add label only for audio and subtitle tracks
             if (type === 'audio' || type === 'subtitle') {
                 const labelDiv = document.createElement('div');
                 labelDiv.className = 'stc-label';
                 labelDiv.textContent = type === 'audio' ? 'Audio Track' : 'Subtitles';
-                wrapper.appendChild(labelDiv);
+                controlsDiv.appendChild(labelDiv);
             }
+            
+            wrapper.appendChild(controlsDiv);
             
             cardsContainer = document.createElement('div');
             cardsContainer.className = 'stc-cards';
@@ -564,15 +662,13 @@
             
             select._stcWrapper = wrapper;
             select._stcCards = cardsContainer;
+            select._stcControls = controlsDiv;
             
-            createArrows(cardsContainer);
+            createArrows(controlsDiv, cardsContainer);
         }
         
         // Clear and populate cards
         cardsContainer.innerHTML = '';
-        
-        // Re-add arrows after clearing
-        createArrows(cardsContainer);
         
         if (select.options.length === 0) {
             cardsContainer.appendChild(createPlaceholderCard());
@@ -582,6 +678,23 @@
         Array.from(select.options).forEach(option => {
             cardsContainer.appendChild(createCard(option, type, select));
         });
+        
+        // Add filename display if version select
+        if (type === 'version' && select.options.length > 0) {
+            const selectedOption = Array.from(select.options).find(opt => opt.selected) || select.options[0];
+            if (selectedOption && selectedOption.textContent) {
+                // Remove existing filename if any
+                const existingFilename = wrapper.querySelector('.stc-filename');
+                if (existingFilename) {
+                    existingFilename.remove();
+                }
+                
+                const filenameDiv = document.createElement('div');
+                filenameDiv.className = 'stc-filename';
+                filenameDiv.textContent = selectedOption.textContent;
+                wrapper.appendChild(filenameDiv);
+            }
+        }
         
         // Add separator line after each carousel
         const existingSeparator = wrapper.nextElementSibling;
