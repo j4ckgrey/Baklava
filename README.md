@@ -53,10 +53,6 @@ Navigate to **Dashboard** → **Plugins** → **Baklava** to configure:
 - **Enable Search Filter**: Toggle server-side search prefix handling
 - **Force TV Client Local Search**: Automatically enforce local search for TV clients (Android TV, Fire TV, etc.)
 
-#### Gelato Integration
-- **Gelato Base URL**: URL where Gelato is accessible from Jellyfin server (e.g., `http://localhost:8096`)
-- **Gelato Auth Header**: Authentication header for Gelato API
-
 #### TMDB Integration
 - **TMDB API Key**: For metadata lookups and poster images
 - **Default TMDB ID**: Default ID for config page testing
@@ -97,39 +93,7 @@ When **Force TV Client Local Search** is enabled (default: ON):
 - The "local:" prefix is added server-side
 - No user interaction needed - transparent enforcement
 
-## 🔧 Technical Details
-
-### Architecture
-
-```
-Client Request
-     ↓
-SearchActionFilter (Order: 0)
-     ↓
-   [TV Client?] → Add "local:" prefix
-     ↓
-   [Has "local:" prefix?]
-     ↓              ↓
-   YES            NO
-     ↓              ↓
-Gelato Filter → Gelato Filter
-     ↓              ↓
-Jellyfin Search   External Search
-```
-
-### Filter Order
-- **Baklava SearchActionFilter**: Order 0 (runs first)
-- **Gelato SearchActionFilter**: Order 2 (runs after Baklava)
-
-### API Endpoints
-
-- `GET /Baklava/Requests` - List all requests (admin) or user's requests
-- `POST /Baklava/Requests` - Create new request
-- `PATCH /Baklava/Requests/{id}` - Approve/deny request
-- `DELETE /Baklava/Requests/{id}` - Delete request
-
-## � Troubleshooting
-## 🐛 Troubleshooting
+##  Troubleshooting
 
 ### Search toggle not appearing
 - Clear browser cache
@@ -145,14 +109,6 @@ Jellyfin Search   External Search
 - Check file permissions on plugin data directory
 - Verify TMDB API key is valid
 - Check server logs for errors
-
-## � License
-##  Acknowledgments
-
-- **Jellyfin** - For the amazing media server platform
-- **Gelato** ([lostb1t/Gelato](https://github.com/lostb1t/Gelato)) - External search provider integration
-- **TMDB** - Movie and TV metadata
-
 
 ## 📧 Support
 

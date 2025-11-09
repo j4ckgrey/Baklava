@@ -1032,7 +1032,14 @@
             
             if (ev.button !== 0 || ev.ctrlKey) return;
             
-            console.log('[DetailsModal] Intercepting click');
+            // Check if local search is enabled - if so, don't intercept, let it go to details page
+            const isLocalSearch = localStorage.getItem('jellyfin_local_search_enabled') === 'true';
+            if (isLocalSearch) {
+                console.log('[DetailsModal] Local search active - allowing normal navigation');
+                return; // Don't prevent default, let it navigate normally
+            }
+            
+            console.log('[DetailsModal] Intercepting click for global search');
             ev.preventDefault();
             ev.stopPropagation();
 
@@ -1049,7 +1056,7 @@
             
             if (!id) return;
 
-            console.log('[DetailsModal] Opening for ID:', id);
+            console.log('[DetailsModal] Opening modal for ID:', id);
             const modal = getModal();
             populateFromCard(anchor, id, modal);
             showModal(modal);
