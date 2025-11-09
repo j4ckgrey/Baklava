@@ -545,16 +545,7 @@
                 console.warn('[DetailsModal] moveCardToRejected failed', e);
             }
 
-            // Close modal and dropdown
-            try { hideModal(); } catch (e) { }
-            try { 
-                const dd = document.querySelector('.requests-dropdown'); 
-                if (dd) dd.style.display = 'none'; 
-                const back = document.querySelector('.requests-backdrop'); 
-                if (back) back.style.display = 'none';
-            } catch (e) { }
-
-            // Update server status
+            // Update server status FIRST before closing UI
             if (requestId && window.RequestManager && typeof window.RequestManager.updateStatus === 'function') {
                 try {
                     let rejecter = null;
@@ -567,11 +558,14 @@
                             rejecter = user?.Name || null; 
                         } catch { rejecter = null; }
                     }
-                    window.RequestManager.updateStatus(requestId, 'rejected', rejecter).catch(() => {});
+                    await window.RequestManager.updateStatus(requestId, 'rejected', rejecter);
                 } catch (e) { 
                     console.warn('[DetailsModal] Failed to update request status:', e); 
                 }
             }
+
+            // Close modal but DON'T close dropdown - let admin continue reviewing
+            try { hideModal(); } catch (e) { }
         });
 
         removeBtn.addEventListener('click', async () => {
@@ -644,13 +638,23 @@
             qs('#item-detail-info', m).innerHTML = '';
             qs('#item-detail-reviews', m).innerHTML = '';
             qs('#item-detail-image', m).style.backgroundImage = '';
-            qs('#item-detail-import', m).style.display = 'none';
-            qs('#item-detail-request', m).style.display = 'none';
-            qs('#item-detail-approve', m).style.display = 'none';
-            qs('#item-detail-reject', m).style.display = 'none';
-            qs('#item-detail-view-requests', m).style.display = 'none';
-            qs('#item-detail-remove', m).style.display = 'none';
-            qs('#item-detail-open', m).style.display = 'none';
+            // Reset all buttons to initial state
+            const importBtn = qs('#item-detail-import', m);
+            const requestBtn = qs('#item-detail-request', m);
+            const approveBtn = qs('#item-detail-approve', m);
+            const rejectBtn = qs('#item-detail-reject', m);
+            const viewRequestsBtn = qs('#item-detail-view-requests', m);
+            const removeBtn = qs('#item-detail-remove', m);
+            const openBtn = qs('#item-detail-open', m);
+            
+            if (importBtn) { importBtn.style.display = 'none'; importBtn.disabled = false; importBtn.textContent = 'Import'; importBtn.style.background = '#1e90ff'; }
+            if (requestBtn) { requestBtn.style.display = 'none'; requestBtn.disabled = false; requestBtn.textContent = 'Request'; requestBtn.style.background = '#ff9800'; }
+            if (approveBtn) { approveBtn.style.display = 'none'; approveBtn.disabled = false; approveBtn.textContent = 'Approve'; approveBtn.style.background = '#4caf50'; }
+            if (rejectBtn) { rejectBtn.style.display = 'none'; rejectBtn.disabled = false; rejectBtn.textContent = 'Reject'; rejectBtn.style.background = '#ff5722'; }
+            if (viewRequestsBtn) { viewRequestsBtn.style.display = 'none'; }
+            if (removeBtn) { removeBtn.style.display = 'none'; }
+            if (openBtn) { openBtn.style.display = 'none'; }
+            
             const loadingOverlay = qs('#item-detail-loading-overlay', m);
             if (loadingOverlay) loadingOverlay.style.display = 'flex';
         } 

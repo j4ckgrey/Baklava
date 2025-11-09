@@ -605,50 +605,6 @@
     }
 
     // ============================================
-    // USER MENU ITEM
-    // ============================================
-
-    function addRequestsMenuItem() {
-        const userMenuSection = document.querySelector('.verticalSection .headerUsername');
-        if (!userMenuSection) return false;
-
-        const container = userMenuSection.parentElement;
-        if (!container) return false;
-
-        if (container.querySelector('.lnkMediaRequests')) return true;
-
-        const requestsLink = document.createElement('a');
-        requestsLink.className = 'emby-button lnkMediaRequests listItem-border';
-        requestsLink.href = '#';
-        requestsLink.style.cssText = 'display: block; margin: 0px; padding: 0px;';
-        
-        requestsLink.innerHTML = `
-            <div class="listItem">
-                <span class="material-icons listItemIcon listItemIcon-transparent movie_filter" aria-hidden="true"></span>
-                <div class="listItemBody">
-                    <div class="listItemBodyText">Media Requests</div>
-                </div>
-            </div>
-        `;
-
-        requestsLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            showRequestsPage();
-            const userMenuButton = document.querySelector('.headerUserButton');
-            if (userMenuButton) userMenuButton.click();
-        });
-
-        const quickConnect = container.querySelector('.lnkQuickConnectPreferences');
-        if (quickConnect) {
-            quickConnect.parentNode.insertBefore(requestsLink, quickConnect.nextSibling);
-        } else {
-            container.appendChild(requestsLink);
-        }
-
-        return true;
-    }
-
-    // ============================================
     // FULL REQUESTS PAGE
     // ============================================
 
@@ -806,21 +762,26 @@
     // EVENT LISTENERS
     // ============================================
 
-    document.addEventListener('mediaRequest', async (e) => {
-        const item = e.detail;
-        try {
-            await saveRequest(item);
-            // Reload both dropdown and page if visible
-            if (dropdownMenu && dropdownMenu.style.display === 'block') {
-                await loadDropdownRequests();
+    // Use a flag to prevent duplicate event listeners
+    if (!window._baklavaRequestsInitialized) {
+        window._baklavaRequestsInitialized = true;
+        
+        document.addEventListener('mediaRequest', async (e) => {
+            const item = e.detail;
+            try {
+                await saveRequest(item);
+                // Reload both dropdown and page if visible
+                if (dropdownMenu && dropdownMenu.style.display === 'block') {
+                    await loadDropdownRequests();
+                }
+                if (document.getElementById('requestsPage')?.style.display === 'block') {
+                    await loadAndDisplayRequestsPage();
+                }
+            } catch (err) {
+                console.error('[Requests] Error saving request:', err);
             }
-            if (document.getElementById('requestsPage')?.style.display === 'block') {
-                await loadAndDisplayRequestsPage();
-            }
-        } catch (err) {
-            console.error('[Requests] Error saving request:', err);
-        }
-    });
+        });
+    }
 
     // ============================================
     // EXPORTS
@@ -901,15 +862,6 @@
             childList: true,
             subtree: true
         });
-        
-        // Add menu item (retry pattern for dynamic UI)
-        const tryAddMenuItem = () => {
-            if (!addRequestsMenuItem()) {
-                setTimeout(tryAddMenuItem, 1000);
-            }
-        };
-        setTimeout(tryAddMenuItem, 1000);
-        
     }
 
     // Start initialization
