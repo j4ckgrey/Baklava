@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using MediaBrowser.Model.Drawing;
 
 namespace Baklava
 {
@@ -60,6 +62,18 @@ namespace Baklava
                     EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Files.wwwroot.search-toggle.js", GetType().Namespace)
                 }
             };
+        }
+
+        // Provide plugin image/logo
+        public Stream GetPluginImage()
+        {
+            var type = GetType();
+            return type.Assembly.GetManifestResourceStream(type.Namespace + ".thumb.png");
+        }
+
+        public ImageFormat GetPluginImageFormat()
+        {
+            return ImageFormat.Png;
         }
     }
 }

@@ -34,6 +34,14 @@ namespace Baklava.Api
 
             var requests = config.Requests ?? new List<MediaRequest>();
             _logger.LogInformation($"[RequestsController] Returning {requests.Count} requests");
+            
+            // Log first request details for debugging
+            if (requests.Count > 0)
+            {
+                var first = requests[0];
+                _logger.LogInformation($"[RequestsController] First request - Id: {first.Id}, Username: {first.Username}, Title: {first.Title}, Status: {first.Status}");
+            }
+            
             return Ok(requests);
         }
 
@@ -173,6 +181,7 @@ namespace Baklava.Api
 
             // If approving and ApprovedBy is provided and the approver is different
             // from the original requester, create an admin-owned approved copy.
+            // Same logic for rejected - create admin-owned rejected copy.
             try
             {
                 if (!string.IsNullOrEmpty(update.Status) && update.Status.Equals("approved", StringComparison.OrdinalIgnoreCase)
@@ -204,6 +213,42 @@ namespace Baklava.Api
                             ItemType = request.ItemType,
                             TmdbMediaType = request.TmdbMediaType,
                             Status = "approved",
+                            ApprovedBy = update.ApprovedBy
+                        };
+
+                        if (cfg?.Requests == null) cfg.Requests = new List<MediaRequest>();
+                        cfg.Requests.Add(adminCopy);
+                    }
+                }
+                else if (!string.IsNullOrEmpty(update.Status) && update.Status.Equals("rejected", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrEmpty(update.ApprovedBy) && !string.Equals(update.ApprovedBy, request.Username, StringComparison.OrdinalIgnoreCase))
+                {
+                    var cfg = Plugin.Instance?.Configuration;
+
+                    // Avoid creating duplicate admin-rejected entries for the same rejecter + tmdb
+                    var existingAdminCopy = cfg?.Requests?.FirstOrDefault(r =>
+                        r.Username == update.ApprovedBy &&
+                        r.TmdbId == request.TmdbId &&
+                        r.Status != null && r.Status.Equals("rejected", StringComparison.OrdinalIgnoreCase)
+                    );
+
+                    if (existingAdminCopy == null)
+                    {
+                        var adminCopy = new MediaRequest
+                        {
+                            Id = $"{update.ApprovedBy}_{request.TmdbId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+                            Username = update.ApprovedBy,
+                            UserId = string.Empty,
+                            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                            Title = request.Title,
+                            Year = request.Year,
+                            Img = request.Img,
+                            ImdbId = request.ImdbId,
+                            TmdbId = request.TmdbId,
+                            JellyfinId = request.JellyfinId,
+                            ItemType = request.ItemType,
+                            TmdbMediaType = request.TmdbMediaType,
+                            Status = "rejected",
                             ApprovedBy = update.ApprovedBy
                         };
 
@@ -310,6 +355,40 @@ namespace Baklava.Api
 
             _logger.LogInformation($"[RequestsController] Deleted request {id}");
             return Ok();
+        }
+        /// <summary>
+        /// Clean up invalid requests (undefined/empty IDs)
+        /// </summary>
+        [HttpPost("cleanup")]
+        public ActionResult CleanupRequests()
+        {
+            _logger.LogInformation("[RequestsController] Cleanup called");
+            
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+            {
+                return BadRequest("Configuration not available");
+            }
+
+            var requests = config.Requests ?? new List<MediaRequest>();
+            var before = requests.Count;
+            
+            // Remove requests with undefined/null/empty IDs
+            var validRequests = requests.Where(r => 
+                !string.IsNullOrEmpty(r.ImdbId) && r.ImdbId != "undefined" &&
+                !string.IsNullOrEmpty(r.TmdbId) && r.TmdbId != "undefined"
+            ).ToList();
+            
+            var removed = before - validRequests.Count;
+            
+            if (removed > 0)
+            {
+                config.Requests = validRequests;
+                Plugin.Instance.SaveConfiguration();
+                _logger.LogInformation($"[RequestsController] Cleaned up {removed} invalid requests");
+            }
+            
+            return Ok(new { removed, remaining = validRequests.Count });
         }
     }
 

@@ -6,7 +6,6 @@
 (function() {
     'use strict';
     
-    console.log('[Requests] Loading consolidated module...');
 
     // ============================================
     // SHARED STATE & CONFIGURATION
@@ -36,7 +35,6 @@
             const user = await window.ApiClient.getUser(userId);
             isAdmin = user?.Policy?.IsAdministrator || false;
             currentUsername = user?.Name || 'Unknown';
-            console.log('[Requests] User:', currentUsername, 'isAdmin:', isAdmin);
             return isAdmin;
         } catch (err) {
             console.error('[Requests] Error checking admin status (trying fallback):', err);
@@ -45,7 +43,6 @@
                 const user = await window.ApiClient.getCurrentUser();
                 isAdmin = user?.Policy?.IsAdministrator || false;
                 currentUsername = user?.Name || 'Unknown';
-                console.log('[Requests] Fallback - User:', currentUsername, 'isAdmin:', isAdmin);
                 return isAdmin;
             } catch (fallbackErr) {
                 console.error('[Requests] Fallback error:', fallbackErr);
@@ -64,7 +61,6 @@
             const userId = window.ApiClient.getCurrentUserId();
             const user = await window.ApiClient.getUser(userId);
             const username = user?.Name || 'Unknown';
-            console.log('[Requests.getCurrentUsername] Retrieved username:', username, 'for userId:', userId);
             return username;
         } catch (err) {
             console.error('[Requests.getCurrentUsername] Error:', err);
@@ -72,7 +68,6 @@
             try {
                 const currentUser = await window.ApiClient.getCurrentUser();
                 const username = currentUser?.Name || 'Unknown';
-                console.log('[Requests.getCurrentUsername] Fallback username:', username);
                 return username;
             } catch (fallbackErr) {
                 console.error('[Requests.getCurrentUsername] Fallback error:', fallbackErr);
@@ -92,6 +87,8 @@
                 url: window.ApiClient.getUrl(API_BASE),
                 dataType: 'json'
             });
+            if (response[0]) {
+            }
             return Array.isArray(response) ? response : [];
         } catch (err) {
             console.error('[Requests.fetchAllRequests] Error:', err);
@@ -153,7 +150,7 @@
     async function createRequestCard(request, adminView) {
         const card = document.createElement('div');
         card.className = 'request-card';
-        card.dataset.requestId = request.id;
+        card.dataset.requestId = request.Id;
         card.style.cssText = `
             display: inline-block;
             width: 140px;
@@ -173,12 +170,12 @@
             border-radius: 6px;
             margin-bottom: 8px;
         `;
-        imgDiv.style.backgroundImage = request.img;
+        imgDiv.style.backgroundImage = request.Img;
         card.appendChild(imgDiv);
 
-        if (adminView && request.username) {
+        if (adminView && request.Username) {
             const userBadge = document.createElement('div');
-            userBadge.textContent = request.username;
+            userBadge.textContent = request.Username;
             userBadge.style.cssText = `
                 position: absolute;
                 top: 8px;
@@ -197,7 +194,7 @@
             card.appendChild(userBadge);
         }
 
-        if (request.status === 'pending') {
+        if (request.Status === 'pending') {
             const statusBadge = document.createElement('div');
             statusBadge.textContent = 'Pending';
             statusBadge.style.cssText = `
@@ -212,7 +209,7 @@
                 font-weight: 600;
             `;
             card.appendChild(statusBadge);
-        } else if (request.status === 'approved') {
+        } else if (request.Status === 'approved') {
             const statusBadge = document.createElement('div');
             statusBadge.textContent = 'Approved';
             statusBadge.style.cssText = `
@@ -227,10 +224,63 @@
                 font-weight: 600;
             `;
             card.appendChild(statusBadge);
+        } else if (request.Status === 'rejected') {
+            const statusBadge = document.createElement('div');
+            statusBadge.textContent = 'Rejected';
+            statusBadge.style.cssText = `
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                background: rgba(244, 67, 54, 0.95);
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: 600;
+            `;
+            card.appendChild(statusBadge);
+
+            // Add delete button for rejected requests
+            if (adminView) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.innerHTML = '×';
+                deleteBtn.style.cssText = `
+                    position: absolute;
+                    bottom: 40px;
+                    right: 8px;
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 50%;
+                    background: rgba(244, 67, 54, 0.9);
+                    color: #fff;
+                    border: none;
+                    font-size: 24px;
+                    line-height: 24px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 0;
+                    transition: background 0.2s;
+                `;
+                deleteBtn.addEventListener('mouseover', () => {
+                    deleteBtn.style.background = 'rgba(244, 67, 54, 1)';
+                });
+                deleteBtn.addEventListener('mouseout', () => {
+                    deleteBtn.style.background = 'rgba(244, 67, 54, 0.9)';
+                });
+                deleteBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (confirm(`Delete rejected request for "${request.Title}"?`)) {
+                        await deleteRequest(request.Id);
+                    }
+                });
+                card.appendChild(deleteBtn);
+            }
         }
 
         const titleDiv = document.createElement('div');
-        titleDiv.textContent = request.title || 'Unknown';
+        titleDiv.textContent = request.Title || 'Unknown';
         titleDiv.style.cssText = `
             font-size: 13px;
             font-weight: 500;
@@ -242,7 +292,7 @@
         card.appendChild(titleDiv);
 
         const yearDiv = document.createElement('div');
-        yearDiv.textContent = request.year || '';
+        yearDiv.textContent = request.Year || '';
         yearDiv.style.cssText = `
             font-size: 12px;
             color: #999;
@@ -313,22 +363,22 @@
 
     function openRequestModal(request, adminView) {
         const currentUserName = currentUsername;
-        const isOwnRequest = request.username === currentUserName;
+        const isOwnRequest = request.Username === currentUserName;
         
         document.dispatchEvent(new CustomEvent('openDetailsModal', {
             detail: {
                 item: {
-                    Name: request.title,
-                    ProductionYear: request.year,
-                    tmdbId: request.tmdbId,
-                    imdbId: request.imdbId,
-                    itemType: request.itemType,
-                    jellyfinId: request.jellyfinId
+                    Name: request.Title,
+                    ProductionYear: request.Year,
+                    tmdbId: request.TmdbId,
+                    imdbId: request.ImdbId,
+                    jellyfinId: request.JellyfinId,
+                    itemType: request.ItemType
                 },
                 isRequestMode: true,
-                requestId: request.id,
-                requestUsername: request.username,
-                requestStatus: request.status,
+                requestId: request.Id,
+                requestUsername: request.Username,
+                requestStatus: request.Status,
                 isAdmin: adminView,
                 isOwnRequest: isOwnRequest
             }
@@ -408,6 +458,11 @@
                     <h3 style="color: #4caf50; margin-bottom: 10px;">Approved</h3>
                     <div class="dropdown-approved-container" style="display: flex; flex-wrap: wrap; gap: 15px; min-height: 50px;"></div>
                 </div>
+
+                <div class="dropdown-rejected" style="margin-top: 30px;">
+                    <h3 style="color: #f44336; margin-bottom: 10px;">Rejected</h3>
+                    <div class="dropdown-rejected-container" style="display: flex; flex-wrap: wrap; gap: 15px; min-height: 50px;"></div>
+                </div>
             </div>
         `;
         
@@ -431,6 +486,7 @@
 
         try {
             const requests = await fetchAllRequests();
+            
             const adminView = await checkAdmin();
             
             // For admins: show all non-approved requests (pending) in movies/series lists,
@@ -440,18 +496,26 @@
             let filteredRequests;
             if (adminView) {
                 // non-approved (pending/rejected/etc.) for lists
-                filteredRequests = requests.filter(r => r.status !== 'approved');
+                filteredRequests = requests.filter(r => r.Status !== 'approved');
             } else {
-                filteredRequests = requests.filter(r => r.username === currentUsername);
+                filteredRequests = requests.filter(r => {
+                    return r.Username === currentUsername;
+                });
             }
 
             // Approved requests are shown in their own row. Admins only see their own approved copies.
             const approved = adminView
-                ? requests.filter(r => r.status === 'approved' && r.username === currentUsername)
-                : filteredRequests.filter(r => r.status === 'approved');
+                ? requests.filter(r => r.Status === 'approved' && r.Username === currentUsername)
+                : filteredRequests.filter(r => r.Status === 'approved');
 
-            const movies = filteredRequests.filter(r => r.itemType === 'movie' && r.status !== 'approved');
-            const series = filteredRequests.filter(r => r.itemType === 'series' && r.status !== 'approved');
+            // Rejected requests - admins only see their own rejected copies (like approved)
+            const rejected = adminView
+                ? requests.filter(r => r.Status === 'rejected' && r.Username === currentUsername)
+                : filteredRequests.filter(r => r.Status === 'rejected');
+
+            const movies = filteredRequests.filter(r => r.ItemType === 'movie' && r.Status !== 'approved' && r.Status !== 'rejected');
+            const series = filteredRequests.filter(r => r.ItemType === 'series' && r.Status !== 'approved' && r.Status !== 'rejected');
+            
 
             moviesContainer.innerHTML = '';
             seriesContainer.innerHTML = '';
@@ -472,7 +536,7 @@
                 }
             }
 
-            // Approved section (render last)
+            // Approved section
             const approvedContainer = dropdown.querySelector('.dropdown-approved-container');
             if (approvedContainer) {
                 if (approved && approved.length > 0) {
@@ -483,6 +547,20 @@
                 } else {
                     approvedContainer.innerHTML = '';
                     approvedContainer.appendChild(createPlaceholderCard());
+                }
+            }
+
+            // Rejected section
+            const rejectedContainer = dropdown.querySelector('.dropdown-rejected-container');
+            if (rejectedContainer) {
+                if (rejected && rejected.length > 0) {
+                    rejectedContainer.innerHTML = '';
+                    for (const req of rejected) {
+                        rejectedContainer.appendChild(await createRequestCard(req, adminView));
+                    }
+                } else {
+                    rejectedContainer.innerHTML = '';
+                    rejectedContainer.appendChild(createPlaceholderCard());
                 }
             }
         } catch (err) {
@@ -500,11 +578,15 @@
         loadDropdownRequests();
         backdrop.style.display = 'block';
         dropdownMenu.style.display = 'block';
+        // Prevent background scrolling
+        document.body.style.overflow = 'hidden';
     }
 
     function hideDropdown() {
         if (backdrop) backdrop.style.display = 'none';
         if (dropdownMenu) dropdownMenu.style.display = 'none';
+        // Restore background scrolling
+        document.body.style.overflow = '';
     }
 
     function toggleDropdown(btn) {
@@ -520,6 +602,38 @@
     // ============================================
 
     function addRequestsButton() {
+        // Try Material UI header first (newer Jellyfin)
+        const muiToolbar = document.querySelector('.MuiToolbar-root .css-2uchni, .MuiToolbar-root div[class*="css-"]');
+        if (muiToolbar && !document.querySelector('.mui-requests-button')) {
+            const btn = document.createElement('button');
+            btn.className = 'MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge mui-requests-button css-g99rn3';
+            btn.setAttribute('tabindex', '0');
+            btn.setAttribute('type', 'button');
+            btn.setAttribute('aria-label', 'Media Requests');
+            btn.setAttribute('data-role', 'requests-button');
+            btn.title = 'Media Requests';
+            btn.innerHTML = `
+                <svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-ya380f" focusable="false" aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"></path>
+                </svg>
+            `;
+            
+            const userButton = muiToolbar.querySelector('button[aria-label="User Menu"]');
+            if (userButton) {
+                muiToolbar.insertBefore(btn, userButton);
+            } else {
+                muiToolbar.appendChild(btn);
+            }
+            
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleDropdown(btn);
+            });
+            
+            return;
+        }
+
+        // Fallback to legacy header
         const headerRight = document.querySelector('.headerRight');
         if (!headerRight) {
             setTimeout(addRequestsButton, 500);
@@ -532,6 +646,7 @@
         
         const btn = document.createElement('button');
         btn.setAttribute('is', 'paper-icon-button-light');
+        btn.setAttribute('data-role', 'requests-button');
         btn.className = 'headerButton headerButtonRight headerRequestsButton paper-icon-button-light';
         btn.title = 'Media Requests';
         btn.innerHTML = '<span class="material-icons list_alt" aria-hidden="true"></span>';
@@ -548,7 +663,6 @@
             toggleDropdown(btn);
         });
         
-        console.log('[Requests] Header button added');
     }
 
     // ============================================
@@ -592,7 +706,6 @@
             container.appendChild(requestsLink);
         }
 
-        console.log('[Requests] Menu item added');
         return true;
     }
 
@@ -637,11 +750,16 @@
                         <div class="itemsContainer scrollSlider focuscontainer-x padded-left padded-right" style="white-space:nowrap;overflow-x:auto;"></div>
                     </div>
                 </div>
+                <div class="verticalSection" style="margin-top:3em;">
+                    <h2 class="sectionTitle sectionTitle-cards padded-left">Rejected</h2>
+                    <div class="requests-rejected-panel">
+                        <div class="itemsContainer scrollSlider focuscontainer-x padded-left padded-right" style="white-space:nowrap;overflow-x:auto;"></div>
+                    </div>
+                </div>
             </div>
         `;
         
         document.body.appendChild(requestsPage);
-        console.log('[Requests] Page created');
     }
 
     function showRequestsPage() {
@@ -675,25 +793,31 @@
             const requests = await fetchAllRequests();
             const adminView = await checkAdmin();
             
-            // Admins: show all non-approved requests in lists, but only their own approved copies
+            // Admins: show all non-approved/non-rejected requests in lists, but only their own approved/rejected copies
             let filteredRequests;
             if (adminView) {
-                filteredRequests = requests.filter(r => r.status !== 'approved');
+                filteredRequests = requests.filter(r => r.Status !== 'approved' && r.Status !== 'rejected');
             } else {
-                filteredRequests = requests.filter(r => r.username === currentUsername);
+                filteredRequests = requests.filter(r => r.Username === currentUsername);
             }
 
             const approved = adminView
-                ? requests.filter(r => r.status === 'approved' && r.username === currentUsername)
-                : filteredRequests.filter(r => r.status === 'approved');
+                ? requests.filter(r => r.Status === 'approved' && r.Username === currentUsername)
+                : filteredRequests.filter(r => r.Status === 'approved');
 
-            const movies = filteredRequests.filter(r => r.itemType === 'movie' && r.status !== 'approved');
-            const series = filteredRequests.filter(r => r.itemType === 'series' && r.status !== 'approved');
+            const rejected = adminView
+                ? requests.filter(r => r.Status === 'rejected' && r.Username === currentUsername)
+                : filteredRequests.filter(r => r.Status === 'rejected');
+
+            const movies = filteredRequests.filter(r => r.ItemType === 'movie' && r.Status !== 'approved' && r.Status !== 'rejected');
+            const series = filteredRequests.filter(r => r.ItemType === 'series' && r.Status !== 'approved' && r.Status !== 'rejected');
 
             moviesContainer.innerHTML = '';
             seriesContainer.innerHTML = '';
             const approvedContainer = page.querySelector('.requests-approved-panel .itemsContainer');
+            const rejectedContainer = page.querySelector('.requests-rejected-panel .itemsContainer');
             if (approvedContainer) approvedContainer.innerHTML = '';
+            if (rejectedContainer) rejectedContainer.innerHTML = '';
 
             if (movies.length === 0) {
                 moviesContainer.appendChild(createPlaceholderCard());
@@ -711,13 +835,24 @@
                 }
             }
 
-            // Populate approved row (last)
+            // Populate approved row
             if (approvedContainer) {
                 if (approved.length === 0) {
                     approvedContainer.appendChild(createPlaceholderCard());
                 } else {
                     for (const req of approved) {
                         approvedContainer.appendChild(await createRequestCard(req, adminView));
+                    }
+                }
+            }
+
+            // Populate rejected row
+            if (rejectedContainer) {
+                if (rejected.length === 0) {
+                    rejectedContainer.appendChild(createPlaceholderCard());
+                } else {
+                    for (const req of rejected) {
+                        rejectedContainer.appendChild(await createRequestCard(req, adminView));
                     }
                 }
             }
@@ -733,11 +868,9 @@
     // ============================================
 
     document.addEventListener('mediaRequest', async (e) => {
-        console.log('[Requests] mediaRequest event received:', e.detail);
         const item = e.detail;
         try {
             await saveRequest(item);
-            console.log('[Requests] Request saved successfully');
             // Reload both dropdown and page if visible
             if (dropdownMenu && dropdownMenu.style.display === 'block') {
                 await loadDropdownRequests();
@@ -791,7 +924,6 @@
     // ============================================
 
     function init() {
-        console.log('[Requests] Initializing consolidated module...');
         
         // Wait for ApiClient to be ready before checking admin
         const waitForApiClient = () => {
@@ -818,9 +950,15 @@
         };
         setTimeout(tryAddMenuItem, 1000);
         
-        console.log('[Requests] Consolidated module loaded');
     }
 
     // Start initialization
     init();
+    
+    // Expose global interface for external access
+    window.RequestsHeaderButton = {
+        show: showDropdown,
+        hide: hideDropdown,
+        reload: loadDropdownRequests
+    };
 })();

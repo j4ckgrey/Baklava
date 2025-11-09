@@ -274,8 +274,10 @@
                     + '<h2 id="item-detail-title" style="margin:0;">Loading…</h2>'
                     + '<div style="display:flex;gap:10px;">'
                         + '<button id="item-detail-approve" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#4caf50;color:#fff;cursor:pointer;display:none;font-size:13px;">Approve</button>'
+                        + '<button id="item-detail-reject" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#ff5722;color:#fff;cursor:pointer;display:none;font-size:13px;">Reject</button>'
                         + '<button id="item-detail-import" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#1e90ff;color:#fff;cursor:pointer;display:none;font-size:13px;">Import</button>'
                         + '<button id="item-detail-request" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#ff9800;color:#fff;cursor:pointer;display:none;font-size:13px;">Request</button>'
+                        + '<button id="item-detail-view-requests" style="width:120px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#9c27b0;color:#fff;cursor:pointer;display:none;font-size:13px;">View Requests</button>'
                         + '<button id="item-detail-remove" title="Remove" style="width:36px;height:36px;padding:0;border:none;border-radius:4px;background:#f44336;color:#fff;cursor:pointer;display:none;font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;">'
                             + '<span class="material-icons" aria-hidden="true" style="font-size:18px;line-height:1;">delete</span>'
                         + '</button>'
@@ -313,8 +315,10 @@
         const importBtn = qs('#item-detail-import', overlay);
         const requestBtn = qs('#item-detail-request', overlay);
         const approveBtn = qs('#item-detail-approve', overlay);
+        const rejectBtn = qs('#item-detail-reject', overlay);
         const removeBtn = qs('#item-detail-remove', overlay);
         const openBtn = qs('#item-detail-open', overlay);
+        const viewRequestsBtn = qs('#item-detail-view-requests', overlay);
         const reviewPopup = qs('#review-popup', overlay);
         const closeReviewBtn = qs('#close-review-popup', overlay);
 
@@ -356,10 +360,20 @@
             if (id) { hideModal(); window.location.hash = '#/details?id=' + encodeURIComponent(id); }
         });
 
+        viewRequestsBtn.addEventListener('click', () => {
+            hideModal();
+            // Click the requests header button to open dropdown
+            const requestsBtn = document.querySelector('[data-role="requests-button"]');
+            if (requestsBtn) {
+                requestsBtn.click();
+            } else if (window.RequestsHeaderButton && window.RequestsHeaderButton.show) {
+                window.RequestsHeaderButton.show();
+            }
+        });
+
     approveBtn.addEventListener('click', async () => {
             // Make UI response immediate and fire a single Gelato API call (fire-and-forget),
             // then disable the button and close the modal.
-            console.log('[DetailsModal] Approve button clicked');
             const requestId = overlay.dataset.requestId;
             const tmdbId = overlay.dataset.tmdbId;
             const imdbId = overlay.dataset.imdbId;
@@ -384,7 +398,6 @@
                     // Fire-and-forget: POST to the server proxy which will call Gelato using configured auth.
                     try {
                         window.ApiClient.ajax({ type: 'POST', url: proxyUrl }).catch(() => {});
-                        console.log('[DetailsModal] Fired gelato proxy to', proxyUrl);
                     } catch (e) {
                         console.warn('[DetailsModal] gelato proxy call failed', e);
                     }
@@ -468,6 +481,99 @@
             }, 250);
         });
 
+        rejectBtn.addEventListener('click', async () => {
+            const requestId = overlay.dataset.requestId;
+
+            if (!requestId) {
+                rejectBtn.textContent = 'No-op';
+                rejectBtn.style.background = '#888';
+                setTimeout(() => hideModal(), 400);
+                return;
+            }
+
+            // Immediate UI feedback
+            rejectBtn.disabled = true;
+            rejectBtn.textContent = 'Rejected';
+            rejectBtn.style.background = '#888';
+
+            // Move card to rejected carousel
+            try {
+                const selector = `.request-card[data-request-id="${requestId}"]`;
+                const orig = document.querySelector(selector);
+
+                // Append to dropdown rejected container
+                const rejectedDropdown = document.querySelector('.dropdown-rejected-container');
+                if (rejectedDropdown) {
+                    try {
+                        if (orig && orig.parentElement) {
+                            const clone = orig.cloneNode(true);
+                            // Update the status badge to show "Rejected"
+                            const badges = clone.querySelectorAll('div');
+                            for (const badge of badges) {
+                                if (badge.textContent === 'Pending') {
+                                    badge.textContent = 'Rejected';
+                                    badge.style.background = 'rgba(244, 67, 54, 0.95)';
+                                }
+                            }
+                            rejectedDropdown.appendChild(clone);
+                        }
+                    } catch (e) { /* ignore */ }
+                }
+
+                // Append to requests page rejected panel
+                const rejectedPage = document.querySelector('.requests-rejected-panel .itemsContainer');
+                if (rejectedPage) {
+                    try {
+                        if (orig && orig.parentElement) {
+                            const clone2 = orig.cloneNode(true);
+                            // Update the status badge to show "Rejected"
+                            const badges = clone2.querySelectorAll('div');
+                            for (const badge of badges) {
+                                if (badge.textContent === 'Pending') {
+                                    badge.textContent = 'Rejected';
+                                    badge.style.background = 'rgba(244, 67, 54, 0.95)';
+                                }
+                            }
+                            rejectedPage.appendChild(clone2);
+                        }
+                    } catch (e) { /* ignore */ }
+                }
+
+                // Remove original from its current parent
+                try { if (orig && orig.parentElement) orig.parentElement.removeChild(orig); } catch (e) { }
+            } catch (e) {
+                console.warn('[DetailsModal] moveCardToRejected failed', e);
+            }
+
+            // Close modal and dropdown
+            try { hideModal(); } catch (e) { }
+            try { 
+                const dd = document.querySelector('.requests-dropdown'); 
+                if (dd) dd.style.display = 'none'; 
+                const back = document.querySelector('.requests-backdrop'); 
+                if (back) back.style.display = 'none';
+            } catch (e) { }
+
+            // Update server status
+            if (requestId && window.RequestManager && typeof window.RequestManager.updateStatus === 'function') {
+                try {
+                    let rejecter = null;
+                    try { 
+                        const current = await window.ApiClient.getCurrentUser(); 
+                        rejecter = current?.Name || null; 
+                    } catch (err) {
+                        try { 
+                            const user = await window.ApiClient.getUser(window.ApiClient.getCurrentUserId()); 
+                            rejecter = user?.Name || null; 
+                        } catch { rejecter = null; }
+                    }
+                    window.RequestManager.updateStatus(requestId, 'rejected', rejecter).catch(() => {});
+                } catch (e) { 
+                    console.warn('[DetailsModal] Failed to update request status:', e); 
+                }
+            }
+        });
+
         removeBtn.addEventListener('click', async () => {
             const requestId = overlay.dataset.requestId;
             if (requestId && window.RequestManager) {
@@ -480,14 +586,18 @@
         // Hover effects
         importBtn.addEventListener('mouseenter', () => importBtn.style.background = '#1c7ed6');
         importBtn.addEventListener('mouseleave', () => importBtn.style.background = '#1e90ff');
-    requestBtn.addEventListener('mouseenter', () => { if (!requestBtn.disabled) requestBtn.style.background = '#f57c00'; });
-    requestBtn.addEventListener('mouseleave', () => { if (!requestBtn.disabled) requestBtn.style.background = '#ff9800'; });
-    approveBtn.addEventListener('mouseenter', () => { if (!approveBtn.disabled) approveBtn.style.background = '#45a049'; });
-    approveBtn.addEventListener('mouseleave', () => { if (!approveBtn.disabled) approveBtn.style.background = '#4caf50'; });
+        requestBtn.addEventListener('mouseenter', () => { if (!requestBtn.disabled) requestBtn.style.background = '#f57c00'; });
+        requestBtn.addEventListener('mouseleave', () => { if (!requestBtn.disabled) requestBtn.style.background = '#ff9800'; });
+        approveBtn.addEventListener('mouseenter', () => { if (!approveBtn.disabled) approveBtn.style.background = '#45a049'; });
+        approveBtn.addEventListener('mouseleave', () => { if (!approveBtn.disabled) approveBtn.style.background = '#4caf50'; });
+        rejectBtn.addEventListener('mouseenter', () => { if (!rejectBtn.disabled) rejectBtn.style.background = '#e64a19'; });
+        rejectBtn.addEventListener('mouseleave', () => { if (!rejectBtn.disabled) rejectBtn.style.background = '#ff5722'; });
         removeBtn.addEventListener('mouseenter', () => removeBtn.style.background = '#d32f2f');
         removeBtn.addEventListener('mouseleave', () => removeBtn.style.background = '#f44336');
         openBtn.addEventListener('mouseenter', () => openBtn.style.background = '#45a049');
         openBtn.addEventListener('mouseleave', () => openBtn.style.background = '#4caf50');
+        viewRequestsBtn.addEventListener('mouseenter', () => viewRequestsBtn.style.background = '#7b1fa2');
+        viewRequestsBtn.addEventListener('mouseleave', () => viewRequestsBtn.style.background = '#9c27b0');
         closeBtn.addEventListener('mouseenter', () => closeBtn.style.background = '#666');
         closeBtn.addEventListener('mouseleave', () => closeBtn.style.background = '#555');
 
@@ -537,6 +647,8 @@
             qs('#item-detail-import', m).style.display = 'none';
             qs('#item-detail-request', m).style.display = 'none';
             qs('#item-detail-approve', m).style.display = 'none';
+            qs('#item-detail-reject', m).style.display = 'none';
+            qs('#item-detail-view-requests', m).style.display = 'none';
             qs('#item-detail-remove', m).style.display = 'none';
             qs('#item-detail-open', m).style.display = 'none';
             const loadingOverlay = qs('#item-detail-loading-overlay', m);
@@ -545,12 +657,22 @@
     }
 
     function populateFromCard(anchor, id, modal) {
+        console.log('[DetailsModal.populateFromCard] Starting - ID:', id);
         const card = anchor.closest('.card') || anchor.closest('[data-id]');
         const title = anchor.getAttribute('title') || anchor.textContent.trim() || qs('.cardText-first a', card)?.textContent || 'Untitled';
         const year = qs('.cardText-secondary bdi', card)?.textContent || '';
         const imgContainer = qs('.cardImageContainer', card);
         const bgImage = getBackgroundImage(imgContainer);
         const isSeriesCard = card?.className?.includes('Series') || card?.parentElement?.className?.includes('series');
+
+        console.log('[DetailsModal.populateFromCard] Card analysis:', {
+            title,
+            year,
+            isSeriesCard,
+            cardClass: card?.className,
+            parentClass: card?.parentElement?.className,
+            itemId: id
+        });
 
         qs('#item-detail-title', modal).textContent = title;
         qs('#item-detail-meta', modal).textContent = year || '';
@@ -566,17 +688,33 @@
     }
 
     async function fetchMetadata(jellyfinId, card, modal, title, year, forceSeries) {
+        console.log('[DetailsModal.fetchMetadata] Starting with:', { jellyfinId, title, year, forceSeries });
+        
         try {
             let { tmdbId, imdbId, itemType } = parseJellyfinId(jellyfinId, card);
+            console.log('[DetailsModal.fetchMetadata] Parsed Jellyfin ID:', { tmdbId, imdbId, itemType });
+            
             if (forceSeries && itemType === 'movie') {
+                console.log('[DetailsModal.fetchMetadata] Forcing series type');
                 itemType = 'series';
             }
+            
+            console.log('[DetailsModal.fetchMetadata] Calling getTMDBData with:', { tmdbId, imdbId, itemType, title, year });
             const tmdbData = await getTMDBData(tmdbId, imdbId, itemType, title, year);
 
             if (!tmdbData) {
+                console.error('[DetailsModal.fetchMetadata] No TMDB data returned');
                 qs('#item-detail-info', modal).innerHTML = 'Could not find metadata.';
                 return;
             }
+
+            console.log('[DetailsModal.fetchMetadata] TMDB data received:', {
+                id: tmdbData.id,
+                imdb_id: tmdbData.imdb_id,
+                title: tmdbData.title,
+                name: tmdbData.name,
+                hasSeasons: !!tmdbData.number_of_seasons
+            });
 
             const displayTitle = tmdbData.title || tmdbData.name;
             if (displayTitle) qs('#item-detail-title', modal).textContent = displayTitle;
@@ -588,11 +726,16 @@
                               (tmdbData.title && !tmdbData.name) ? 'movie' :
                               (tmdbData.number_of_seasons) ? 'series' : 'movie';
             
+            console.log('[DetailsModal.fetchMetadata] Detected actual type:', actualType);
+            
             const tmdbIdFromResponse = tmdbData.id;
             let imdbIdFromResponse = imdbId || tmdbData.imdb_id;
             
+            console.log('[DetailsModal] TMDB IDs before external fetch - tmdbId:', tmdbIdFromResponse, 'imdbId:', imdbIdFromResponse);
+            
             // Fetch external IDs if needed
             if (!imdbIdFromResponse && tmdbIdFromResponse) {
+                console.log('[DetailsModal.fetchMetadata] Fetching external IDs for TMDB ID:', tmdbIdFromResponse);
                 try {
                     const params = new URLSearchParams();
                     params.append('tmdbId', tmdbIdFromResponse);
@@ -601,16 +744,21 @@
                     const url = window.ApiClient.getUrl('api/baklava/metadata/external-ids') + '?' + params.toString();
                     const externalData = await window.ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' });
                     
+                    console.log('[DetailsModal.fetchMetadata] External IDs response:', externalData);
+                    
                     if (externalData?.imdb_id) {
                         imdbIdFromResponse = externalData.imdb_id;
+                        console.log('[DetailsModal.fetchMetadata] Found IMDB ID from external IDs:', imdbIdFromResponse);
                     }
                 } catch (err) {
                     console.warn('[DetailsModal] Could not fetch external IDs:', err);
                 }
             }
             
-            modal.dataset.imdbId = imdbIdFromResponse;
-            modal.dataset.tmdbId = tmdbIdFromResponse;
+            console.log('[DetailsModal] FINAL IDs - Setting modal.dataset - tmdbId:', tmdbIdFromResponse, 'imdbId:', imdbIdFromResponse, 'itemType:', actualType);
+            
+            modal.dataset.imdbId = imdbIdFromResponse || '';
+            modal.dataset.tmdbId = tmdbIdFromResponse || '';
             modal.dataset.itemType = actualType;
             
             const { credits, reviews } = await fetchTMDBCreditsAndReviews(actualType === 'series' ? 'tv' : 'movie', tmdbData.id);
@@ -659,14 +807,18 @@
                     const requestBtn = qs('#item-detail-request', modal);
                     const openBtn = qs('#item-detail-open', modal);
                     const approveBtn = qs('#item-detail-approve', modal);
+                    const rejectBtn = qs('#item-detail-reject', modal);
                     const removeBtn = qs('#item-detail-remove', modal);
+                    const viewRequestsBtn = qs('#item-detail-view-requests', modal);
                     
                     // Hide all buttons initially
                     if (importBtn) importBtn.style.display = 'none';
                     if (requestBtn) requestBtn.style.display = 'none';
                     if (openBtn) openBtn.style.display = 'none';
                     if (approveBtn) approveBtn.style.display = 'none';
+                    if (rejectBtn) rejectBtn.style.display = 'none';
                     if (removeBtn) removeBtn.style.display = 'none';
+                    if (viewRequestsBtn) viewRequestsBtn.style.display = 'none';
                     
                     // Clear any previous status messages
                     const existingMsg = qs('.request-status-msg', modal);
@@ -674,81 +826,83 @@
                     
                     console.log('[DetailsModal] Request status:', existingRequest.status, 'isAdmin:', isAdmin, 'isOwn:', isOwnRequest);
                     
-                    if (isAdmin) {
-                        // Admin viewing a request
+                    // Check if item is in library
+                    const inLibrary = await window.LibraryStatus.check(imdbIdFromResponse, tmdbIdFromResponse, actualType, modal.dataset.itemId || null);
+                    
+                    if (inLibrary) {
+                        // Item is in library - just show Open button
+                        if (openBtn) openBtn.style.display = 'block';
+                        // Update request status display but don't show action buttons
+                        if (requesterEl) {
+                            let statusText = existingRequest.status.charAt(0).toUpperCase() + existingRequest.status.slice(1);
+                            requesterEl.textContent = `${statusText} - in library`;
+                            requesterEl.style.display = 'block';
+                        }
+                    } else if (isAdmin) {
+                        // Admin viewing a request - item NOT in library
                         if (existingRequest.status === 'pending') {
                             // Pending - show approve + reject
                             if (approveBtn) {
                                 approveBtn.style.display = 'block';
-                                approveBtn.textContent = 'Approve & Import';
+                                approveBtn.textContent = 'Approve';
                             }
-                                if (removeBtn) {
-                                    removeBtn.style.display = 'block';
-                                    removeBtn.title = 'Reject Request';
-                                }
-                        } else {
-                            // Approved - show import + remove
+                            if (rejectBtn) {
+                                rejectBtn.style.display = 'block';
+                                rejectBtn.textContent = 'Reject';
+                            }
+                        } else if (existingRequest.status === 'approved') {
+                            // Approved but not imported - show import + delete
                             if (importBtn) {
                                 importBtn.style.display = 'block';
-                                importBtn.textContent = 'Import Now';
+                                importBtn.textContent = 'Import';
                             }
                             if (removeBtn) {
                                 removeBtn.style.display = 'block';
-                                removeBtn.title = 'Remove';
+                                removeBtn.title = 'Delete';
+                            }
+                        } else if (existingRequest.status === 'rejected') {
+                            // Rejected - just show delete
+                            if (removeBtn) {
+                                removeBtn.style.display = 'block';
+                                removeBtn.title = 'Delete';
                             }
                         }
                     } else {
                         // Non-admin user viewing a request
                         if (existingRequest.status === 'pending') {
-                            // Pending request
                             if (isOwnRequest) {
-                                // User's own pending request - show cancel button
-                                if (removeBtn) {
-                                    removeBtn.style.display = 'block';
-                                    removeBtn.title = 'Cancel Request';
+                                // User's own pending request - show "View Requests" button to open dropdown
+                                if (viewRequestsBtn) {
+                                    viewRequestsBtn.style.display = 'block';
                                 }
-                                if (approveBtn) approveBtn.style.display = 'none';
-                                if (openBtn) openBtn.style.display = 'none';
                             } else {
-                                // Someone else's pending request - show nothing
-                                if (approveBtn) approveBtn.style.display = 'none';
-                                if (removeBtn) removeBtn.style.display = 'none';
-                                if (openBtn) openBtn.style.display = 'none';
-                                // Show status message
-                                const statusMsg = document.createElement('div');
-                                statusMsg.textContent = 'Already requested by ' + existingRequest.username;
-                                statusMsg.style.cssText = 'color: #ffa500; padding: 10px; text-align: center; background: rgba(255,165,0,0.1); border-radius: 4px; margin: 10px 0;';
-                                const buttonsDiv = qs('.item-detail-buttons', modal);
-                                if (buttonsDiv && !qs('.request-status-msg', modal)) {
-                                    statusMsg.className = 'request-status-msg';
-                                    buttonsDiv.appendChild(statusMsg);
-                                }
+                                // Someone else's pending request - show nothing (just close button)
                             }
-                        } else {
-                            // Approved request - don't show "Open" unless it's actually in library!
-                            // Check if it's actually imported
-                            const actuallyInLibrary = await window.LibraryStatus.check(imdbIdFromResponse, tmdbIdFromResponse, actualType, modal.dataset.itemId || null);
-                            if (actuallyInLibrary) {
-                                if (openBtn) openBtn.style.display = 'block';
-                            } else {
-                                // Approved but not imported yet - show status
-                                const statusMsg = document.createElement('div');
-                                statusMsg.textContent = 'Request approved - awaiting import';
-                                statusMsg.style.cssText = 'color: #4caf50; padding: 10px; text-align: center; background: rgba(76,175,80,0.1); border-radius: 4px; margin: 10px 0;';
-                                const buttonsDiv = qs('.item-detail-buttons', modal);
-                                if (buttonsDiv && !qs('.request-status-msg', modal)) {
-                                    statusMsg.className = 'request-status-msg';
-                                    buttonsDiv.appendChild(statusMsg);
-                                }
+                        } else if (existingRequest.status === 'approved') {
+                            // Approved - show status message
+                            const statusMsg = document.createElement('div');
+                            statusMsg.textContent = 'Request approved - awaiting import';
+                            statusMsg.style.cssText = 'color: #4caf50; padding: 10px; text-align: center; background: rgba(76,175,80,0.1); border-radius: 4px; margin: 10px 0;';
+                            statusMsg.className = 'request-status-msg';
+                            const modalRight = qs('.right', modal);
+                            if (modalRight) modalRight.insertBefore(statusMsg, modalRight.firstChild.nextSibling);
+                            
+                            if (isOwnRequest && removeBtn) {
+                                removeBtn.style.display = 'block';
+                                removeBtn.title = 'Cancel Request';
                             }
-                            if (approveBtn) approveBtn.style.display = 'none';
-                            if (isOwnRequest) {
-                                    if (removeBtn) {
-                                    removeBtn.style.display = 'block';
-                                    removeBtn.title = 'Remove';
-                                }
-                            } else {
-                                if (removeBtn) removeBtn.style.display = 'none';
+                        } else if (existingRequest.status === 'rejected') {
+                            // Rejected - show status message
+                            const statusMsg = document.createElement('div');
+                            statusMsg.textContent = 'Request rejected';
+                            statusMsg.style.cssText = 'color: #f44336; padding: 10px; text-align: center; background: rgba(244,67,54,0.1); border-radius: 4px; margin: 10px 0;';
+                            statusMsg.className = 'request-status-msg';
+                            const modalRight = qs('.right', modal);
+                            if (modalRight) modalRight.insertBefore(statusMsg, modalRight.firstChild.nextSibling);
+                            
+                            if (isOwnRequest && removeBtn) {
+                                removeBtn.style.display = 'block';
+                                removeBtn.title = 'Delete';
                             }
                         }
                     }
@@ -757,15 +911,18 @@
                     return;
                 }
                 
+                // No existing request - check library status
                 const inLibrary = await window.LibraryStatus.check(imdbIdFromResponse, tmdbIdFromResponse, actualType, modal.dataset.itemId || null);
                 const importBtn = qs('#item-detail-import', modal);
                 const requestBtn = qs('#item-detail-request', modal);
                 const openBtn = qs('#item-detail-open', modal);
                 
                 const approveBtn = qs('#item-detail-approve', modal);
+                const rejectBtn = qs('#item-detail-reject', modal);
                 const removeBtn = qs('#item-detail-remove', modal);
                 const requesterEl = qs('#item-detail-requester', modal);
                 if (approveBtn) approveBtn.style.display = 'none';
+                if (rejectBtn) rejectBtn.style.display = 'none';
                 if (removeBtn) removeBtn.style.display = 'none';
                 if (requesterEl) requesterEl.style.display = 'none';
                 
@@ -905,7 +1062,6 @@
             const { item, isRequestMode, requestId, requestUsername, isAdmin } = ev.detail || {};
             if (!item) return;
             
-            console.log('[DetailsModal] Opening modal for request');
             
             const modal = getModal();
             const loadingEl = qs('#item-detail-loading-overlay', modal);
@@ -952,6 +1108,7 @@
             const requestBtn = qs('#item-detail-request', modal);
             const openBtn = qs('#item-detail-open', modal);
             const approveBtn = qs('#item-detail-approve', modal);
+            const rejectBtn = qs('#item-detail-reject', modal);
             const removeBtn = qs('#item-detail-remove', modal);
             
             if (isRequestMode) {
@@ -962,36 +1119,60 @@
                 
                 if (isAdmin) {
                     if (requestStatus === 'pending') {
+                        // Pending - show approve + reject
                         if (approveBtn) approveBtn.style.display = 'block';
+                        if (rejectBtn) rejectBtn.style.display = 'block';
+                        if (removeBtn) removeBtn.style.display = 'none';
+                        if (openBtn) openBtn.style.display = 'none';
+                    } else if (requestStatus === 'approved') {
+                        // Approved - show import + delete
+                        if (approveBtn) approveBtn.style.display = 'none';
+                        if (rejectBtn) rejectBtn.style.display = 'none';
+                        if (importBtn) importBtn.style.display = 'block';
                         if (removeBtn) removeBtn.style.display = 'block';
                         if (openBtn) openBtn.style.display = 'none';
-                    } else {
+                    } else if (requestStatus === 'rejected') {
+                        // Rejected - show delete only
                         if (approveBtn) approveBtn.style.display = 'none';
+                        if (rejectBtn) rejectBtn.style.display = 'none';
+                        if (importBtn) importBtn.style.display = 'none';
                         if (removeBtn) removeBtn.style.display = 'block';
                         if (openBtn) openBtn.style.display = 'none';
                     }
                 } else {
+                    // Non-admin user
                     if (requestStatus === 'pending') {
                         if (isOwnRequest) {
-                                if (removeBtn) {
+                            // Own pending - show cancel
+                            if (removeBtn) {
                                 removeBtn.style.display = 'block';
                                 removeBtn.title = 'Cancel';
                             }
                             if (approveBtn) approveBtn.style.display = 'none';
+                            if (rejectBtn) rejectBtn.style.display = 'none';
                             if (openBtn) openBtn.style.display = 'none';
                         } else {
+                            // Someone else's pending - show nothing
                             if (approveBtn) approveBtn.style.display = 'none';
+                            if (rejectBtn) rejectBtn.style.display = 'none';
                             if (removeBtn) removeBtn.style.display = 'none';
                             if (openBtn) openBtn.style.display = 'none';
                         }
-                    } else {
-                        if (openBtn) openBtn.style.display = 'block';
+                    } else if (requestStatus === 'approved' || requestStatus === 'rejected') {
+                        // Approved/rejected - for approved show open if in library, for rejected show nothing
+                        if (requestStatus === 'approved') {
+                            if (openBtn) openBtn.style.display = 'block';
+                        } else {
+                            // rejected - hide open button
+                            if (openBtn) openBtn.style.display = 'none';
+                        }
                         if (approveBtn) approveBtn.style.display = 'none';
+                        if (rejectBtn) rejectBtn.style.display = 'none';
                         if (isOwnRequest) {
-                                if (removeBtn) {
-                                    removeBtn.style.display = 'block';
-                                    removeBtn.title = 'Remove';
-                                }
+                            if (removeBtn) {
+                                removeBtn.style.display = 'block';
+                                removeBtn.title = 'Remove';
+                            }
                         } else {
                             if (removeBtn) removeBtn.style.display = 'none';
                         }

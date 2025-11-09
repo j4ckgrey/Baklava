@@ -55,7 +55,11 @@
     <Content Include="Files/wwwroot/**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <!-- Include plugin logo - copy as both logo.png and thumb.png -->
+    <!-- Embed plugin logo as resource for GetPluginImage() -->
+    <EmbeddedResource Include="Baklava.png">
+      <LogicalName>Baklava.thumb.png</LogicalName>
+    </EmbeddedResource>
+    <!-- Also copy to output as thumb.png for file access -->
     <Content Include="Baklava.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>thumb.png</TargetPath>

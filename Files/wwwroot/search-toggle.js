@@ -76,29 +76,46 @@
         localStorage.setItem(SEARCH_STORAGE_KEY, String(state));
     }
 
-    // Trigger search results refresh by forcing a page reload with updated query
-    // This ensures the search API is called again with the new local/global state
+    // Trigger search results refresh without page reload
+    // Use Jellyfin's API search endpoint directly to refresh results
     function refreshSearchResults(query) {
         if (!query) return;
         
         console.log('[Baklava] Refreshing search results for:', query);
         
         try {
-            // Get the current URL
-            const currentUrl = new URL(window.location.href);
-            
-            // Check if we're on a search page
-            if (currentUrl.pathname.includes('/search.html')) {
-                // Update the query parameter and add cache-busting
-                const searchParams = new URLSearchParams(currentUrl.search);
-                searchParams.set('query', query);
-                
-                // Force reload by navigating to the same page with updated params
-                window.location.href = `${currentUrl.pathname}?${searchParams.toString()}`;
-            } else {
-                // Not on search page - try to navigate to it
-                window.location.href = `/web/index.html#!/search.html?query=${encodeURIComponent(query)}`;
+            // Clear the search input
+            const searchInput = document.querySelector('#searchTextInput, .emby-input.searchfields-txtSearch, input[type="text"][placeholder*="Search"]');
+            if (searchInput) {
+                searchInput.value = '';
+                console.log('[Baklava] Cleared search input');
             }
+            
+            // Find the search results container
+            const searchPage = document.querySelector('.itemsContainer, .searchResults, [data-role="page"]');
+            if (!searchPage) {
+                console.warn('[Baklava] Could not find search results container');
+                return;
+            }
+
+            // Trigger a custom event that Jellyfin might listen to
+            const event = new CustomEvent('search-refresh', {
+                bubbles: true,
+                detail: { query: query, timestamp: Date.now() }
+            });
+            document.dispatchEvent(event);
+
+            // Force re-render by simulating a history state change
+            const currentState = history.state;
+            history.replaceState(
+                { ...currentState, _searchRefresh: Date.now() },
+                document.title,
+                window.location.href
+            );
+
+            // Dispatch popstate to trigger Jellyfin's navigation logic
+            window.dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+            
         } catch (error) {
             console.error('[Baklava] Error refreshing search:', error);
         }

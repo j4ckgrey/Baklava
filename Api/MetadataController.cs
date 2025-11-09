@@ -57,24 +57,32 @@ namespace Baklava.Api
             [FromQuery] bool includeCredits = true,
             [FromQuery] bool includeReviews = true)
         {
+            _logger.LogInformation("[MetadataController.GetTMDBMetadata] Called with: tmdbId={TmdbId}, imdbId={ImdbId}, itemType={ItemType}, title={Title}, year={Year}", 
+                tmdbId ?? "null", imdbId ?? "null", itemType ?? "null", title ?? "null", year ?? "null");
+            
             try
             {
                 var cfg = Plugin.Instance?.Configuration;
                 var apiKey = cfg?.TmdbApiKey;
                 if (string.IsNullOrEmpty(apiKey))
                 {
+                    _logger.LogError("[MetadataController.GetTMDBMetadata] TMDB API key not configured");
                     return BadRequest(new { error = "TMDB API key not configured" });
                 }
 
                 var mediaType = itemType == "series" ? "tv" : "movie";
+                _logger.LogInformation("[MetadataController.GetTMDBMetadata] Using mediaType: {MediaType}", mediaType);
+                
                 JsonDocument? mainData = null;
 
                 // Try TMDB ID first
                 if (!string.IsNullOrEmpty(tmdbId))
                 {
+                    _logger.LogInformation("[MetadataController.GetTMDBMetadata] Trying TMDB ID: {TmdbId}", tmdbId);
                     mainData = await FetchTMDBAsync($"/{mediaType}/{tmdbId}", apiKey);
                     if (mainData != null)
                     {
+                        _logger.LogInformation("[MetadataController.GetTMDBMetadata] Found via TMDB ID");
                         return await BuildCompleteResponse(mainData, mediaType, apiKey, includeCredits, includeReviews);
                     }
                 }
@@ -82,6 +90,7 @@ namespace Baklava.Api
                 // Try IMDB ID via find endpoint
                 if (!string.IsNullOrEmpty(imdbId))
                 {
+                    _logger.LogInformation("[MetadataController.GetTMDBMetadata] Trying IMDB ID: {ImdbId}", imdbId);
                     var findResult = await FetchTMDBAsync($"/find/{imdbId}", apiKey, new Dictionary<string, string>
                     {
                         { "external_source", "imdb_id" }
@@ -94,16 +103,19 @@ namespace Baklava.Api
                         
                         if (itemType == "series" && root.TryGetProperty("tv_results", out var tvResults) && tvResults.GetArrayLength() > 0)
                         {
+                            _logger.LogInformation("[MetadataController.GetTMDBMetadata] Found in tv_results");
                             results = tvResults[0];
                         }
                         else if (root.TryGetProperty("movie_results", out var movieResults) && movieResults.GetArrayLength() > 0)
                         {
+                            _logger.LogInformation("[MetadataController.GetTMDBMetadata] Found in movie_results");
                             results = movieResults[0];
                         }
 
                         if (results.ValueKind != JsonValueKind.Undefined)
                         {
                             var resultTmdbId = results.GetProperty("id").GetInt32().ToString();
+                            _logger.LogInformation("[MetadataController.GetTMDBMetadata] Extracted TMDB ID from IMDB lookup: {ResultTmdbId}", resultTmdbId);
                             mainData = await FetchTMDBAsync($"/{mediaType}/{resultTmdbId}", apiKey);
                             if (mainData != null)
                             {
@@ -116,6 +128,7 @@ namespace Baklava.Api
                 // Fallback: Search by title
                 if (!string.IsNullOrEmpty(title))
                 {
+                    _logger.LogInformation("[MetadataController.GetTMDBMetadata] Fallback to title search: {Title}", title);
                     var searchParams = new Dictionary<string, string> { { "query", title } };
                     if (!string.IsNullOrEmpty(year))
                     {
@@ -130,6 +143,7 @@ namespace Baklava.Api
                         {
                             var firstResult = results[0];
                             var resultTmdbId = firstResult.GetProperty("id").GetInt32().ToString();
+                            _logger.LogInformation("[MetadataController.GetTMDBMetadata] Found via title search, TMDB ID: {ResultTmdbId}", resultTmdbId);
                             mainData = await FetchTMDBAsync($"/{mediaType}/{resultTmdbId}", apiKey);
                             if (mainData != null)
                             {
@@ -139,6 +153,7 @@ namespace Baklava.Api
                     }
 
                     // Try alternate type if primary search failed
+                    _logger.LogInformation("[MetadataController.GetTMDBMetadata] Primary search failed, trying alternate type");
                     var altMediaType = itemType == "series" ? "movie" : "tv";
                     var altSearchParams = new Dictionary<string, string> { { "query", title } };
                     if (!string.IsNullOrEmpty(year))
@@ -182,17 +197,24 @@ namespace Baklava.Api
             [FromQuery] string itemType,
             [FromQuery] string? jellyfinId)
         {
+            _logger.LogInformation("[MetadataController.CheckLibraryStatus] Called with: imdbId={ImdbId}, tmdbId={TmdbId}, itemType={ItemType}, jellyfinId={JellyfinId}",
+                imdbId ?? "null", tmdbId ?? "null", itemType ?? "null", jellyfinId ?? "null");
+            
             // Check inputs and proceed
             try
             {
-                if (string.IsNullOrEmpty(imdbId) && string.IsNullOrEmpty(tmdbId))
+                // Allow jellyfinId alone if provided
+                if (string.IsNullOrEmpty(imdbId) && string.IsNullOrEmpty(tmdbId) && string.IsNullOrEmpty(jellyfinId))
                 {
-                    return BadRequest(new { error = "Either imdbId or tmdbId is required" });
+                    _logger.LogWarning("[MetadataController.CheckLibraryStatus] No IDs provided");
+                    return BadRequest(new { error = "Either imdbId, tmdbId, or jellyfinId is required" });
                 }
 
                 // Check if in library by querying all items and checking provider IDs
                 // This is faster than JS fetching all 5000 items to the client!
                 var inLibrary = false;
+                string? foundImdbId = imdbId;
+                string? foundTmdbId = tmdbId;
                 
                 try
                 {
@@ -207,10 +229,28 @@ namespace Baklava.Api
                             if ((itemType == "series" && itemTypeName == "Series") || (itemType == "movie" && itemTypeName == "Movie") || string.IsNullOrEmpty(itemType))
                             {
                                 inLibrary = true;
+                                
+                                _logger.LogInformation("[MetadataController.CheckLibraryStatus] Found item in library by JellyfinId: {Id}, type: {Type}",
+                                    jellyfinId, itemTypeName);
+                                
+                                // Extract provider IDs for request checking
+                                if (itemById.ProviderIds != null)
+                                {
+                                    itemById.ProviderIds.TryGetValue("Imdb", out foundImdbId);
+                                    itemById.ProviderIds.TryGetValue("Tmdb", out foundTmdbId);
+                                    
+                                    _logger.LogInformation("[MetadataController.CheckLibraryStatus] Extracted provider IDs: imdb={Imdb}, tmdb={Tmdb}",
+                                        foundImdbId ?? "null", foundTmdbId ?? "null");
+                                }
                             }
                         }
+                        else
+                        {
+                            _logger.LogInformation("[MetadataController.CheckLibraryStatus] JellyfinId {Id} not found in library - item may have been deleted",
+                                jellyfinId);
+                        }
                     }
-                    else
+                    else if (!string.IsNullOrEmpty(imdbId) || !string.IsNullOrEmpty(tmdbId))
                     {
                         // Query items without type filter first, then filter manually
                         var allItems = _libraryManager.GetItemList(new InternalItemsQuery
@@ -243,16 +283,35 @@ namespace Baklava.Api
                     // Fallback - just check requests
                 }
 
-                // Check if requested
+                                // Check if requested using the found IDs (use foundImdbId/foundTmdbId if we extracted them from Jellyfin item)
                 var config = Plugin.Instance?.Configuration;
                 var requests = config?.Requests ?? new List<MediaRequest>();
+                
+                _logger.LogInformation("[MetadataController.CheckLibraryStatus] Checking {Count} requests with foundImdbId={FoundImdb}, foundTmdbId={FoundTmdb}, jellyfinId={JfId}, inLibrary={InLib}",
+                    requests.Count, foundImdbId ?? "null", foundTmdbId ?? "null", jellyfinId ?? "null", inLibrary);
+                
+                // Match by TMDB/IMDB ID first (more reliable), then by JellyfinId ONLY if item is still in library
                 var existingRequest = requests.FirstOrDefault(r =>
                     r.ItemType == itemType &&
                     (
-                        (!string.IsNullOrEmpty(jellyfinId) && !string.IsNullOrEmpty(r.JellyfinId) && r.JellyfinId == jellyfinId) ||
-                        ((imdbId != null && r.ImdbId == imdbId) || (tmdbId != null && r.TmdbId == tmdbId))
+                        // Prefer matching by TMDB/IMDB IDs (these are stable even if item is deleted/re-added)
+                        ((foundImdbId != null && !string.IsNullOrEmpty(r.ImdbId) && r.ImdbId == foundImdbId) || 
+                         (foundTmdbId != null && !string.IsNullOrEmpty(r.TmdbId) && r.TmdbId == foundTmdbId)) ||
+                        // Only match by JellyfinId if the item is currently in the library
+                        // (prevents false matches when item was deleted but request still has old JellyfinId)
+                        (inLibrary && !string.IsNullOrEmpty(jellyfinId) && !string.IsNullOrEmpty(r.JellyfinId) && r.JellyfinId == jellyfinId)
                     )
                 );
+                
+                if (existingRequest != null)
+                {
+                    _logger.LogInformation("[MetadataController.CheckLibraryStatus] Found existing request: id={Id}, status={Status}, imdbId={Imdb}, tmdbId={Tmdb}",
+                        existingRequest.Id, existingRequest.Status, existingRequest.ImdbId ?? "null", existingRequest.TmdbId ?? "null");
+                }
+                else
+                {
+                    _logger.LogInformation("[MetadataController.CheckLibraryStatus] No existing request found");
+                }
 
                 // Look up the actual username from userId if request exists
                 string actualUsername = null;
@@ -270,6 +329,9 @@ namespace Baklava.Api
                         actualUsername = existingRequest.Username;
                     }
                 }
+
+                _logger.LogInformation("[MetadataController.CheckLibraryStatus] Returning: inLibrary={InLib}, hasRequest={HasReq}",
+                    inLibrary, existingRequest != null);
 
                 return Ok(new
                 {
@@ -556,33 +618,9 @@ namespace Baklava.Api
             }
 
             var combined = $"{{\"main\":{mainRaw},\"credits\":{creditsRaw},\"reviews\":{reviewsRaw}}}";
-                // Deserialize the raw JSON strings into plain objects so ASP.NET's
-                // serializer emits proper JSON values instead of JsonElement/ValueKind
-                // wrappers. This avoids clients receiving { "ValueKind": "Object" }.
-                object? mainObj = null;
-                object? creditsObj = null;
-                object? reviewsObj = null;
-
-                try
-                {
-                    mainObj = JsonSerializer.Deserialize<object>(mainRaw);
-                }
-                catch
-                {
-                    mainObj = null;
-                }
-
-                if (creditsRaw != "null")
-                {
-                    try { creditsObj = JsonSerializer.Deserialize<object>(creditsRaw); } catch { creditsObj = null; }
-                }
-
-                if (reviewsRaw != "null")
-                {
-                    try { reviewsObj = JsonSerializer.Deserialize<object>(reviewsRaw); } catch { reviewsObj = null; }
-                }
-
-                return Ok(new { main = mainObj, credits = creditsObj, reviews = reviewsObj });
+            
+            // Return raw JSON string directly to avoid JsonElement/ValueKind wrapper issues
+            return Content(combined, "application/json");
         }
 
         private async Task<JsonDocument?> FetchTMDBAsync(string endpoint, string apiKey, Dictionary<string, string>? queryParams = null)

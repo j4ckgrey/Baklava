@@ -12,7 +12,7 @@
         "changelog": "Initial release: Media request system, search toggle with local/global modes, TV client auto-enforcement, server-side search filtering, responsive UI for all screen sizes, Gelato integration",
         "targetAbi": "10.11.0.0",
   "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.1.0/baklava_0.1.0.zip",
-        "checksum": "842450edd377fe0bea04c133e72f608e",
+        "checksum": "725538d90d8de92d631617c462389f00",
         "checksumType": "md5",
         "timestamp": "2025-11-09T12:00:00Z"
       }
