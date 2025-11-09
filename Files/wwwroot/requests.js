@@ -12,7 +12,7 @@
     // SHARED STATE & CONFIGURATION
     // ============================================
     
-    const API_BASE = 'api/myplugin/requests';
+    const API_BASE = 'api/baklava/requests';
     let isAdmin = false;
     let currentUsername = '';
     let isLoadingRequests = false;
@@ -126,11 +126,14 @@
         });
     }
 
-    async function updateRequestStatus(requestId, status) {
+    async function updateRequestStatus(requestId, status, approvedBy) {
+        const payload = { status };
+        if (approvedBy) payload.approvedBy = approvedBy;
+
         await window.ApiClient.ajax({
-            type: 'PATCH',
+            type: 'PUT',
             url: window.ApiClient.getUrl(`${API_BASE}/${requestId}`),
-            data: JSON.stringify({ status }),
+            data: JSON.stringify(payload),
             contentType: 'application/json',
             dataType: 'json'
         });
@@ -154,11 +157,11 @@
         card.style.cssText = `
             display: inline-block;
             width: 140px;
-            margin: 10px;
             cursor: pointer;
             text-align: center;
             color: #ccc;
             position: relative;
+            flex-shrink: 0;
         `;
 
         const imgDiv = document.createElement('div');
@@ -209,6 +212,21 @@
                 font-weight: 600;
             `;
             card.appendChild(statusBadge);
+        } else if (request.status === 'approved') {
+            const statusBadge = document.createElement('div');
+            statusBadge.textContent = 'Approved';
+            statusBadge.style.cssText = `
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                background: rgba(76, 175, 80, 0.95);
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: 600;
+            `;
+            card.appendChild(statusBadge);
         }
 
         const titleDiv = document.createElement('div');
@@ -234,6 +252,61 @@
         card.addEventListener('click', () => {
             openRequestModal(request, adminView);
         });
+
+        return card;
+    }
+
+    // Create a placeholder/dummy card matching the request card size for empty states
+    function createPlaceholderCard() {
+        const card = document.createElement('div');
+        card.className = 'request-card placeholder-card';
+        card.style.cssText = `
+            display: inline-block;
+            width: 140px;
+            margin: 10px;
+            cursor: default;
+            text-align: center;
+            color: #666;
+            position: relative;
+        `;
+
+        const imgDiv = document.createElement('div');
+        imgDiv.style.cssText = `
+            width: 100%;
+            height: 210px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px dashed rgba(150,150,150,0.6);
+            background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.02));
+        `;
+
+        const inner = document.createElement('div');
+        inner.style.cssText = 'width:60%;height:60%;border-radius:4px;';
+        imgDiv.appendChild(inner);
+        card.appendChild(imgDiv);
+
+        const titleDiv = document.createElement('div');
+        titleDiv.textContent = '';
+        titleDiv.style.cssText = `
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 4px;
+            height: 16px;
+        `;
+        card.appendChild(titleDiv);
+
+        const yearDiv = document.createElement('div');
+        yearDiv.textContent = '';
+        yearDiv.style.cssText = `
+            font-size: 12px;
+            color: #999;
+            height: 14px;
+        `;
+        card.appendChild(yearDiv);
 
         return card;
     }
@@ -297,12 +370,12 @@
         dropdownMenu.className = 'requests-dropdown';
         dropdownMenu.style.cssText = `
             position: fixed;
-            top: 60px;
+            top: 40px;
+            bottom: 40px;
             right: 20px;
             left: 20px;
             max-width: 1400px;
             margin: 0 auto;
-            max-height: 70vh;
             background: #181818;
             border: 1px solid #333;
             border-radius: 8px;
@@ -314,18 +387,26 @@
         `;
         
         dropdownMenu.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px;">
                 <h2 style="margin: 0; color: #fff;">Media Requests</h2>
-                <button class="close-dropdown" style="background: #555; border: none; color: #fff; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Close</button>
+                <button class="close-dropdown" title="Close" style="background: #555; border: none; color: #fff; padding: 8px 10px; border-radius: 4px; cursor: pointer; display:flex;align-items:center;justify-content:center;">
+                    <span class="material-icons" aria-hidden="true" style="font-size:18px;line-height:1;">close</span>
+                </button>
             </div>
-            <div class="dropdown-content" style="overflow-y: auto; max-height: calc(70vh - 80px);">
+            <div class="dropdown-content" style="overflow-y: auto; max-height: calc(100% - 80px);">
                 <div class="dropdown-movies">
                     <h3 style="color: #1e90ff; margin-bottom: 10px;">Movie Requests</h3>
-                    <div class="dropdown-movies-container" style="display: flex; flex-wrap: wrap; min-height: 50px;"></div>
+                    <div class="dropdown-movies-container" style="display: flex; flex-wrap: wrap; gap: 15px; min-height: 50px;"></div>
                 </div>
-                <div class="dropdown-series" style="margin-top: 30px;">
+
+                <div class="dropdown-series" style="margin-top: 20px;">
                     <h3 style="color: #1e90ff; margin-bottom: 10px;">Series Requests</h3>
-                    <div class="dropdown-series-container" style="display: flex; flex-wrap: wrap; min-height: 50px;"></div>
+                    <div class="dropdown-series-container" style="display: flex; flex-wrap: wrap; gap: 15px; min-height: 50px;"></div>
+                </div>
+
+                <div class="dropdown-approved" style="margin-top: 30px;">
+                    <h3 style="color: #4caf50; margin-bottom: 10px;">Approved</h3>
+                    <div class="dropdown-approved-container" style="display: flex; flex-wrap: wrap; gap: 15px; min-height: 50px;"></div>
                 </div>
             </div>
         `;
@@ -352,16 +433,31 @@
             const requests = await fetchAllRequests();
             const adminView = await checkAdmin();
             
-            const filteredRequests = adminView ? requests : requests.filter(r => r.username === currentUsername);
-            
-            const movies = filteredRequests.filter(r => r.itemType === 'movie');
-            const series = filteredRequests.filter(r => r.itemType === 'series');
+            // For admins: show all non-approved requests (pending) in movies/series lists,
+            // but show only admin-owned approved copies in the Approved row. This
+            // prevents admins from seeing the original user's approved record alongside
+            // their own admin copy.
+            let filteredRequests;
+            if (adminView) {
+                // non-approved (pending/rejected/etc.) for lists
+                filteredRequests = requests.filter(r => r.status !== 'approved');
+            } else {
+                filteredRequests = requests.filter(r => r.username === currentUsername);
+            }
+
+            // Approved requests are shown in their own row. Admins only see their own approved copies.
+            const approved = adminView
+                ? requests.filter(r => r.status === 'approved' && r.username === currentUsername)
+                : filteredRequests.filter(r => r.status === 'approved');
+
+            const movies = filteredRequests.filter(r => r.itemType === 'movie' && r.status !== 'approved');
+            const series = filteredRequests.filter(r => r.itemType === 'series' && r.status !== 'approved');
 
             moviesContainer.innerHTML = '';
             seriesContainer.innerHTML = '';
 
             if (movies.length === 0) {
-                moviesContainer.innerHTML = '<div style="color: #999; padding: 20px;">No movie requests</div>';
+                moviesContainer.appendChild(createPlaceholderCard());
             } else {
                 for (const req of movies) {
                     moviesContainer.appendChild(await createRequestCard(req, adminView));
@@ -369,10 +465,24 @@
             }
 
             if (series.length === 0) {
-                seriesContainer.innerHTML = '<div style="color: #999; padding: 20px;">No series requests</div>';
+                seriesContainer.appendChild(createPlaceholderCard());
             } else {
                 for (const req of series) {
                     seriesContainer.appendChild(await createRequestCard(req, adminView));
+                }
+            }
+
+            // Approved section (render last)
+            const approvedContainer = dropdown.querySelector('.dropdown-approved-container');
+            if (approvedContainer) {
+                if (approved && approved.length > 0) {
+                    approvedContainer.innerHTML = '';
+                    for (const req of approved) {
+                        approvedContainer.appendChild(await createRequestCard(req, adminView));
+                    }
+                } else {
+                    approvedContainer.innerHTML = '';
+                    approvedContainer.appendChild(createPlaceholderCard());
                 }
             }
         } catch (err) {
@@ -515,9 +625,15 @@
                         <div class="itemsContainer scrollSlider focuscontainer-x padded-left padded-right" style="white-space:nowrap;overflow-x:auto;"></div>
                     </div>
                 </div>
-                <div class="verticalSection" style="margin-top:3em;">
+                <div class="verticalSection" style="margin-top:2em;">
                     <h2 class="sectionTitle sectionTitle-cards padded-left">Series Requests</h2>
                     <div class="requests-series-panel">
+                        <div class="itemsContainer scrollSlider focuscontainer-x padded-left padded-right" style="white-space:nowrap;overflow-x:auto;"></div>
+                    </div>
+                </div>
+                <div class="verticalSection" style="margin-top:3em;">
+                    <h2 class="sectionTitle sectionTitle-cards padded-left">Approved</h2>
+                    <div class="requests-approved-panel">
                         <div class="itemsContainer scrollSlider focuscontainer-x padded-left padded-right" style="white-space:nowrap;overflow-x:auto;"></div>
                     </div>
                 </div>
@@ -559,16 +675,28 @@
             const requests = await fetchAllRequests();
             const adminView = await checkAdmin();
             
-            const filteredRequests = adminView ? requests : requests.filter(r => r.username === currentUsername);
-            
-            const movies = filteredRequests.filter(r => r.itemType === 'movie');
-            const series = filteredRequests.filter(r => r.itemType === 'series');
+            // Admins: show all non-approved requests in lists, but only their own approved copies
+            let filteredRequests;
+            if (adminView) {
+                filteredRequests = requests.filter(r => r.status !== 'approved');
+            } else {
+                filteredRequests = requests.filter(r => r.username === currentUsername);
+            }
+
+            const approved = adminView
+                ? requests.filter(r => r.status === 'approved' && r.username === currentUsername)
+                : filteredRequests.filter(r => r.status === 'approved');
+
+            const movies = filteredRequests.filter(r => r.itemType === 'movie' && r.status !== 'approved');
+            const series = filteredRequests.filter(r => r.itemType === 'series' && r.status !== 'approved');
 
             moviesContainer.innerHTML = '';
             seriesContainer.innerHTML = '';
+            const approvedContainer = page.querySelector('.requests-approved-panel .itemsContainer');
+            if (approvedContainer) approvedContainer.innerHTML = '';
 
             if (movies.length === 0) {
-                moviesContainer.innerHTML = '<div style="color: #999; padding: 20px;">No movie requests</div>';
+                moviesContainer.appendChild(createPlaceholderCard());
             } else {
                 for (const req of movies) {
                     moviesContainer.appendChild(await createRequestCard(req, adminView));
@@ -576,10 +704,21 @@
             }
 
             if (series.length === 0) {
-                seriesContainer.innerHTML = '<div style="color: #999; padding: 20px;">No series requests</div>';
+                seriesContainer.appendChild(createPlaceholderCard());
             } else {
                 for (const req of series) {
                     seriesContainer.appendChild(await createRequestCard(req, adminView));
+                }
+            }
+
+            // Populate approved row (last)
+            if (approvedContainer) {
+                if (approved.length === 0) {
+                    approvedContainer.appendChild(createPlaceholderCard());
+                } else {
+                    for (const req of approved) {
+                        approvedContainer.appendChild(await createRequestCard(req, adminView));
+                    }
                 }
             }
         } catch (err) {
@@ -616,8 +755,8 @@
     // ============================================
 
     window.RequestManager = {
-        updateStatus: async (requestId, status) => {
-            await updateRequestStatus(requestId, status);
+        updateStatus: async (requestId, status, approvedBy) => {
+            await updateRequestStatus(requestId, status, approvedBy);
             if (dropdownMenu && dropdownMenu.style.display === 'block') {
                 await loadDropdownRequests();
             }

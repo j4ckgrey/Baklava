@@ -187,52 +187,6 @@
     }
 }
 
-.skinHeader-withBackground {
-    background-color: rgba(32, 32, 32, 0.8) !important;
-}
-
-.emby-tab-button {
-    padding-top: 0.5rem !important;
-    padding-bottom: 0.5rem !important;
-    width: 150px !important;
-}
-
-.emby-tab-button-active {
-    border-top-left-radius: 8px !important;
-    border-top-right-radius: 8px !important;
-    background-color: black !important;
-}
-
-.mainDrawer {
-    background-color: rgba(32, 32, 32, 0.8) !important;
-}
-
-.verticalSection.ContinueWatching.section0.emby-scroller-container .cardScalable {
-    width: 100%;
-    height: 200px;
-}
-
-.verticalSection.ContinueWatching.section0.emby-scroller-container .overflowBackdropCard {
-    width: 600px;
-    height: 100%;
-}
-
-.verticalSection.ContinueWatching.section0.emby-scroller-container .cardPadder {
-    background-color: unset !important;
-}
-
-a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root {
-    /* keep default Jellyfin icon container layout; do not override the icon */
-    position: relative;
-}
-
-/* Removed custom replacement of the home icon so Jellyfin's default icon is used */
-/* Earlier rules hid the built-in icon and added a ::after background image; those are removed */
-
-.headerTop {
-    padding-bottom: 3rem !important;
-}
-
 .je-loader-content h1 img {
     /* Ensure the default loader image is visible */
     display: inline-block !important;
@@ -317,17 +271,18 @@ a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root {
 /* Review carousel styling */
 .item-detail-modal .reviews-carousel {
     display: flex !important;
-    gap: 10px !important;
+    gap: 15px !important;
     flex-wrap: nowrap !important;
     scroll-behavior: smooth !important;
     transition: transform 0.3s ease !important;
 }
 .item-detail-modal .review-card {
     background: #1a1a1a !important;
+    padding: 15px !important;
     border-radius: 8px !important;
-    min-width: 250px !important;
-    max-width: 250px !important;
-    width: 250px !important;
+    min-width: 300px !important;
+    max-width: 300px !important;
+    width: 300px !important;
     flex-shrink: 0 !important;
     box-sizing: border-box !important;
     display: flex !important;
@@ -341,7 +296,7 @@ a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root {
 /* Carousel wrapper container */
 .item-detail-modal .reviews-carousel-wrapper {
     position: relative !important;
-    margin-top: 5px !important;
+    margin-top: 10px !important;
     overflow: hidden !important;
     border-radius: 8px !important;
 }
@@ -419,9 +374,12 @@ a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root {
     }
     /* Smaller review cards on narrow viewports */
     .item-detail-modal .review-card {
-        min-width: 200px !important;
-        max-width: 200px !important;
-        width: 200px !important;
+        min-width: 250px !important;
+        max-width: 250px !important;
+        width: 250px !important;
+    }
+    .item-detail-modal .reviews-carousel-wrapper {
+        padding: 0 45px !important;
     }
 }
 
@@ -446,17 +404,19 @@ a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root {
     }
     /* Smaller review cards on medium screens */
     .item-detail-modal .review-card {
-        min-width: 220px !important;
-        max-width: 220px !important;
-        width: 220px !important;
+        min-width: 280px !important;
+        max-width: 280px !important;
+        width: 280px !important;
     }
-}
+    .item-detail-modal .reviews-carousel-wrapper {
+        padding: 0 48px !important;
+    }
 }
 
 @media (min-width: 901px) {
     .item-detail-modal {
         width: min(1000px, 95vw) !important;
-        height: min(90vh, 800px) !important;
+        height: min(90vh) !important;
         gap: 18px;
     }
     .item-detail-modal .left {
@@ -476,5 +436,41 @@ a.MuiListItemButton-root[href="#/"] .MuiListItemIcon-root {
         max-width: 300px !important;
         width: 300px !important;
     }
+    .item-detail-modal .reviews-carousel-wrapper {
+        padding: 0 50px !important;
+    }
 }
+
+/* ============================================
+   RESPONSIVE MEDIA REQUEST CARDS
+   ============================================ */
+
+/* Tablet and smaller - reduce card size */
+@media (max-width: 768px) {
+    .request-card {
+        width: 110px !important;
+    }
+    .request-card > div:first-child {
+        height: 165px !important;
+    }
 }
+
+/* Mobile - further reduce card size */
+@media (max-width: 480px) {
+    .request-card {
+        width: 90px !important;
+    }
+    .request-card > div:first-child {
+        height: 135px !important;
+    }
+    
+    /* Adjust modal spacing on mobile */
+    .requests-dropdown {
+        top: 20px !important;
+        bottom: 20px !important;
+        left: 10px !important;
+        right: 10px !important;
+        padding: 15px !important;
+    }
+}
+

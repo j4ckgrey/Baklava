@@ -14,10 +14,11 @@ using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
+#nullable enable
 namespace Baklava.Api
 {
     [ApiController]
-    [Route("api/myplugin/metadata")]
+    [Route("api/baklava/metadata")]
     [Produces("application/json")]
     public class MetadataController : ControllerBase
     {
@@ -29,7 +30,7 @@ namespace Baklava.Api
         
         // Simple in-memory cache (consider using IMemoryCache for production)
         private static readonly Dictionary<string, (DateTime Expiry, string Data)> _cache = new();
-        private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromMinutes(30);
+        private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromMinutes(1);
 
         public MetadataController(
             ILogger<MetadataController> logger, 
@@ -178,7 +179,8 @@ namespace Baklava.Api
         public ActionResult CheckLibraryStatus(
             [FromQuery] string? imdbId,
             [FromQuery] string? tmdbId,
-            [FromQuery] string itemType)
+            [FromQuery] string itemType,
+            [FromQuery] string? jellyfinId)
         {
             // Check inputs and proceed
             try
@@ -194,29 +196,46 @@ namespace Baklava.Api
                 
                 try
                 {
-                    // Query items without type filter first, then filter manually
-                    var allItems = _libraryManager.GetItemList(new InternalItemsQuery
+                    // If a direct Jellyfin item id is provided, prefer that fast path
+                    if (!string.IsNullOrEmpty(jellyfinId) && Guid.TryParse(jellyfinId, out var jfGuid))
                     {
-                        Recursive = true
-                    });
+                        var itemById = _libraryManager.GetItemById(jfGuid);
+                        if (itemById != null)
+                        {
+                            // Ensure matching type if itemType provided
+                            var itemTypeName = itemById.GetType().Name;
+                            if ((itemType == "series" && itemTypeName == "Series") || (itemType == "movie" && itemTypeName == "Movie") || string.IsNullOrEmpty(itemType))
+                            {
+                                inLibrary = true;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Query items without type filter first, then filter manually
+                        var allItems = _libraryManager.GetItemList(new InternalItemsQuery
+                        {
+                            Recursive = true
+                        });
 
-                    inLibrary = allItems.Where(item =>
-                    {
-                        // Filter by type
-                        var itemTypeName = item.GetType().Name;
-                        if (itemType == "series" && itemTypeName != "Series") return false;
-                        if (itemType == "movie" && itemTypeName != "Movie") return false;
-                        
-                        var providerIds = item.ProviderIds;
-                        if (providerIds == null) return false;
-                        
-                        if (imdbId != null && providerIds.TryGetValue("Imdb", out var itemImdb) && itemImdb == imdbId)
-                            return true;
-                        if (tmdbId != null && providerIds.TryGetValue("Tmdb", out var itemTmdb) && itemTmdb == tmdbId)
-                            return true;
+                        inLibrary = allItems.Where(item =>
+                        {
+                            // Filter by type
+                            var itemTypeName = item.GetType().Name;
+                            if (itemType == "series" && itemTypeName != "Series") return false;
+                            if (itemType == "movie" && itemTypeName != "Movie") return false;
                             
-                        return false;
-                    }).Any();
+                            var providerIds = item.ProviderIds;
+                            if (providerIds == null) return false;
+                            
+                            if (imdbId != null && providerIds.TryGetValue("Imdb", out var itemImdb) && itemImdb == imdbId)
+                                return true;
+                            if (tmdbId != null && providerIds.TryGetValue("Tmdb", out var itemTmdb) && itemTmdb == tmdbId)
+                                return true;
+                                
+                            return false;
+                        }).Any();
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -229,7 +248,10 @@ namespace Baklava.Api
                 var requests = config?.Requests ?? new List<MediaRequest>();
                 var existingRequest = requests.FirstOrDefault(r =>
                     r.ItemType == itemType &&
-                    ((imdbId != null && r.ImdbId == imdbId) || (tmdbId != null && r.TmdbId == tmdbId))
+                    (
+                        (!string.IsNullOrEmpty(jellyfinId) && !string.IsNullOrEmpty(r.JellyfinId) && r.JellyfinId == jellyfinId) ||
+                        ((imdbId != null && r.ImdbId == imdbId) || (tmdbId != null && r.TmdbId == tmdbId))
+                    )
                 );
 
                 // Look up the actual username from userId if request exists
@@ -346,15 +368,51 @@ namespace Baklava.Api
 
             // (No retry; initial call uses probing + path substitution.)
 
+            // Re-fetch a fresh MediaSource from Jellyfin to ensure updated stream versions
+            try
+            {
+                // Call GetStaticMediaSources which may be synchronous or return a Task depending on Jellyfin build.
+                var staticSourcesObj = _mediaSourceManager.GetStaticMediaSources(item, true);
+                IReadOnlyList<MediaBrowser.Model.Dto.MediaSourceInfo>? freshInfo = null;
+
+                if (staticSourcesObj is System.Threading.Tasks.Task task)
+                {
+                    // Await the task then try to read its Result property
+                    await task.ConfigureAwait(false);
+                    var resultProp = task.GetType().GetProperty("Result");
+                    if (resultProp != null)
+                    {
+                        freshInfo = resultProp.GetValue(task) as IReadOnlyList<MediaBrowser.Model.Dto.MediaSourceInfo>;
+                    }
+                }
+                else
+                {
+                    freshInfo = staticSourcesObj as IReadOnlyList<MediaBrowser.Model.Dto.MediaSourceInfo>;
+                }
+
+                if (freshInfo != null && freshInfo.Count > 0)
+                {
+                    var freshTarget = !string.IsNullOrEmpty(mediaSourceId)
+                        ? freshInfo.FirstOrDefault(ms => ms.Id == mediaSourceId)
+                        : freshInfo.FirstOrDefault();
+
+                    if (freshTarget != null)
+                        targetSource = freshTarget;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[MetadataController] Could not refresh media source for item {ItemId}", item.Id);
+            }
+
             // Use DTO lists so we can merge ffprobe results without anonymous-type mismatches
             var audioDtos = (targetSource.MediaStreams ?? new List<MediaBrowser.Model.Entities.MediaStream>())
                 .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Audio)
                 .Select(s => new AudioStreamDto
                 {
                     Index = s.Index,
-                    // Keep the title clean of language so the UI can show language separately
                     Title = BuildStreamTitle(s),
-                    Language = GetLanguageDisplayName(s.Language),
+                    Language = s.Language,
                     Codec = s.Codec,
                     Channels = s.Channels,
                     Bitrate = s.BitRate.HasValue ? (long?)s.BitRate.Value : null
@@ -367,7 +425,7 @@ namespace Baklava.Api
                 {
                     Index = s.Index,
                     Title = BuildStreamTitle(s),
-                    Language = GetLanguageDisplayName(s.Language),
+                    Language = s.Language,
                     Codec = s.Codec,
                     IsForced = s.IsForced,
                     IsDefault = s.IsDefault
@@ -385,7 +443,7 @@ namespace Baklava.Api
                         {
                             Index = a.Index,
                             Title = a.Title ?? ($"Audio {a.Index}"),
-                            Language = GetLanguageDisplayName(a.Language),
+                            Language = a.Language,
                             Codec = a.Codec,
                             Channels = a.Channels,
                             Bitrate = a.Bitrate
@@ -395,7 +453,7 @@ namespace Baklava.Api
                         {
                             Index = s.Index,
                             Title = s.Title ?? ($"Subtitle {s.Index}"),
-                            Language = GetLanguageDisplayName(s.Language),
+                            Language = s.Language,
                             Codec = s.Codec,
                             IsForced = s.IsForced,
                             IsDefault = s.IsDefault
@@ -434,57 +492,19 @@ namespace Baklava.Api
 
         private string BuildStreamTitle(MediaBrowser.Model.Entities.MediaStream stream)
         {
-            // Keep the stream title focused on display/title and codec only.
-            // Language is returned separately via the Language property so the UI
-            // can choose how/where to display it.
             var title = stream.DisplayTitle ?? stream.Title ?? $"{stream.Type} {stream.Index}";
+            
+            if (!string.IsNullOrEmpty(stream.Language))
+            {
+                title += $" ({stream.Language})";
+            }
             
             if (!string.IsNullOrEmpty(stream.Codec))
             {
                 title += $" [{stream.Codec.ToUpperInvariant()}]";
             }
-
+            
             return title;
-        }
-
-        private string? GetLanguageDisplayName(string? lang)
-        {
-            if (string.IsNullOrWhiteSpace(lang)) return null;
-
-            try
-            {
-                // Normalize and take primary part (e.g., en-US -> en)
-                var code = lang.Split(new[] { '-', '_' }, 2)[0];
-
-                // Try direct CultureInfo first
-                try
-                {
-                    var ci = new System.Globalization.CultureInfo(code);
-                    var name = ci.EnglishName;
-                    var parenIdx = name.IndexOf(" (");
-                    return parenIdx > 0 ? name.Substring(0, parenIdx) : name;
-                }
-                catch { }
-
-                // Fallback: scan known cultures for a match by two/three-letter codes or full name
-                var cultures = System.Globalization.CultureInfo.GetCultures(System.Globalization.CultureTypes.NeutralCultures | System.Globalization.CultureTypes.SpecificCultures);
-                foreach (var c in cultures)
-                {
-                    if (string.Equals(c.TwoLetterISOLanguageName, code, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(c.ThreeLetterISOLanguageName, code, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(c.ThreeLetterWindowsLanguageName, code, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(c.Name, code, StringComparison.OrdinalIgnoreCase))
-                    {
-                        var name = c.EnglishName;
-                        var parenIdx = name.IndexOf(" (");
-                        return parenIdx > 0 ? name.Substring(0, parenIdx) : name;
-                    }
-                }
-            }
-            catch { }
-
-            // Last resort: return the original string (may already be a friendly name)
-            return lang;
         }
 
         #region Private Helpers
@@ -512,14 +532,57 @@ namespace Baklava.Api
 
             var results = await Task.WhenAll(tasks);
 
-            var response = new
-            {
-                main = JsonSerializer.Deserialize<object>(root.GetRawText()),
-                credits = includeCredits && results[0] != null ? JsonSerializer.Deserialize<object>(results[0].RootElement.GetRawText()) : null,
-                reviews = includeReviews && results[tasks.Count > 1 ? 1 : 0] != null ? JsonSerializer.Deserialize<object>(results[tasks.Count > 1 ? 1 : 0]!.RootElement.GetRawText()) : null
-            };
+            // Build raw JSON strings for main, credits and reviews and return as a single JSON payload.
+            // Returning as raw JSON avoids double-deserialization that produces JsonElement wrappers
+            // with ValueKind fields when re-serialized by ASP.NET.
+            var mainRaw = root.GetRawText();
 
-            return Ok(response);
+            string creditsRaw = "null";
+            string reviewsRaw = "null";
+
+            if (includeCredits && results.Length > 0 && results[0] != null)
+            {
+                creditsRaw = results[0].RootElement.GetRawText();
+            }
+
+            if (includeReviews)
+            {
+                // If both credits and reviews were requested then reviews will be at index 1
+                var reviewsIndex = tasks.Count > 1 ? 1 : 0;
+                if (results.Length > reviewsIndex && results[reviewsIndex] != null)
+                {
+                    reviewsRaw = results[reviewsIndex].RootElement.GetRawText();
+                }
+            }
+
+            var combined = $"{{\"main\":{mainRaw},\"credits\":{creditsRaw},\"reviews\":{reviewsRaw}}}";
+                // Deserialize the raw JSON strings into plain objects so ASP.NET's
+                // serializer emits proper JSON values instead of JsonElement/ValueKind
+                // wrappers. This avoids clients receiving { "ValueKind": "Object" }.
+                object? mainObj = null;
+                object? creditsObj = null;
+                object? reviewsObj = null;
+
+                try
+                {
+                    mainObj = JsonSerializer.Deserialize<object>(mainRaw);
+                }
+                catch
+                {
+                    mainObj = null;
+                }
+
+                if (creditsRaw != "null")
+                {
+                    try { creditsObj = JsonSerializer.Deserialize<object>(creditsRaw); } catch { creditsObj = null; }
+                }
+
+                if (reviewsRaw != "null")
+                {
+                    try { reviewsObj = JsonSerializer.Deserialize<object>(reviewsRaw); } catch { reviewsObj = null; }
+                }
+
+                return Ok(new { main = mainObj, credits = creditsObj, reviews = reviewsObj });
         }
 
         private async Task<JsonDocument?> FetchTMDBAsync(string endpoint, string apiKey, Dictionary<string, string>? queryParams = null)

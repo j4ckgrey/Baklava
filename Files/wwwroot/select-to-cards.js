@@ -34,6 +34,21 @@
         }
     }
 
+    // Wait for a predicate to become true (polling). Returns true if predicate satisfied within timeout.
+    function waitFor(predicate, timeout = 8000, interval = 100) {
+        return new Promise(resolve => {
+            const start = Date.now();
+            const check = () => {
+                try {
+                    if (typeof predicate === 'function' && predicate()) return resolve(true);
+                } catch (e) { /* ignore predicate errors */ }
+                if (Date.now() - start >= timeout) return resolve(false);
+                setTimeout(check, interval);
+            };
+            check();
+        });
+    }
+
     async function probeItemStreams(itemId, mediaSourceId) {
         console.log('[SelectToCards.probeItemStreams] Called with itemId:', itemId, 'mediaSourceId:', mediaSourceId);
         
@@ -52,7 +67,7 @@
             params.append('itemId', itemId);
             if (mediaSourceId) params.append('mediaSourceId', mediaSourceId);
 
-            const url = window.ApiClient.getUrl('api/myplugin/metadata/streams') + '?' + params.toString();
+            const url = window.ApiClient.getUrl('api/baklava/metadata/streams') + '?' + params.toString();
             console.log('[SelectToCards.probeItemStreams] Fetching URL:', url);
             
             const response = await window.ApiClient.ajax({
@@ -111,25 +126,66 @@
 
         console.log('[SelectToCards.extractStreams] Processing', mediaSource.MediaStreams.length, 'streams');
 
+        // Helper to derive a friendly type string from codec/title/channels
+        function deriveAudioType(s) {
+            // Prefer codec if present
+            if (s.Codec) {
+                const c = s.Codec.toLowerCase();
+                const map = { aac: 'AAC', ac3: 'AC3', eac3: 'E-AC3', dts: 'DTS', opus: 'Opus', mp3: 'MP3', flac: 'FLAC' };
+                if (map[c]) return map[c];
+                return s.Codec.toUpperCase();
+            }
+            if (s.Channels) {
+                return (s.Channels === 2 ? 'Stereo' : `${s.Channels}ch`);
+            }
+            // fallback to title/content hints
+            const t = (s.DisplayTitle || s.Title || '').toLowerCase();
+            if (t.includes('aac')) return 'AAC';
+            if (t.includes('ac3')) return 'AC3';
+            if (t.includes('dts')) return 'DTS';
+            if (t.includes('opus')) return 'Opus';
+            return '';
+        }
+
+        function deriveSubtitleType(s) {
+            if (s.Codec) {
+                const c = s.Codec.toLowerCase();
+                const map = { srt: 'SRT', ass: 'ASS', webvtt: 'VTT', vtt: 'VTT', 'subrip': 'SRT' };
+                if (map[c]) return map[c];
+                return s.Codec.toUpperCase();
+            }
+            const t = (s.DisplayTitle || s.Title || '').toLowerCase();
+            if (t.includes('.srt') || t.includes('srt')) return 'SRT';
+            if (t.includes('.ass') || t.includes('ass')) return 'ASS';
+            if (t.includes('vtt') || t.includes('webvtt')) return 'VTT';
+            return '';
+        }
+
         mediaSource.MediaStreams.forEach((stream) => {
             if (stream.Type === 'Audio') {
-                // Prefer displaying the parsed language name only. If language is missing,
-                // fall back to the display/title or a generic label.
-                const langOnly = stream.Language || (stream.DisplayTitle || stream.Title) || `Audio ${stream.Index}`;
+                const dispLang = stream.DisplayTitle || stream.Language || stream.Title || '';
+                const type = deriveAudioType(stream);
                 result.audio.push({
                     index: stream.Index,
-                    // Title shown in option/cards will be the language-friendly string only
-                    title: String(langOnly),
+                    title: String(dispLang),
                     language: stream.Language,
-                    codec: stream.Codec
+                    displayLanguage: dispLang,
+                    codec: stream.Codec,
+                    channels: stream.Channels,
+                    type: type
                 });
             } else if (stream.Type === 'Subtitle') {
-                const langOnly = stream.Language || (stream.DisplayTitle || stream.Title) || `Subtitle ${stream.Index}`;
+                const dispLang = stream.DisplayTitle || stream.Language || stream.Title || '';
+                const type = deriveSubtitleType(stream);
                 result.subs.push({
                     index: stream.Index,
-                    title: String(langOnly),
+                    title: String(dispLang),
                     language: stream.Language,
-                    codec: stream.Codec
+                    displayLanguage: dispLang,
+                    codec: stream.Codec,
+                    isForced: stream.IsForced,
+                    isDefault: stream.IsDefault,
+                    type: type
                 });
             }
         });
@@ -195,10 +251,12 @@
             }
             .emby-select-cards::-webkit-scrollbar { display: none !important; }
             
-            .emby-select-wrapper { position: relative !important; padding: 0 44px !important; }
+                /* Remove large horizontal padding so arrows can overlay cards without pushing them
+                    The arrows will be absolutely positioned over the cards container. */
+                .emby-select-wrapper { position: relative !important; padding: 0 !important; }
 
             .emby-select-arrow {
-                position: absolute !important; top: 50% !important; transform: translateY(-50%) !important;
+                position: absolute !important; /* top set by JS for precise centering */
                 width: 36px !important; height: 36px !important; border-radius: 50% !important; border: none !important;
                 background: rgba(0,0,0,0.45) !important; color: #fff !important; display: flex !important; align-items: center !important; justify-content: center !important;
                 cursor: pointer !important; z-index: 20 !important; font-size: 20px !important; line-height: 1 !important;
@@ -221,8 +279,10 @@
                 text-align: center !important; cursor: pointer !important; transition: all 0.2s ease !important;
                 user-select: none !important; font-size: 14px !important; color: rgba(255,255,255,0.8) !important;
             }
+            /* Smaller cards for audio/subtitle since language is compact */
             .emby-select-card.audio-card, .emby-select-card.subtitle-card {
-                height: 70px !important; padding: 4px 12px !important; font-size: 12px !important;
+                height: 60px !important; padding: 6px 8px !important; font-size: 13px !important;
+                width: 88px !important; display: flex !important; flex-direction: column !important; justify-content: center !important; align-items: center !important;
             }
             .emby-select-card.placeholder { cursor: default !important; opacity: 0.5 !important; }
             .emby-select-card.placeholder:hover { background: rgba(255,255,255,0.1) !important; transform: none !important; }
@@ -230,7 +290,7 @@
             .emby-select-card.selected { background: #00a4dc !important; color: #fff !important; }
             .emby-select-card.disabled { background: rgba(255,255,255,0.05) !important; border-color: rgba(255,255,255,0.1) !important; color: rgba(255,255,255,0.4) !important; cursor: not-allowed !important; }
             
-            .emby-select-pagination { display: flex !important; justify-content: center !important; gap: 8px !important; margin-top: 12px !important; padding: 8px 0 !important; }
+            .emby-select-pagination { display: flex !important; justify-content: center !important; gap: 8px !important; padding: 8px 0 !important; }
             .emby-select-pagination-dot { width: 8px !important; height: 8px !important; border-radius: 50% !important; background: rgba(255,255,255,0.3) !important; border: none !important; cursor: pointer !important; transition: all 0.2s ease !important; padding: 0 !important; }
             .emby-select-pagination-dot:hover { background: rgba(255,255,255,0.5) !important; transform: scale(1.2) !important; }
             .emby-select-pagination-dot.active { background: #00a4dc !important; width: 24px !important; border-radius: 4px !important; }
@@ -252,29 +312,68 @@
         const wrapper = container.parentElement;
         if (!wrapper || wrapper.querySelector('.emby-select-arrow')) return;
         console.log('[SelectToCards] createArrows for container', container);
-        
+
         const leftArrow = document.createElement('button');
         leftArrow.className = 'emby-select-arrow left';
         leftArrow.innerHTML = '‹';
         leftArrow.setAttribute('aria-label', 'Previous');
         leftArrow.addEventListener('click', () => container.scrollBy({ left: -container.offsetWidth * 0.8, behavior: 'smooth' }));
-        
+
         const rightArrow = document.createElement('button');
         rightArrow.className = 'emby-select-arrow right';
         rightArrow.innerHTML = '›';
         rightArrow.setAttribute('aria-label', 'Next');
         rightArrow.addEventListener('click', () => container.scrollBy({ left: container.offsetWidth * 0.8, behavior: 'smooth' }));
-        
+
+        // Update enabled/disabled state based on scroll position
         const updateArrows = () => {
             leftArrow.disabled = container.scrollLeft <= 0;
             rightArrow.disabled = container.scrollLeft >= container.scrollWidth - container.offsetWidth - 1;
         };
-        
+
+        // Compute the desired vertical position so arrows align to the card center
+        const computeAndSetArrowTop = () => {
+            try {
+                const wrapperRect = wrapper.getBoundingClientRect();
+                // Prefer a visible, non-placeholder card as the anchor
+                let anchor = container.querySelector('.emby-select-card:not(.placeholder)');
+                if (!anchor) anchor = container.querySelector('.emby-select-card');
+
+                if (anchor) {
+                    const cardRect = anchor.getBoundingClientRect();
+                    const cardCenter = (cardRect.top - wrapperRect.top) + (cardRect.height / 2);
+                    const halfArrow = (leftArrow.offsetHeight || 36) / 2;
+                    const topPx = Math.max(0, Math.round(cardCenter - halfArrow));
+                    leftArrow.style.top = topPx + 'px';
+                    rightArrow.style.top = topPx + 'px';
+                } else {
+                    // fallback: center to the container
+                    const cRect = container.getBoundingClientRect();
+                    const center = (cRect.top - wrapperRect.top) + (cRect.height / 2);
+                    const halfArrow = (leftArrow.offsetHeight || 36) / 2;
+                    const topPx = Math.max(0, Math.round(center - halfArrow));
+                    leftArrow.style.top = topPx + 'px';
+                    rightArrow.style.top = topPx + 'px';
+                }
+            } catch (e) { /* ignore measurement errors */ }
+        };
+
+        // Observers/listeners to keep arrows positioned when layout changes
         container.addEventListener('scroll', throttle(updateArrows, 100));
-        updateArrows();
-        
+        const ro = (typeof ResizeObserver !== 'undefined') ? new ResizeObserver(throttle(() => { computeAndSetArrowTop(); updateArrows(); }, 100)) : null;
+        if (ro) ro.observe(container);
+        window.addEventListener('resize', throttle(() => { computeAndSetArrowTop(); updateArrows(); }, 120));
+
+        try {
+            const mo = new MutationObserver(throttle(() => { computeAndSetArrowTop(); updateArrows(); }, 120));
+            mo.observe(container, { childList: true, subtree: true, attributes: true });
+        } catch (e) { /* ignore */ }
+
+        // Insert arrows, then compute initial position after layout
         wrapper.appendChild(leftArrow);
         wrapper.appendChild(rightArrow);
+        // give browser a tick to render and populate sizes
+        setTimeout(() => { computeAndSetArrowTop(); updateArrows(); }, 40);
     }
     
     function createPagination(container) {
@@ -344,7 +443,8 @@
     function createDummyCard(cardType) {
         const card = document.createElement('div');
         card.className = 'emby-select-card placeholder ' + cardType;
-        card.innerHTML = '<span style="font-size:48px;">🚫</span>';
+        // Use a neutral, text-based placeholder instead of an emoji
+        card.innerHTML = '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:14px;color:rgba(255,255,255,0.6);">No tracks</div>';
         card.tabIndex = -1;
         return card;
     }
@@ -359,12 +459,33 @@
         card.tabIndex = option.disabled ? -1 : 0;
         card.dataset.value = option.value;
 
-        const textSpan = document.createElement('span');
-        const fullText = option.textContent || option.value;
-        const cutIndex = fullText.indexOf('(cut)');
-        textSpan.textContent = cutIndex !== -1 ? fullText.substring(cutIndex + 5).trim() : fullText;
-        textSpan.style.cssText = 'display:block;width:100%;word-wrap:break-word;white-space:normal;line-height:1.3;padding:4px;';
-        card.appendChild(textSpan);
+        // Audio/Subtitle cards show two lines: language (big) and type (small)
+        if (card.classList.contains('audio-card') || card.classList.contains('subtitle-card')) {
+            const top = document.createElement('div');
+            top.className = 'card-top';
+            top.style.cssText = 'font-weight:700;font-size:14px;line-height:1;padding:0;margin:0;text-align:center;';
+            const bottom = document.createElement('div');
+            bottom.className = 'card-bottom';
+            bottom.style.cssText = 'font-size:11px;opacity:0.9;margin-top:6px;text-align:center;';
+
+            // Try to parse display-friendly language and type from option text/value
+            // option._meta can be attached by populate code; fallback to option.textContent/value
+            const meta = option._meta || {};
+            const lang = (meta.displayLanguage || option.textContent || option.value || '').toString().trim();
+            const type = (meta.type || meta.codec || '').toString().trim();
+
+            top.textContent = (lang || '').toUpperCase();
+            bottom.textContent = type || '';
+            card.appendChild(top);
+            card.appendChild(bottom);
+        } else {
+            const textSpan = document.createElement('span');
+            const fullText = option.textContent || option.value;
+            const cutIndex = fullText.indexOf('(cut)');
+            textSpan.textContent = cutIndex !== -1 ? fullText.substring(cutIndex + 5).trim() : fullText;
+            textSpan.style.cssText = 'display:block;width:100%;word-wrap:break-word;white-space:normal;line-height:1.3;padding:4px;';
+            card.appendChild(textSpan);
+        }
 
         card.addEventListener('click', () => !option.disabled && handleSelection(select, option.value));
         
@@ -526,6 +647,9 @@
                                             const opt = document.createElement('option');
                                             opt.value = String(t.index);
                                             opt.textContent = t.title;
+                                            // Attach meta for card rendering (displayLanguage and type)
+                                            // Prefer the raw language code (t.language) for compact display like 'ENG'.
+                                            opt._meta = { displayLanguage: (t.language || t.displayLanguage || t.title), type: (t.type || t.codec), language: t.language };
                                             audioSel.appendChild(opt);
                                         });
                                         audioSel.disabled = false;
@@ -541,6 +665,7 @@
                                             const opt = document.createElement('option');
                                             opt.value = String(t.index);
                                             opt.textContent = t.title;
+                                            opt._meta = { displayLanguage: (t.language || t.displayLanguage || t.title), type: (t.type || t.codec), language: t.language };
                                             subSel.appendChild(opt);
                                         });
                                         subSel.disabled = false;
@@ -570,192 +695,276 @@
 
     function initSelects() {
         const form = document.querySelector('form.trackSelections');
-        if (!form || form._selectToCardsInitialized) return;
+        if (!form) return;
         // Ensure plugin styles are injected before manipulating the DOM
         try { ensureStyle(); } catch (e) { console.warn('[SelectToCards] ensureStyle failed', e); }
-        
-        form._selectToCardsInitialized = true;
-        console.log('[SelectToCards] Initializing track selections form');
-        
-        // DIAGNOSTIC: Log all select elements
-        const allSelects = form.querySelectorAll('select');
-        console.log('[SelectToCards] Found', allSelects.length, 'select elements:');
-        allSelects.forEach((sel, idx) => {
-            console.log(`  [${idx}] classes:`, sel.className, 'options:', sel.options.length, 'disabled:', sel.disabled);
-        });
-        
-        // Try to capture itemId from form context
+
+        console.log('[SelectToCards] Initializing track selections (idempotent)');
+
+        // DIAGNOSTIC: Log all select elements briefly
         try {
-            // Method 1: Check for hidden inputs
+            const allSelects = form.querySelectorAll('select');
+            console.log('[SelectToCards] Found', allSelects.length, 'select elements');
+        } catch (e) { /* ignore */ }
+
+        // Try to capture itemId from form context (best-effort)
+        try {
             const itemIdInput = form.querySelector('input[name*="itemId"], input[name*="Id"], input[type="hidden"]');
-            if (itemIdInput?.value) {
-                window.__currentPlaybackItemId = itemIdInput.value;
-                console.log('[SelectToCards] Captured itemId from input:', itemIdInput.value);
-            }
-            
-            // Method 2: Check data attributes on form or parent
+            if (itemIdInput?.value) window.__currentPlaybackItemId = itemIdInput.value;
             const itemIdAttr = form.getAttribute('data-itemid') || form.closest('[data-itemid]')?.getAttribute('data-itemid');
-            if (itemIdAttr && !window.__currentPlaybackItemId) {
-                window.__currentPlaybackItemId = itemIdAttr;
-                console.log('[SelectToCards] Captured itemId from attribute:', itemIdAttr);
-            }
-            
-            // Method 3: Extract from URL or recent API calls
-            // Check if there was a recent Items/ API call we can parse
+            if (itemIdAttr && !window.__currentPlaybackItemId) window.__currentPlaybackItemId = itemIdAttr;
             if (!window.__currentPlaybackItemId) {
-                // Try to get from the most recent Jellyfin request
                 const urlMatch = document.location.href.match(/[?&]id=([a-f0-9]+)/i);
-                if (urlMatch) {
-                    window.__currentPlaybackItemId = urlMatch[1];
-                    console.log('[SelectToCards] Captured itemId from URL:', urlMatch[1]);
-                }
+                if (urlMatch) window.__currentPlaybackItemId = urlMatch[1];
             }
-            
-            // Check all form inputs for debugging
-            const allInputs = form.querySelectorAll('input');
-            console.log('[SelectToCards] All form inputs:', Array.from(allInputs).map(i => ({name: i.name, value: i.value?.substring(0, 50)})));
-        } catch (e) {
-            console.warn('[SelectToCards] Could not capture itemId:', e);
-        }
-        
-        form.querySelectorAll('.selectContainer').forEach(c => c.style.display = 'none');        const selects = form.querySelectorAll('select.detailTrackSelect');
-        console.log('[SelectToCards] Processing', selects.length, 'select elements');
-        
+            if (window.__currentPlaybackItemId) console.log('[SelectToCards] Captured itemId:', window.__currentPlaybackItemId);
+        } catch (e) { /* ignore */ }
+
+        // Hide original select containers
+        form.querySelectorAll('.selectContainer').forEach(c => c.style.display = 'none');
+
+        const selects = form.querySelectorAll('select.detailTrackSelect');
+        if (!selects || selects.length === 0) return;
+
         selects.forEach((select, idx) => {
-            // Skip selectVideo - we don't want a Video Quality carousel
-            if (select.classList.contains('selectVideo')) {
-                console.log('[SelectToCards] Skipping selectVideo carousel');
-                return;
-            }
-            
-            monitorSelectAccess(select);
-            
-            // Determine label based on class
-            let label = 'Unknown';
-            if (select.classList.contains('selectSource')) label = 'Version';
-            else if (select.classList.contains('selectVideo')) label = 'Video Quality';
-            else if (select.classList.contains('selectAudio')) label = 'Audio';
-            else if (select.classList.contains('selectSubtitles')) label = 'Subtitles';
-            
-            // Try to get label from previous sibling if it exists
-            if (select.previousElementSibling?.textContent) {
-                label = select.previousElementSibling.textContent;
-            }
-            
-            console.log(`[SelectToCards] [${idx}] Creating carousel for:`, label, 'class:', select.className);
-            
-            const labelDiv = document.createElement('div');
-            labelDiv.className = 'carousel-label';
-            labelDiv.textContent = label;
-            
-            const wrapper = document.createElement('div');
-            wrapper.className = 'emby-select-wrapper';
-            
-            const cardsContainer = document.createElement('div');
-            cardsContainer.className = 'emby-select-cards';
-            cardsContainer.setAttribute('role', 'listbox');
-            cardsContainer.setAttribute('aria-label', label);
-            
-            wrapper.appendChild(cardsContainer);
-            select._embyCardsContainer = cardsContainer;
-            
-            const parent = select.closest('.selectContainer')?.parentElement || form;
-            parent.appendChild(labelDiv);
-            parent.appendChild(wrapper);
-            
-            // Wait for options to be populated, then create cards
-            // Jellyfin populates the selects asynchronously
-            const checkAndPopulate = () => {
-                if (select.options.length > 0) {
-                    console.log(`[SelectToCards] Options populated for ${label}:`, select.options.length);
+            try {
+                // Skip if we've already attached to this select
+                if (select._embyCardsContainer) return;
+
+                // Skip selectVideo - we don't want a Video Quality carousel
+                if (select.classList.contains('selectVideo')) return;
+
+                monitorSelectAccess(select);
+
+                // Determine label
+                let label = 'Unknown';
+                if (select.classList.contains('selectSource')) label = 'Version';
+                else if (select.classList.contains('selectVideo')) label = 'Video Quality';
+                else if (select.classList.contains('selectAudio')) label = 'Audio';
+                else if (select.classList.contains('selectSubtitles')) label = 'Subtitles';
+                if (select.previousElementSibling?.textContent) label = select.previousElementSibling.textContent;
+
+                const labelDiv = document.createElement('div');
+                labelDiv.className = 'carousel-label';
+                labelDiv.textContent = label;
+
+                const wrapper = document.createElement('div');
+                wrapper.className = 'emby-select-wrapper';
+
+                const cardsContainer = document.createElement('div');
+                cardsContainer.className = 'emby-select-cards';
+                cardsContainer.setAttribute('role', 'listbox');
+                cardsContainer.setAttribute('aria-label', label);
+                // Add a lightweight loading indicator while options populate
+                const loadingEl = document.createElement('div');
+                loadingEl.className = 'emby-select-loading';
+                loadingEl.textContent = 'Loading…';
+                loadingEl.style.cssText = 'color:rgba(255,255,255,0.6);font-size:13px;padding:12px;';
+                cardsContainer.appendChild(loadingEl);
+
+                wrapper.appendChild(cardsContainer);
+                select._embyCardsContainer = cardsContainer;
+
+                const parent = select.closest('.selectContainer')?.parentElement || form;
+                parent.appendChild(labelDiv);
+                parent.appendChild(wrapper);
+
+                // Wait for options (best-effort) and then populate
+                (async () => {
+                    let ready = await waitFor(() => select.options && select.options.length > 0, 6000, 100);
+                    if (!ready) {
+                        // Try a few short backoff retries before giving up (covers slow network / probe delays)
+                        const backoffs = [200, 600, 1800];
+                        for (const b of backoffs) {
+                            await new Promise(r => setTimeout(r, b));
+                            if (select.options && select.options.length > 0) { ready = true; break; }
+                        }
+                    }
+
+                    // Remove loading indicator
+                    try { if (loadingEl && loadingEl.parentElement) loadingEl.parentElement.removeChild(loadingEl); } catch (e) {}
+
+                    if (!ready) {
+                        console.warn('[SelectToCards] Options did not populate in time for select', select.className);
+                        // fallback: show a dummy card for audio/subtitles
+                        if (!select.classList.contains('selectSource') && !select.classList.contains('selectVideo')) {
+                            const cardType = select.classList.contains('selectAudio') ? 'audio-card' : 'subtitle-card';
+                            cardsContainer.appendChild(createDummyCard(cardType));
+                        }
+                        return;
+                    }
+
+                    console.log('[SelectToCards] Options populated for', label, select.options.length);
                     if (select.classList.contains('selectSource') || select.classList.contains('selectVideo')) {
                         populateCards(select);
                     } else {
-                        // Audio/Subtitle start with dummy cards until version is selected
                         const cardType = select.classList.contains('selectAudio') ? 'audio-card' : 'subtitle-card';
                         cardsContainer.appendChild(createDummyCard(cardType));
                     }
-                } else {
-                    // Not populated yet, check again soon
-                    setTimeout(checkAndPopulate, 100);
-                }
-            };
-            
-            // Start checking
-            setTimeout(checkAndPopulate, 50);
+                })();
+            } catch (e) { console.warn('[SelectToCards] init select error', e); }
         });
-        
-        // Observe the form for changes (options added dynamically) and re-run initialization
+
+        // Observe the form for new selects/options (only once)
         try {
-            const formObserver = new MutationObserver(mutations => {
-                const form = document.querySelector('form.trackSelections');
-                if (!form) return;
-                // If any select still uninitialized, attempt to initialize selects again
-                const selects = form.querySelectorAll('select.detailTrackSelect');
-                for (const s of selects) {
-                    if (!s._embyCardsContainer) {
-                        console.log('[SelectToCards] Detected new select, re-running initSelects');
-                        initSelects();
-                        break;
+            if (!form._selectCardsObserver) {
+                const formObserver = new MutationObserver(mutations => {
+                    for (const m of mutations) {
+                        if (m.type === 'childList' || m.type === 'subtree' || m.type === 'attributes') {
+                            const selects = document.querySelectorAll('form.trackSelections select.detailTrackSelect');
+                            for (const s of selects) if (!s._embyCardsContainer) initSelects();
+                        }
                     }
-                }
-            });
-            formObserver.observe(document.body, { childList: true, subtree: true });
+                });
+                formObserver.observe(form, { childList: true, subtree: true, attributes: true });
+                form._selectCardsObserver = formObserver;
+            }
         } catch (e) { console.warn('[SelectToCards] form observer failed', e); }
 
-        // Periodic init attempts in case UI loads slowly or single-page navigation prevents MutationObserver from firing
-        try {
-            let attempts = 0;
-            const maxAttempts = 8;
-            const retryInterval = setInterval(() => {
-                const form = document.querySelector('form.trackSelections');
-                if (form && !form._selectToCardsInitialized) {
-                    console.log('[SelectToCards] Retry initSelects attempt', attempts + 1);
-                    initSelects();
-                }
-                attempts++;
-                if (attempts >= maxAttempts) clearInterval(retryInterval);
-            }, 1500);
-        } catch (e) { console.warn('[SelectToCards] retry init failed', e); }
-        
-        console.log('[SelectToCards] Initialization complete');
+        console.log('[SelectToCards] Initialization scheduled for', selects.length, 'select(s)');
     }
 
     // Start monitoring for playback UI
     const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes) {
-                if (node.nodeType === 1) {
+                if (node.nodeType !== 1) continue;
+
+                // If a trackSelections form is added anywhere, init
+                try {
                     if (node.matches && node.matches('form.trackSelections')) {
                         initSelects();
-                    } else if (node.querySelector) {
-                        const form = node.querySelector('form.trackSelections');
-                        if (form) initSelects();
+                        continue;
                     }
-                }
+                } catch (e) { /* ignore match errors */ }
+
+                // If a subtree contains the form, init
+                try {
+                    if (node.querySelector) {
+                        const form = node.querySelector('form.trackSelections');
+                        if (form) { initSelects(); continue; }
+
+                        // If the details modal overlay is added or nested, schedule init
+                        if ((node.matches && node.matches('#item-detail-modal-overlay')) || node.querySelector('#item-detail-modal-overlay')) {
+                            setTimeout(initSelects, 80);
+                            continue;
+                        }
+                    }
+                } catch (e) { /* ignore */ }
             }
         }
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
+
+    // Also listen for the details modal open event (used by our DetailsModal) and trigger init
+    try {
+        document.addEventListener('openDetailsModal', () => setTimeout(initSelects, 80));
+    } catch (e) { /* ignore */ }
+
+    // If modal overlay already exists, observe its class changes to detect when it's opened
+    try {
+        const overlay = document.querySelector('#item-detail-modal-overlay');
+        if (overlay && window.MutationObserver) {
+            const overlayObs = new MutationObserver(muts => {
+                for (const m of muts) {
+                    if (m.type === 'attributes' && overlay.classList.contains('open')) {
+                        setTimeout(initSelects, 80);
+                        break;
+                    }
+                }
+            });
+            overlayObs.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+        }
+    } catch (e) { /* ignore */ }
     
     // CRITICAL: Hook into ApiClient to capture the itemId from API calls
     if (window.ApiClient && window.ApiClient.ajax) {
         const originalAjax = window.ApiClient.ajax;
         window.ApiClient.ajax = function(options) {
-            // Check if this is an Items request that might have the itemId
-            if (options.url && options.url.includes('/Items/')) {
-                const match = options.url.match(/\/Items\/([a-f0-9-]+)/i);
-                if (match && match[1]) {
-                    const extractedId = match[1].replace(/-/g, '');
-                    if (extractedId.length === 32) {
-                        window.__currentPlaybackItemId = extractedId;
-                        console.log('[SelectToCards] Intercepted itemId from API call:', extractedId);
+            try {
+                if (options && options.url && options.url.includes('/Items/')) {
+                    const match = options.url.match(/\/Items\/([a-f0-9-]+)/i);
+                    if (match && match[1]) {
+                        const extractedId = match[1].replace(/-/g, '');
+                        if (extractedId.length === 32) {
+                            window.__currentPlaybackItemId = extractedId;
+                            console.log('[SelectToCards] Intercepted itemId from API call:', extractedId);
+                        }
                     }
                 }
-            }
-            return originalAjax.apply(this, arguments);
+            } catch (e) { /* ignore */ }
+
+            const res = originalAjax.apply(this, arguments);
+
+            try {
+                Promise.resolve(res).then(() => {
+                    try {
+                        const url = options && options.url ? options.url : '';
+                        if (url && (/\/Items\/|Playback|PlaybackInfo|Sessions\/PlaybackInfo/i).test(url)) {
+                            setTimeout(() => { try { initSelects(); } catch (e) {} }, 120);
+                        }
+                    } catch (e) { /* ignore */ }
+                }).catch(() => {});
+            } catch (e) { /* ignore */ }
+
+            return res;
         };
+
+        // Also listen to history changes as an extra safety for SPA navigation
+        try {
+            window.addEventListener('hashchange', () => setTimeout(initSelects, 200));
+            window.addEventListener('popstate', () => setTimeout(initSelects, 200));
+        } catch (e) {}
+
+        // Hook into fetch (if present) so we detect navigation and data loads
+        try {
+            if (window.fetch) {
+                const _fetch = window.fetch.bind(window);
+                window.fetch = function(input, init) {
+                    const url = (typeof input === 'string') ? input : (input && input.url) || '';
+                    const res = _fetch(input, init);
+                    Promise.resolve(res).then(() => {
+                        try {
+                            if (url && (/\/Items\/|Playback|PlaybackInfo|Sessions\/PlaybackInfo/i).test(url)) {
+                                setTimeout(() => { try { initSelects(); } catch (e) {} }, 120);
+                            }
+                        } catch (e) {}
+                    }).catch(() => {});
+                    return res;
+                };
+            }
+        } catch (e) { /* ignore */ }
+
+        // Hook into XMLHttpRequest as well
+        try {
+            const origOpen = XMLHttpRequest.prototype.open;
+            const origSend = XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.open = function(method, url) {
+                this._url_for_select_cards = url;
+                return origOpen.apply(this, arguments);
+            };
+            XMLHttpRequest.prototype.send = function(body) {
+                const onload = () => {
+                    try {
+                        const url = this._url_for_select_cards || '';
+                        if (url && (/\/Items\/|Playback|PlaybackInfo|Sessions\/PlaybackInfo/i).test(url)) {
+                            setTimeout(() => { try { initSelects(); } catch (e) {} }, 120);
+                        }
+                    } catch (e) {}
+                };
+                this.addEventListener('load', onload);
+                return origSend.apply(this, arguments);
+            };
+        } catch (e) { /* ignore */ }
+
+        // Wrap history APIs so SPA navigation triggers init
+        try {
+            const _push = history.pushState;
+            history.pushState = function() { const res = _push.apply(this, arguments); setTimeout(initSelects, 200); return res; };
+            const _replace = history.replaceState;
+            history.replaceState = function() { const res = _replace.apply(this, arguments); setTimeout(initSelects, 200); return res; };
+        } catch (e) { /* ignore */ }
     }
     
     // Check if form already exists

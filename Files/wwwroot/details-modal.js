@@ -125,7 +125,7 @@
             params.append('includeCredits', 'false');
             params.append('includeReviews', 'false');
 
-            const url = window.ApiClient.getUrl('api/myplugin/metadata/tmdb') + '?' + params.toString();
+            const url = window.ApiClient.getUrl('api/baklava/metadata/tmdb') + '?' + params.toString();
             const response = await window.ApiClient.ajax({
                 type: 'GET',
                 url: url,
@@ -149,7 +149,7 @@
             params.append('includeCredits', 'true');
             params.append('includeReviews', 'true');
 
-            const url = window.ApiClient.getUrl('api/myplugin/metadata/tmdb') + '?' + params.toString();
+            const url = window.ApiClient.getUrl('api/baklava/metadata/tmdb') + '?' + params.toString();
             const response = await window.ApiClient.ajax({
                 type: 'GET',
                 url: url,
@@ -172,7 +172,8 @@
             const itemId = modal.dataset.itemId;
             if (!itemId) return;
 
-            const url = window.ApiClient.getUrl('api/myplugin/metadata/streams') + '?itemId=' + encodeURIComponent(itemId);
+            // Use the Baklava metadata streams endpoint (server-side) — not Gelato path
+            const url = window.ApiClient.getUrl('api/baklava/metadata/streams') + '?itemId=' + encodeURIComponent(itemId);
             const resp = await window.ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' });
             if (!resp) return;
 
@@ -275,7 +276,9 @@
                         + '<button id="item-detail-approve" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#4caf50;color:#fff;cursor:pointer;display:none;font-size:13px;">Approve</button>'
                         + '<button id="item-detail-import" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#1e90ff;color:#fff;cursor:pointer;display:none;font-size:13px;">Import</button>'
                         + '<button id="item-detail-request" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#ff9800;color:#fff;cursor:pointer;display:none;font-size:13px;">Request</button>'
-                        + '<button id="item-detail-remove" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#f44336;color:#fff;cursor:pointer;display:none;font-size:13px;">Remove</button>'
+                        + '<button id="item-detail-remove" title="Remove" style="width:36px;height:36px;padding:0;border:none;border-radius:4px;background:#f44336;color:#fff;cursor:pointer;display:none;font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;">'
+                            + '<span class="material-icons" aria-hidden="true" style="font-size:18px;line-height:1;">delete</span>'
+                        + '</button>'
                         + '<button id="item-detail-open" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#4caf50;color:#fff;cursor:pointer;display:none;font-size:13px;">Open</button>'
                         + '<button id="item-detail-close" style="width:32px;height:32px;padding:0;border:none;border-radius:4px;background:#555;color:#fff;cursor:pointer;font-size:18px;line-height:1;">✕</button>'
                     + '</div>'
@@ -291,8 +294,10 @@
             + '<div id="review-popup" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:10000;">'
                 + '<div style="max-width:800px;max-height:80vh;margin:10vh auto;background:#1a1a1a;border-radius:8px;display:flex;flex-direction:column;">'
                     + '<div style="padding:20px 30px;border-bottom:2px solid #333;display:flex;justify-content:space-between;">'
-                        + '<h3 style="margin:0;color:#fff;">Review</h3>'
-                        + '<button id="close-review-popup" style="background:#555;border:none;color:#fff;padding:8px 16px;cursor:pointer;">Close</button>'
+                                + '<h3 style="margin:0;color:#fff;">Review</h3>'
+                                + '<button id="close-review-popup" title="Close" style="background:#555;border:none;color:#fff;padding:8px 12px;cursor:pointer;border-radius:4px;font-size:16px;">'
+                                    + '<span class="material-icons" aria-hidden="true" style="vertical-align:middle;">close</span>'
+                                + '</button>'
                     + '</div>'
                     + '<div id="review-popup-content" style="flex:1;overflow-y:auto;padding:30px;color:#ccc;"></div>'
                 + '</div>'
@@ -326,9 +331,12 @@
         
         requestBtn.addEventListener('click', () => {
             console.log('[DetailsModal] Request button clicked');
+            // Immediately mark requested and disable. Keep UI simple and non-flashy.
             requestBtn.disabled = true;
-            requestBtn.textContent = 'Pending';
+            requestBtn.textContent = 'Requested';
             requestBtn.style.background = '#888';
+
+            // Still dispatch the mediaRequest event for downstream handling if needed
             const item = {
                 title: qs('#item-detail-title', overlay).textContent,
                 year: qs('#item-detail-meta', overlay).textContent,
@@ -337,7 +345,7 @@
                 tmdbId: overlay.dataset.tmdbId,
                 itemType: overlay.dataset.itemType,
                 jellyfinId: overlay.dataset.itemId,
-                status: 'pending'
+                status: 'requested'
             };
             console.log('[DetailsModal] Dispatching mediaRequest event:', item);
             document.dispatchEvent(new CustomEvent('mediaRequest', { detail: item }));
@@ -348,54 +356,116 @@
             if (id) { hideModal(); window.location.hash = '#/details?id=' + encodeURIComponent(id); }
         });
 
-        approveBtn.addEventListener('click', async () => {
+    approveBtn.addEventListener('click', async () => {
+            // Make UI response immediate and fire a single Gelato API call (fire-and-forget),
+            // then disable the button and close the modal.
             console.log('[DetailsModal] Approve button clicked');
             const requestId = overlay.dataset.requestId;
             const tmdbId = overlay.dataset.tmdbId;
             const imdbId = overlay.dataset.imdbId;
-            const itemType = overlay.dataset.itemType;
-            
-            if (requestId && window.RequestManager) {
-                await window.RequestManager.updateStatus(requestId, 'approved');
-                if (window.RequestsHeaderButton) await window.RequestsHeaderButton.reload();
-                
-                if (imdbId) {
-                    const gelatoType = itemType === 'series' ? 'series' : 'movie';
-                    // Use ApiClient.getUrl so requests go through Jellyfin and include auth
-                    const gelatoUrl = window.ApiClient.getUrl(`gelato/meta/${gelatoType}/${imdbId}`);
-                    
-                    approveBtn.textContent = 'Fetching...';
-                    approveBtn.style.background = '#2196f3';
-                    
+            const itemType = overlay.dataset.itemType || 'movie';
+
+            if (!requestId) {
+                // Nothing to do: clear and close quickly
+                approveBtn.textContent = 'No-op';
+                approveBtn.style.background = '#888';
+                setTimeout(() => hideModal(), 400);
+                return;
+            }
+
+            // Fire server-side proxy to call Gelato (non-blocking), then update UI.
+            if (imdbId) {
+                try {
+                    const isSeries = itemType && itemType.toLowerCase().includes('series');
+                    // MetadataController exposes a server-side proxy at /api/gelato/movie/{id} and /api/gelato/tv/{id}
+                    const proxyPath = isSeries ? `api/gelato/tv/${encodeURIComponent(imdbId)}` : `api/gelato/movie/${encodeURIComponent(imdbId)}`;
+                    const proxyUrl = window.ApiClient.getUrl(proxyPath);
+
+                    // Fire-and-forget: POST to the server proxy which will call Gelato using configured auth.
                     try {
-                        await window.ApiClient.ajax({ type: 'GET', url: gelatoUrl });
-                        approveBtn.textContent = 'Refreshing Library...';
-                        
-                        try {
-                            await window.ApiClient.ajax({ type: 'POST', url: window.ApiClient.getUrl('Library/Refresh') });
-                            await new Promise(resolve => setTimeout(resolve, 2000));
-                            if (window.LibraryMenu?.refresh) await window.LibraryMenu.refresh();
-                            window.Emby?.Page?.triggerPageReload?.();
-                            approveBtn.textContent = 'Added ✓';
-                            approveBtn.style.background = '#4caf50';
-                        } catch (refreshErr) {
-                            approveBtn.textContent = 'Fetched ✓';
-                            approveBtn.style.background = '#4caf50';
-                        }
-                        
-                        setTimeout(() => hideModal(), 1500);
-                    } catch (err) {
-                        console.error('[DetailsModal] Error:', err);
-                        approveBtn.textContent = 'Error';
-                        approveBtn.style.background = '#f44336';
-                        setTimeout(() => hideModal(), 2000);
+                        window.ApiClient.ajax({ type: 'POST', url: proxyUrl }).catch(() => {});
+                        console.log('[DetailsModal] Fired gelato proxy to', proxyUrl);
+                    } catch (e) {
+                        console.warn('[DetailsModal] gelato proxy call failed', e);
                     }
-                } else {
-                    approveBtn.textContent = 'Approved';
-                    approveBtn.style.background = '#4caf50';
-                    setTimeout(() => hideModal(), 1000);
+                } catch (e) {
+                    console.error('[DetailsModal] Error preparing gelato proxy call:', e);
                 }
             }
+
+            // Immediate UI feedback regardless of network outcome
+            approveBtn.disabled = true;
+            approveBtn.textContent = 'Approved';
+            approveBtn.style.background = '#888';
+
+            // Move the card live into the Approved carousel(s) so admins see it immediately.
+            try {
+                (function moveCardToApproved(id) {
+                    if (!id) return;
+
+                    // Find the existing card in the DOM (could be in movies/series list)
+                    const selector = `.request-card[data-request-id="${id}"]`;
+                    const orig = document.querySelector(selector);
+
+                    // Append to dropdown approved container
+                    const approvedDropdown = document.querySelector('.dropdown-approved-container');
+                    if (approvedDropdown) {
+                        try {
+                            if (orig && orig.parentElement) {
+                                // Clone original for dropdown view (so other view can remain intact)
+                                const clone = orig.cloneNode(true);
+                                // Ensure badge shows Approved
+                                const maybeBadge = clone.querySelector('div');
+                                // Append clone (event handlers will be refreshed when full reload occurs)
+                                approvedDropdown.appendChild(clone);
+                            }
+                        } catch (e) { /* ignore DOM errors */ }
+                    }
+
+                    // Append to requests page approved panel
+                    const approvedPage = document.querySelector('.requests-approved-panel .itemsContainer');
+                    if (approvedPage) {
+                        try {
+                            if (orig && orig.parentElement) {
+                                const clone2 = orig.cloneNode(true);
+                                approvedPage.appendChild(clone2);
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+
+                    // Remove original from its current parent so it visually moves
+                    try { if (orig && orig.parentElement) orig.parentElement.removeChild(orig); } catch (e) { }
+                })(requestId);
+            } catch (e) {
+                console.warn('[DetailsModal] moveCardToApproved failed', e);
+            }
+
+            // Also close the dropdown and requests page so admin is returned to main UI
+            try { hideModal(); } catch (e) { /* ignore */ }
+            try { if (window.RequestsHeaderButton) { const dd = document.querySelector('.requests-dropdown'); if (dd) dd.style.display = 'none'; const back = document.querySelector('.requests-backdrop'); if (back) back.style.display = 'none'; } } catch (e) { }
+            try { const rp = document.getElementById('requestsPage'); if (rp) rp.style.display = 'none'; } catch (e) { }
+
+            // Fire-and-forget server update (record ApprovedBy and trigger Gelato)
+            if (requestId && window.RequestManager && typeof window.RequestManager.updateStatus === 'function') {
+                try {
+                    let approver = null;
+                    try { const current = await window.ApiClient.getCurrentUser(); approver = current?.Name || null; } catch (err) {
+                        try { const user = await window.ApiClient.getUser(window.ApiClient.getCurrentUserId()); approver = user?.Name || null; } catch { approver = null; }
+                    }
+                    window.RequestManager.updateStatus(requestId, 'approved', approver).catch(() => {});
+                } catch (e) { console.warn('[DetailsModal] Failed to update request status:', e); }
+            }
+            // Close the modal and navigate to the details page for this item so admins
+            // can immediately inspect the imported title. Use the itemId stored on
+            // the modal (prefers Jellyfin item id when available).
+            setTimeout(() => {
+                try { hideModal(); } catch (e) { /* ignore */ }
+                const targetId = overlay?.dataset?.itemId || overlay?.dataset?.jellyfinId || overlay?.dataset?.tmdbId || overlay?.dataset?.imdbId;
+                if (targetId) {
+                    // Navigate to Jellyfin details route
+                    window.location.hash = '#/details?id=' + encodeURIComponent(targetId);
+                }
+            }, 250);
         });
 
         removeBtn.addEventListener('click', async () => {
@@ -410,10 +480,10 @@
         // Hover effects
         importBtn.addEventListener('mouseenter', () => importBtn.style.background = '#1c7ed6');
         importBtn.addEventListener('mouseleave', () => importBtn.style.background = '#1e90ff');
-        requestBtn.addEventListener('mouseenter', () => requestBtn.style.background = '#f57c00');
-        requestBtn.addEventListener('mouseleave', () => requestBtn.style.background = '#ff9800');
-        approveBtn.addEventListener('mouseenter', () => approveBtn.style.background = '#45a049');
-        approveBtn.addEventListener('mouseleave', () => approveBtn.style.background = '#4caf50');
+    requestBtn.addEventListener('mouseenter', () => { if (!requestBtn.disabled) requestBtn.style.background = '#f57c00'; });
+    requestBtn.addEventListener('mouseleave', () => { if (!requestBtn.disabled) requestBtn.style.background = '#ff9800'; });
+    approveBtn.addEventListener('mouseenter', () => { if (!approveBtn.disabled) approveBtn.style.background = '#45a049'; });
+    approveBtn.addEventListener('mouseleave', () => { if (!approveBtn.disabled) approveBtn.style.background = '#4caf50'; });
         removeBtn.addEventListener('mouseenter', () => removeBtn.style.background = '#d32f2f');
         removeBtn.addEventListener('mouseleave', () => removeBtn.style.background = '#f44336');
         openBtn.addEventListener('mouseenter', () => openBtn.style.background = '#45a049');
@@ -528,7 +598,7 @@
                     params.append('tmdbId', tmdbIdFromResponse);
                     params.append('mediaType', actualType === 'series' ? 'tv' : 'movie');
                     
-                    const url = window.ApiClient.getUrl('api/myplugin/metadata/external-ids') + '?' + params.toString();
+                    const url = window.ApiClient.getUrl('api/baklava/metadata/external-ids') + '?' + params.toString();
                     const externalData = await window.ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' });
                     
                     if (externalData?.imdb_id) {
@@ -551,7 +621,7 @@
             }
             
             if (window.LibraryStatus?.check) {
-                const existingRequest = await window.LibraryStatus.checkRequest(imdbIdFromResponse, tmdbIdFromResponse, actualType);
+                const existingRequest = await window.LibraryStatus.checkRequest(imdbIdFromResponse, tmdbIdFromResponse, actualType, modal.dataset.itemId || null);
                 
                 if (existingRequest) {
                     console.log('[DetailsModal] Item found in requests');
@@ -612,10 +682,10 @@
                                 approveBtn.style.display = 'block';
                                 approveBtn.textContent = 'Approve & Import';
                             }
-                            if (removeBtn) {
-                                removeBtn.style.display = 'block';
-                                removeBtn.textContent = 'Reject Request';
-                            }
+                                if (removeBtn) {
+                                    removeBtn.style.display = 'block';
+                                    removeBtn.title = 'Reject Request';
+                                }
                         } else {
                             // Approved - show import + remove
                             if (importBtn) {
@@ -624,7 +694,7 @@
                             }
                             if (removeBtn) {
                                 removeBtn.style.display = 'block';
-                                removeBtn.textContent = 'Remove Request';
+                                removeBtn.title = 'Remove';
                             }
                         }
                     } else {
@@ -635,7 +705,7 @@
                                 // User's own pending request - show cancel button
                                 if (removeBtn) {
                                     removeBtn.style.display = 'block';
-                                    removeBtn.textContent = 'Cancel Request';
+                                    removeBtn.title = 'Cancel Request';
                                 }
                                 if (approveBtn) approveBtn.style.display = 'none';
                                 if (openBtn) openBtn.style.display = 'none';
@@ -657,7 +727,7 @@
                         } else {
                             // Approved request - don't show "Open" unless it's actually in library!
                             // Check if it's actually imported
-                            const actuallyInLibrary = await window.LibraryStatus.check(imdbIdFromResponse, tmdbIdFromResponse, actualType);
+                            const actuallyInLibrary = await window.LibraryStatus.check(imdbIdFromResponse, tmdbIdFromResponse, actualType, modal.dataset.itemId || null);
                             if (actuallyInLibrary) {
                                 if (openBtn) openBtn.style.display = 'block';
                             } else {
@@ -673,9 +743,9 @@
                             }
                             if (approveBtn) approveBtn.style.display = 'none';
                             if (isOwnRequest) {
-                                if (removeBtn) {
+                                    if (removeBtn) {
                                     removeBtn.style.display = 'block';
-                                    removeBtn.textContent = 'Remove Request';
+                                    removeBtn.title = 'Remove';
                                 }
                             } else {
                                 if (removeBtn) removeBtn.style.display = 'none';
@@ -687,7 +757,7 @@
                     return;
                 }
                 
-                const inLibrary = await window.LibraryStatus.check(imdbIdFromResponse, tmdbIdFromResponse, actualType);
+                const inLibrary = await window.LibraryStatus.check(imdbIdFromResponse, tmdbIdFromResponse, actualType, modal.dataset.itemId || null);
                 const importBtn = qs('#item-detail-import', modal);
                 const requestBtn = qs('#item-detail-request', modal);
                 const openBtn = qs('#item-detail-open', modal);
@@ -903,9 +973,9 @@
                 } else {
                     if (requestStatus === 'pending') {
                         if (isOwnRequest) {
-                            if (removeBtn) {
+                                if (removeBtn) {
                                 removeBtn.style.display = 'block';
-                                removeBtn.textContent = 'Cancel';
+                                removeBtn.title = 'Cancel';
                             }
                             if (approveBtn) approveBtn.style.display = 'none';
                             if (openBtn) openBtn.style.display = 'none';
@@ -918,10 +988,10 @@
                         if (openBtn) openBtn.style.display = 'block';
                         if (approveBtn) approveBtn.style.display = 'none';
                         if (isOwnRequest) {
-                            if (removeBtn) {
-                                removeBtn.style.display = 'block';
-                                removeBtn.textContent = 'Remove';
-                            }
+                                if (removeBtn) {
+                                    removeBtn.style.display = 'block';
+                                    removeBtn.title = 'Remove';
+                                }
                         } else {
                             if (removeBtn) removeBtn.style.display = 'none';
                         }

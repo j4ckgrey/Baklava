@@ -1,7 +1,6 @@
 (function () {
     'use strict';
 
-
     const SEARCH_STORAGE_KEY = 'jellyfin_local_search_enabled';
     const SEARCH_PREFIX = 'local:';
     let globeIcon = null;
@@ -66,50 +65,42 @@
         document.head.appendChild(style);
     }
 
-    // Detect admin user
-    function isUserAdmin() {
-        try {
-            const userKeys = Object.keys(localStorage).filter(k =>
-                k.toLowerCase().includes('user-') && localStorage.getItem(k)
-            );
-            let latest = null, latestDate = null;
-            for (const k of userKeys) {
-                try {
-                    const u = JSON.parse(localStorage.getItem(k));
-                    if (u?.LastActivityDate) {
-                        const d = new Date(u.LastActivityDate);
-                        if (!latestDate || d > latestDate) {
-                            latestDate = d;
-                            latest = u;
-                        }
-                    }
-                } catch {}
-            }
-            return latest?.Policy?.IsAdministrator === true;
-        } catch { return false; }
-    }
-
     // Toggle state getter/setter
     function getSearchToggleState() {
         const stored = localStorage.getItem(SEARCH_STORAGE_KEY);
-        // Default to local search (true) when no preference is stored
-        return stored === null ? true : stored === 'true';
+        // Default to global search (false) when no preference is stored
+        return stored === null ? false : stored === 'true';
     }
 
     function setSearchToggleState(state) {
         localStorage.setItem(SEARCH_STORAGE_KEY, String(state));
     }
 
-    // Trigger search results refresh without rebuilding search bar
+    // Trigger search results refresh by forcing a page reload with updated query
+    // This ensures the search API is called again with the new local/global state
     function refreshSearchResults(query) {
         if (!query) return;
-        const q = encodeURIComponent(query);
+        
+        console.log('[Baklava] Refreshing search results for:', query);
+        
         try {
-            if (window.AppRouter?.show) AppRouter.show(`search.html?query=${q}`);
-            else if (window.Emby?.Page?.show) Emby.Page.show(`search.html?query=${q}`);
-            else window.location.hash = `#!/search.html?query=${q}`;
-        } catch {
-            window.location.hash = `#!/search.html?query=${q}`;
+            // Get the current URL
+            const currentUrl = new URL(window.location.href);
+            
+            // Check if we're on a search page
+            if (currentUrl.pathname.includes('/search.html')) {
+                // Update the query parameter and add cache-busting
+                const searchParams = new URLSearchParams(currentUrl.search);
+                searchParams.set('query', query);
+                
+                // Force reload by navigating to the same page with updated params
+                window.location.href = `${currentUrl.pathname}?${searchParams.toString()}`;
+            } else {
+                // Not on search page - try to navigate to it
+                window.location.href = `/web/index.html#!/search.html?query=${encodeURIComponent(query)}`;
+            }
+        } catch (error) {
+            console.error('[Baklava] Error refreshing search:', error);
         }
     }
 
@@ -138,18 +129,24 @@
         return icon;
     }
 
-    // Intercept search API to add/remove local: prefix
+    // Intercept search API to add "local:" prefix when in local mode
+    // Server-side filter (SearchActionFilter.cs) will strip the prefix and handle routing
     function interceptSearchAPI() {
         const patchURL = (u) => {
             const keys = ['searchTerm', 'SearchTerm', 'searchQuery', 'query', 'q'];
             const isLocal = getSearchToggleState();
+            
             for (const k of keys) {
                 const v = u.searchParams.get(k);
                 if (!v) continue;
+                
+                // Add prefix when in local mode (if not already present)
                 if (isLocal && !v.startsWith(SEARCH_PREFIX)) {
                     u.searchParams.set(k, SEARCH_PREFIX + v);
                     return true;
-                } else if (!isLocal && v.startsWith(SEARCH_PREFIX)) {
+                } 
+                // Remove prefix when NOT in local mode (if present)
+                else if (!isLocal && v.startsWith(SEARCH_PREFIX)) {
                     u.searchParams.set(k, v.slice(SEARCH_PREFIX.length));
                     return true;
                 }

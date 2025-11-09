@@ -16,5 +16,21 @@ namespace Baklava
 
         // TMDB API key for metadata lookups
         public string TmdbApiKey { get; set; } = string.Empty;
+
+        // Gelato integration settings (server-side proxy)
+        // Set GelatoBaseUrl to the base URL where Gelato is reachable from the Jellyfin server
+        // e.g. http://localhost:8096
+        public string GelatoBaseUrl { get; set; } = string.Empty;
+
+        // GelatoAuthHeader supports either a full header like "X-Emby-Token: abc..." or
+        // a bare Authorization value which will be used as the Authorization header.
+        public string GelatoAuthHeader { get; set; } = string.Empty;
+
+        // Search configuration
+        // Enable or disable the search prefix filter functionality
+        public bool EnableSearchFilter { get; set; } = true;
+
+        // Force TV clients to use local search only (enabled by default)
+        public bool ForceTVClientLocalSearch { get; set; } = true;
     }
 }

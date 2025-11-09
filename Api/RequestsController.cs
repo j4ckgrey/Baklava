@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 namespace Baklava.Api
 {
     [ApiController]
-    [Route("api/myplugin/requests")]
+    [Route("api/baklava/requests")]
     [Produces("application/json")]
     public class RequestsController : ControllerBase
     {
@@ -158,19 +158,132 @@ namespace Baklava.Api
                 return NotFound($"Request {id} not found");
             }
 
-            // Update fields
+            // Update fields. If an admin approves, create a separate admin-owned
+            // approved copy so admin and user can delete independently.
             if (!string.IsNullOrEmpty(update.Status))
             {
+                // Always update the original request's status so the requester sees it as approved
                 request.Status = update.Status;
             }
-            
+
             if (!string.IsNullOrEmpty(update.ApprovedBy))
             {
                 request.ApprovedBy = update.ApprovedBy;
             }
 
+            // If approving and ApprovedBy is provided and the approver is different
+            // from the original requester, create an admin-owned approved copy.
+            try
+            {
+                if (!string.IsNullOrEmpty(update.Status) && update.Status.Equals("approved", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrEmpty(update.ApprovedBy) && !string.Equals(update.ApprovedBy, request.Username, StringComparison.OrdinalIgnoreCase))
+                {
+                    var cfg = Plugin.Instance?.Configuration;
+
+                    // Avoid creating duplicate admin-approved entries for the same approver + tmdb
+                    var existingAdminCopy = cfg?.Requests?.FirstOrDefault(r =>
+                        r.Username == update.ApprovedBy &&
+                        r.TmdbId == request.TmdbId &&
+                        r.Status != null && r.Status.Equals("approved", StringComparison.OrdinalIgnoreCase)
+                    );
+
+                    if (existingAdminCopy == null)
+                    {
+                        var adminCopy = new MediaRequest
+                        {
+                            Id = $"{update.ApprovedBy}_{request.TmdbId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+                            Username = update.ApprovedBy,
+                            UserId = string.Empty,
+                            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                            Title = request.Title,
+                            Year = request.Year,
+                            Img = request.Img,
+                            ImdbId = request.ImdbId,
+                            TmdbId = request.TmdbId,
+                            JellyfinId = request.JellyfinId,
+                            ItemType = request.ItemType,
+                            TmdbMediaType = request.TmdbMediaType,
+                            Status = "approved",
+                            ApprovedBy = update.ApprovedBy
+                        };
+
+                        if (cfg?.Requests == null) cfg.Requests = new List<MediaRequest>();
+                        cfg.Requests.Add(adminCopy);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[RequestsController] Could not create admin copy for approved request {RequestId}", id);
+            }
+
             Plugin.Instance.SaveConfiguration();
             _logger.LogInformation($"[RequestsController] Updated request {id}: status={request.Status}");
+
+            // If the request was approved, trigger Gelato metadata refresh server-side.
+            try
+            {
+                if (!string.IsNullOrEmpty(request.Status) && request.Status.Equals("approved", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Run in background so we don't block the HTTP response.
+                    _ = System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var cfg = Plugin.Instance?.Configuration;
+                            string baseUrl = cfg?.GelatoBaseUrl;
+                            if (string.IsNullOrEmpty(baseUrl))
+                            {
+                                baseUrl = $"{Request.Scheme}://{Request.Host.Value}";
+                            }
+
+                            var type = (request.TmdbMediaType ?? request.ItemType ?? "movie");
+                            if (type == "series") type = "tv";
+                            if (type == "tv" || type == "movie")
+                            {
+                                var imdb = request.ImdbId;
+                                if (!string.IsNullOrEmpty(imdb))
+                                {
+                                    var url = baseUrl.TrimEnd('/') + $"/gelato/meta/{type}/{Uri.EscapeDataString(imdb)}";
+                                    using var http = new HttpClient();
+                                    if (!string.IsNullOrEmpty(cfg?.GelatoAuthHeader))
+                                    {
+                                        // Allow configuration to specify either a full header name and value
+                                        // (for example: "X-Emby-Token: <token>") or just a token/value which
+                                        // will be applied to the Authorization header.
+                                        var header = cfg.GelatoAuthHeader;
+                                        var idx = header.IndexOf(':');
+                                        if (idx > -1)
+                                        {
+                                            var name = header.Substring(0, idx).Trim();
+                                            var value = header.Substring(idx + 1).Trim();
+                                            try { http.DefaultRequestHeaders.Remove(name); } catch { }
+                                            http.DefaultRequestHeaders.Add(name, value);
+                                        }
+                                        else
+                                        {
+                                            try { http.DefaultRequestHeaders.Remove("Authorization"); } catch { }
+                                            http.DefaultRequestHeaders.Add("Authorization", header);
+                                        }
+                                    }
+                                    _logger.LogInformation("[RequestsController] Calling Gelato at {Url} for approved request {RequestId}", url, id);
+                                    var resp = await http.GetAsync(url).ConfigureAwait(false);
+                                    _logger.LogInformation("[RequestsController] Gelato responded {Status} for {RequestId}", resp.StatusCode, id);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "[RequestsController] Error calling Gelato for approved request {RequestId}", id);
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[RequestsController] Failed to trigger Gelato for request {RequestId}", id);
+            }
+
             return Ok();
         }
 

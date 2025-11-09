@@ -5,7 +5,10 @@ using Microsoft.Extensions.Logging;
 namespace Baklava.Api
 {
     [ApiController]
-    [Route("api/myplugin/config")]
+    // Support both the explicit plugin route and the legacy "myplugin" route
+    // so the Jellyfin admin UI can find the configuration endpoint regardless
+    // of how the client requests it.
+    [Route("api/baklava/config")]
     [Produces("application/json")]
     public class ConfigController : ControllerBase
     {
@@ -29,7 +32,12 @@ namespace Baklava.Api
 
             if (isAdmin)
             {
-                return Ok(new { defaultTmdbId = cfg.DefaultTmdbId, tmdbApiKey = cfg.TmdbApiKey });
+                return Ok(new { 
+                    defaultTmdbId = cfg.DefaultTmdbId, 
+                    tmdbApiKey = cfg.TmdbApiKey,
+                    enableSearchFilter = cfg.EnableSearchFilter,
+                    forceTVClientLocalSearch = cfg.ForceTVClientLocalSearch
+                });
             }
 
             return Ok(new { defaultTmdbId = cfg.DefaultTmdbId });
@@ -53,8 +61,20 @@ namespace Baklava.Api
 
             cfg.DefaultTmdbId = dto?.defaultTmdbId?.Trim();
             cfg.TmdbApiKey = dto?.tmdbApiKey?.Trim();
+            
+            // Update search filter settings
+            if (dto.enableSearchFilter.HasValue)
+            {
+                cfg.EnableSearchFilter = dto.enableSearchFilter.Value;
+            }
+            if (dto.forceTVClientLocalSearch.HasValue)
+            {
+                cfg.ForceTVClientLocalSearch = dto.forceTVClientLocalSearch.Value;
+            }
+            
             Plugin.Instance.SaveConfiguration();
-            _logger.LogInformation("[ConfigController] Updated DefaultTmdbId");
+            _logger.LogInformation("[ConfigController] Updated configuration - SearchFilter: {SearchFilter}, ForceTVLocal: {ForceTVLocal}", 
+                cfg.EnableSearchFilter, cfg.ForceTVClientLocalSearch);
             return Ok();
         }
     }
@@ -63,5 +83,7 @@ namespace Baklava.Api
     {
         public string defaultTmdbId { get; set; }
         public string tmdbApiKey { get; set; }
+        public bool? enableSearchFilter { get; set; }
+        public bool? forceTVClientLocalSearch { get; set; }
     }
 }

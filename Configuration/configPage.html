@@ -9,14 +9,44 @@
         <div data-role="content">
             <div class="content-primary">
                 <div style="text-align: center; margin-bottom: 20px;">
-                    <img src="/plugins/109470b0-d97c-4540-89b7-856d4e5831c7/baklava-logo.png" alt="Baklava Logo" style="max-width: 200px; height: auto; border-radius: 8px;">
+                    <img src="configurationpage?name=Baklava.Baklava.png" alt="Baklava Logo" style="max-width: 200px; height: auto; border-radius: 8px;" onerror="this.style.display='none';">
                 </div>
                 <h2 style="text-align: center;">Baklava - Media Request Manager</h2>
                 <h3 style="text-align: center;">Plugin Settings</h3>
-                <div>
+                
+                <!-- TMDB API Key -->
+                <div style="margin-bottom: 20px;">
                     <label for="tmdbApiKey" style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">TMDB API Key (required for title search)</label>
                     <input id="tmdbApiKey" type="text" placeholder="Enter TMDB API Key" style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
-                    <button id="saveConfigBtn" style="margin-left:8px;padding:6px 10px;border-radius:4px;border:none;background:#1e90ff;color:#fff;cursor:pointer;">Save</button>
+                </div>
+
+                <!-- Search Filter Settings -->
+                <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    <h4 style="margin-top: 0; color: #1e90ff;">Search Settings</h4>
+                    
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input id="enableSearchFilter" type="checkbox" style="margin-right: 8px;">
+                            <span style="color:#ddd;">Enable Search Filter (allows local: prefix handling)</span>
+                        </label>
+                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
+                            When enabled, the plugin will intercept search requests and handle the "local:" prefix to route searches appropriately.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input id="forceTVClientLocalSearch" type="checkbox" style="margin-right: 8px;">
+                            <span style="color:#ddd;">Force Local Search for TV Clients (Admin Override)</span>
+                        </label>
+                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
+                            When enabled, all TV clients (AndroidTV, FireTV, WebOS, etc.) will only see local library results, regardless of user preference. This is useful for restricting external search on shared/public servers.
+                        </p>
+                    </div>
+                </div>
+
+                <div>
+                    <button id="saveConfigBtn" style="padding:8px 16px;border-radius:4px;border:none;background:#1e90ff;color:#fff;cursor:pointer;font-size:14px;">Save Configuration</button>
                     <div id="configStatus" style="margin-top:8px;color:#ccc;font-size:13px;"></div>
                 </div>
 
@@ -24,29 +54,42 @@
                     async function loadConfig(){
                         try{
                             if (window.ApiClient && window.ApiClient.ajax) {
-                                let response = await window.ApiClient.ajax({ type: 'GET', url: window.ApiClient.getUrl('api/myplugin/config'), dataType: 'json' });
+                                let response = await window.ApiClient.ajax({ type: 'GET', url: window.ApiClient.getUrl('api/baklava/config'), dataType: 'json' });
                                 if (response && response.constructor && response.constructor.name === 'Response') response = await response.json();
                                 document.getElementById('tmdbApiKey').value = response?.tmdbApiKey || '';
+                                document.getElementById('enableSearchFilter').checked = response?.enableSearchFilter !== false;
+                                document.getElementById('forceTVClientLocalSearch').checked = response?.forceTVClientLocalSearch === true;
                                 return;
                             }
 
-                            const url = (window.ApiClient && window.ApiClient.getUrl) ? window.ApiClient.getUrl('api/myplugin/config') : (window.location.origin + '/api/myplugin/config');
+                            const url = (window.ApiClient && window.ApiClient.getUrl) ? window.ApiClient.getUrl('api/baklava/config') : (window.location.origin + '/api/baklava/config');
                             const res = await fetch(url, { credentials: 'same-origin' });
                             if (!res.ok) throw new Error('Failed to load config');
                             const json = await res.json();
                             document.getElementById('tmdbApiKey').value = json.tmdbApiKey || '';
+                            document.getElementById('enableSearchFilter').checked = json.enableSearchFilter !== false;
+                            document.getElementById('forceTVClientLocalSearch').checked = json.forceTVClientLocalSearch === true;
                         }catch(e){ console.error(e); }
                     }
 
                     document.getElementById('saveConfigBtn').addEventListener('click', async ()=>{
                         const key = document.getElementById('tmdbApiKey').value;
+                        const enableFilter = document.getElementById('enableSearchFilter').checked;
+                        const forceTVLocal = document.getElementById('forceTVClientLocalSearch').checked;
+                        
+                        const configData = {
+                            tmdbApiKey: key,
+                            enableSearchFilter: enableFilter,
+                            forceTVClientLocalSearch: forceTVLocal
+                        };
+                        
                         try {
                             // Prefer ApiClient.ajax which includes authentication and proper headers
                             if (window.ApiClient && window.ApiClient.ajax) {
                                 const ajaxOpts = {
                                     type: 'PUT',
-                                    url: window.ApiClient.getUrl('api/myplugin/config'),
-                                    data: JSON.stringify({ tmdbApiKey: key }),
+                                    url: window.ApiClient.getUrl('api/baklava/config'),
+                                    data: JSON.stringify(configData),
                                     contentType: 'application/json'
                                 };
                                 const res = await window.ApiClient.ajax(ajaxOpts);
@@ -56,16 +99,16 @@
                                     return;
                                 }
                                 // Update cached plugin config in page context so client code picks it up immediately
-                                try { if (window.MediaServerUI) window.MediaServerUI._pluginConfig = { tmdbApiKey: key }; } catch(e) {}
-                                document.getElementById('configStatus').textContent = 'Saved';
+                                try { if (window.MediaServerUI) window.MediaServerUI._pluginConfig = configData; } catch(e) {}
+                                document.getElementById('configStatus').textContent = 'Configuration saved successfully!';
                                 return;
                             }
 
-                            const url = (window.ApiClient && window.ApiClient.getUrl) ? window.ApiClient.getUrl('api/myplugin/config') : (window.location.origin + '/api/myplugin/config');
+                            const url = (window.ApiClient && window.ApiClient.getUrl) ? window.ApiClient.getUrl('api/baklava/config') : (window.location.origin + '/api/baklava/config');
                             const res = await fetch(url, {
                                 method: 'PUT',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ tmdbApiKey: key }),
+                                body: JSON.stringify(configData),
                                 credentials: 'same-origin'
                             });
                             if (res.status === 403) {
@@ -73,10 +116,10 @@
                                 return;
                             }
                             if (!res.ok) throw new Error('Save failed');
-                            try { if (window.MediaServerUI) window.MediaServerUI._pluginConfig = { tmdbApiKey: key }; } catch(e) {}
-                            document.getElementById('configStatus').textContent = 'Saved';
+                            try { if (window.MediaServerUI) window.MediaServerUI._pluginConfig = configData; } catch(e) {}
+                            document.getElementById('configStatus').textContent = 'Configuration saved successfully!';
                         } catch (err) {
-                            document.getElementById('configStatus').textContent = 'Error saving';
+                            document.getElementById('configStatus').textContent = 'Error saving configuration';
                             console.error(err);
                         }
                     });

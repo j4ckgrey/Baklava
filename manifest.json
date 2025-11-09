@@ -2,19 +2,20 @@
   {
     "guid": "109470b0-d97c-4540-89b7-856d4e5831c7",
     "name": "Baklava",
-    "description": "Media request management with admin approval workflow",
-    "overview": "Adds media request system, enhanced search, and request tracking",
+    "description": "Media request management with admin approval workflow and enhanced search capabilities",
+    "overview": "Adds media request system with user submissions and admin approval, smart search toggle between local and global sources, automatic TV client local search enforcement, and seamless Gelato integration for external content discovery",
     "owner": "j4ckgrey",
     "category": "General",
+    "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/jellyfin-plugin-baklava/main/Baklava.png",
     "versions": [
       {
-        "version": "0.1.4",
-        "changelog": "UI improvements: removed custom logo overrides, removed carousel arrows and card padding in details modal. Added C# language parsing for audio/subtitle tracks.",
+        "version": "0.1.0",
+        "changelog": "Initial release: Media request system, search toggle with local/global modes, TV client auto-enforcement, server-side search filtering, responsive UI for all screen sizes, Gelato integration",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://raw.githubusercontent.com/j4ckgrey/jellyfin-plugin-baklava/main/Baklava_0.1.4.zip",
-        "checksum": "6f08b724720286026228efa3ae3b252a",
+        "sourceUrl": "https://github.com/j4ckgrey/jellyfin-plugin-baklava/releases/download/v0.1.0/baklava_0.1.0.zip",
+        "checksum": "TBD",
         "checksumType": "md5",
-        "timestamp": "2025-11-08T08:09:33Z"
+        "timestamp": "2025-11-09T12:00:00Z"
       }
     ]
   }
