@@ -153,7 +153,7 @@
         card.dataset.requestId = request.Id;
         card.style.cssText = `
             display: inline-block;
-            width: 140px;
+            width: 100px;
             cursor: pointer;
             text-align: center;
             color: #ccc;
@@ -164,7 +164,7 @@
         const imgDiv = document.createElement('div');
         imgDiv.style.cssText = `
             width: 100%;
-            height: 210px;
+            height: 150px;
             background-size: cover;
             background-position: center;
             border-radius: 6px;
@@ -186,7 +186,7 @@
                 border-radius: 4px;
                 font-size: 11px;
                 font-weight: 600;
-                max-width: 120px;
+                max-width: 85px;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
@@ -279,26 +279,6 @@
             }
         }
 
-        const titleDiv = document.createElement('div');
-        titleDiv.textContent = request.Title || 'Unknown';
-        titleDiv.style.cssText = `
-            font-size: 13px;
-            font-weight: 500;
-            margin-bottom: 4px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        `;
-        card.appendChild(titleDiv);
-
-        const yearDiv = document.createElement('div');
-        yearDiv.textContent = request.Year || '';
-        yearDiv.style.cssText = `
-            font-size: 12px;
-            color: #999;
-        `;
-        card.appendChild(yearDiv);
-
         card.addEventListener('click', () => {
             openRequestModal(request, adminView);
         });
@@ -312,7 +292,7 @@
         card.className = 'request-card placeholder-card';
         card.style.cssText = `
             display: inline-block;
-            width: 140px;
+            width: 100px;
             margin: 10px;
             cursor: default;
             text-align: center;
@@ -323,7 +303,7 @@
         const imgDiv = document.createElement('div');
         imgDiv.style.cssText = `
             width: 100%;
-            height: 210px;
+            height: 150px;
             border-radius: 6px;
             margin-bottom: 8px;
             box-sizing: border-box;
@@ -338,25 +318,6 @@
         inner.style.cssText = 'width:60%;height:60%;border-radius:4px;';
         imgDiv.appendChild(inner);
         card.appendChild(imgDiv);
-
-        const titleDiv = document.createElement('div');
-        titleDiv.textContent = '';
-        titleDiv.style.cssText = `
-            font-size: 13px;
-            font-weight: 500;
-            margin-bottom: 4px;
-            height: 16px;
-        `;
-        card.appendChild(titleDiv);
-
-        const yearDiv = document.createElement('div');
-        yearDiv.textContent = '';
-        yearDiv.style.cssText = `
-            font-size: 12px;
-            color: #999;
-            height: 14px;
-        `;
-        card.appendChild(yearDiv);
 
         return card;
     }
@@ -424,7 +385,7 @@
             bottom: 40px;
             right: 20px;
             left: 20px;
-            max-width: 1400px;
+            max-width: 800px;
             margin: 0 auto;
             background: #181818;
             border: 1px solid #333;
@@ -434,6 +395,7 @@
             display: none;
             overflow: hidden;
             padding: 20px;
+            max-height: 80vh;
         `;
         
         dropdownMenu.innerHTML = `

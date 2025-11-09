@@ -13,7 +13,7 @@
         "changelog": "Hotfix: Fixed carousel arrow positioning bug, restored filename display for version carousel, added Audio/Subtitle labels",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.1.2/baklava_0.1.2.zip",
-        "checksum": "0e72422e8d7cb3e3b0d33581f559e979",
+        "checksum": "2e142600f6d670155a75ff72f0001c0a",
         "checksumType": "md5",
         "timestamp": "2025-11-09T16:00:00Z"
       },
