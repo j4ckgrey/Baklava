@@ -56,13 +56,13 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <!-- Embed plugin logo as resource for GetPluginImage() -->
-    <EmbeddedResource Include="Baklava.svg">
-      <LogicalName>Baklava.thumb.svg</LogicalName>
+    <EmbeddedResource Include="Baklava.png">
+      <LogicalName>Baklava.thumb.png</LogicalName>
     </EmbeddedResource>
-    <!-- Also copy to output as thumb.svg for file access -->
-    <Content Include="Baklava.svg">
+    <!-- Also copy to output as thumb.png for file access -->
+    <Content Include="Baklava.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <TargetPath>thumb.svg</TargetPath>
+      <TargetPath>thumb.png</TargetPath>
     </Content>
     <EmbeddedResource Include="Configuration/configPage.html" />
     <!-- Embed ALL JavaScript files so they can be inlined into index.html at transform time -->
