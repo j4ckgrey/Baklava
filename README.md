@@ -1,7 +1,8 @@
 # Baklava - Jellyfin Media Request & Search Enhancement Plugin
 
 <p align="center">
-  <img src="Baklava.png" alt="Baklava Logo" width="200"/>
+  <!-- Logo removed from repository; image intentionally omitted -->
+  <strong>Baklava</strong>
 </p>
 
 A comprehensive Jellyfin plugin that adds intelligent media request management, enhanced search capabilities with local/global toggle, and seamless integration with external search providers.
@@ -43,15 +44,16 @@ A comprehensive Jellyfin plugin that adds intelligent media request management, 
 4. Go to **Catalog** and install **Baklava**
 5. Restart Jellyfin
 
-### Manual Installation
-1. Download the latest release from [Releases](https://github.com/j4ckgrey/jellyfin-plugin-baklava/releases)
-2. Extract the ZIP file to your Jellyfin plugins directory:
-   - Linux: `~/.local/share/jellyfin/plugins/Baklava_X.X.X/`
-   - Windows: `C:\ProgramData\Jellyfin\Server\plugins\Baklava_X.X.X\`
-   - Docker: `/config/plugins/Baklava_X.X.X/`
-3. Restart Jellyfin server
-
 ## ⚙️ Configuration
+
+## ⚠️ Prerequisites
+
+Before installing Baklava make sure the following Jellyfin plugins are installed and configured on your server:
+
+- **Gelato** — external search provider used by Baklava for global discovery: https://github.com/lostb1t/Gelato
+- **File Transformation** — required for certain media handling and transformations used by Baklava: https://github.com/IAmParadox27/jellyfin-plugin-file-transformation
+
+Install and verify these plugins are working before installing Baklava. Failure to have these available may cause limited functionality.
 
 ### Plugin Settings
 

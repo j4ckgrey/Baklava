@@ -6,7 +6,6 @@
     "overview": "Adds media request system with user submissions and admin approval, smart search toggle between local and global sources, automatic TV client local search enforcement, and seamless Gelato integration for external content discovery",
     "owner": "j4ckgrey",
     "category": "General",
-    "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/jellyfin-plugin-baklava/main/Baklava.png",
     "versions": [
       {
         "version": "0.1.0",
