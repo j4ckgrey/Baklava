@@ -1,195 +1,149 @@
-Baklava - Jellyfin Media Request & Search Enhancement Plugin
+<h1 align="center">🍮 Baklava</h1>
+<h3 align="center">Jellyfin Media Request & Search Enhancement Plugin</h3>
 
-<p align="center">  
-  <img src="Baklava.png" alt="Baklava Logo" width="200"/>  
-</p>  A comprehensive Jellyfin plugin that adds intelligent media request management, enhanced search capabilities with local/global toggle, and seamless integration with external search providers.
+<p align="center">
+  <img src="Baklava.png" alt="Baklava Logo" width="200" />
+</p>
 
-✨ Features
+<p align="center">
+  <i>
+    A comprehensive <b>Jellyfin plugin</b> that adds intelligent media request management, enhanced search capabilities with local/global toggle, 
+    and seamless integration with external search providers.
+  </i>
+</p>
 
-🎬 Media Request System
+---
 
-User Requests: Allow users to request movies and TV series
+## ✨ Features
 
-Admin Approval Workflow: Approve or deny requests through an intuitive interface
+### 🎬 Media Request System
+- **User Requests:** Allow users to request movies and TV series  
+- **Admin Approval Workflow:** Approve or deny requests through an intuitive interface  
+- **Request Tracking:** Monitor pending and approved requests  
+- **Responsive UI:** Optimized for all screen sizes with adaptive card layouts  
 
-Request Tracking: Monitor pending and approved requests
+### 🔍 Enhanced Search
+- **Search Toggle:** Switch between local (Jellyfin library) and global (external) search  
+- **Visual Indicator:** Globe icon with slash overlay for local search mode  
+- **Smart Defaults:** Global search by default for discovery, configurable local enforcement  
+- **TV Client Support:** Automatic local search enforcement for TV clients (Android TV, Fire TV, etc.)  
 
-Responsive UI: Optimized for all screen sizes with adaptive card layouts
+### 🎯 Server-Side Processing
+- **SearchActionFilter:** Intelligent request interception and routing  
+- **Prefix Handling:** Automatic `local:` prefix management  
+- **Gelato Integration:** Seamless handoff to external search providers  
+- **Configurable:** Enable/disable features via plugin settings  
 
+---
 
-🔍 Enhanced Search
+## 📦 Installation
 
-Search Toggle: Easy switch between local (Jellyfin library) and global (external sources) search
+### ✅ Via Jellyfin Plugin Repository (Recommended)
 
-Visual Indicator: Globe icon with slash overlay for local search mode
+1. Open **Jellyfin Dashboard**  
+2. Navigate to **Plugins → Repositories**  
+3. Add repository URL:https://raw.githubusercontent.com/j4ckgrey/Baklava/main/manifest.json
+4. Go to **Catalog** and install **Baklava**  
+5. Restart Jellyfin  
 
-Smart Defaults: Global search by default for discovery, configurable local search enforcement
+---
 
-TV Client Support: Automatic local search enforcement for TV clients (Android TV, Fire TV, etc.)
+## ⚙️ Configuration
 
+### ⚠️ Prerequisites
 
-🎯 Server-Side Processing
+Before installing **Baklava**, ensure the following Jellyfin plugins are installed and configured:
 
-SearchActionFilter: Intelligent request interception and routing
+| Plugin | Description | Link |
+|--------|--------------|------|
+| **Gelato** | External search provider used by Baklava for global discovery | [lostb1t/Gelato](https://github.com/lostb1t/Gelato) |
+| **File Transformation** | Required for certain media handling and transformations | [IAmParadox27/jellyfin-plugin-file-transformation](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation) |
 
-Prefix Handling: Automatic "local:" prefix management
+> ⚠️ If these plugins are missing or misconfigured, Baklava may have limited functionality.
 
-Gelato Integration: Seamless handoff to external search providers
+---
 
-Configurable: Enable/disable features through plugin settings
+### 🔧 Plugin Settings
 
+Navigate to:  
+**Dashboard → Plugins → Baklava**
 
-📦 Installation
+#### Search Filter Settings
+- **Enable Search Filter:** Toggle server-side search prefix handling  
+- **Force TV Client Local Search:** Automatically enforce local search for TV clients  
 
-Via Jellyfin Plugin Repository (Recommended)
+#### TMDB Integration
+- **TMDB API Key:** For metadata lookups and poster images  
+- **Default TMDB ID:** For configuration testing  
 
-1. Open Jellyfin Dashboard
+---
 
+## 🚀 Usage
 
-2. Navigate to Plugins → Repositories
+### 🌐 Search Toggle
 
+The search toggle appears as a **globe icon** next to the search bar:
 
-3. Add repository URL: https://raw.githubusercontent.com/j4ckgrey/Baklava/main/manifest.json
+| Icon | Mode | Description |
+|------|------|-------------|
+| 🌐 | Global | Searches external sources via Gelato |
+| 🚫🌐 | Local | Searches only your Jellyfin library |
 
+#### To use:
+1. Type your search query  
+2. Click the globe icon to toggle modes  
+3. Results refresh automatically  
 
-4. Go to Catalog and install Baklava
+---
 
+### 🙋 Media Requests
 
-5. Restart Jellyfin
+#### For Users:
+1. Browse or search for media  
+2. Click **“Request”** on unavailable items  
+3. Track requests in the **Requests** dropdown  
+4. Get notified when approved  
 
+#### For Admins:
+1. Open the **Requests** dropdown (🔔)  
+2. View pending requests (Movies/Series)  
+3. Click to see details  
+4. **Approve** or **Deny** with one click  
+5. Approved items move to “Approved” section  
 
+---
 
-⚙️ Configuration
+### 📺 TV Client Behavior
 
-⚠️ Prerequisites
+When **Force TV Client Local Search** is enabled (default: ON):
+- Android TV, Fire TV, and other TV clients automatically use **local search**
+- The `"local:"` prefix is added server-side  
+- No user interaction required — fully transparent  
 
-Before installing Baklava make sure the following Jellyfin plugins are installed and configured on your server:
+---
 
-Gelato — external search provider used by Baklava for global discovery: https://github.com/lostb1t/Gelato
+## 🧩 Troubleshooting
 
-File Transformation — required for certain media handling and transformations used by Baklava: https://github.com/IAmParadox27/jellyfin-plugin-file-transformation
+| Issue | Possible Fix |
+|--------|---------------|
+| 🔎 Search toggle not appearing | Clear browser cache, check console errors, verify plugin is loaded |
+| 📺 TV client not using local search | Enable “Force TV Client Local Search”, check logs for “✓ Detected TV client” |
+| 🗂 Requests not saving | Check file permissions, validate TMDB API key, inspect server logs |
 
+---
 
-Install and verify these plugins are working before installing Baklava. Failure to have these available may cause limited functionality.
+## 📧 Support
 
-Plugin Settings
+- **Issues:** [Report a bug](https://github.com/j4ckgrey/Baklava/issues)  
+- **Discussions:** [Join the conversation](https://github.com/j4ckgrey/Baklava/discussions)
 
-Navigate to Dashboard → Plugins → Baklava to configure:
+---
 
-Search Filter Settings
+<p align="center">
+<img src="https://img.shields.io/badge/Platform-Jellyfin-blue?style=for-the-badge&logo=jellyfin" alt="Jellyfin Badge"/>
+<img src="https://img.shields.io/badge/Plugin-Baklava-orange?style=for-the-badge&logo=github" alt="Baklava Badge"/>
+</p>
 
-Enable Search Filter: Toggle server-side search prefix handling
-
-Force TV Client Local Search: Automatically enforce local search for TV clients (Android TV, Fire TV, etc.)
-
-
-TMDB Integration
-
-TMDB API Key: For metadata lookups and poster images
-
-Default TMDB ID: Default ID for config page testing
-
-
-🚀 Usage
-
-Search Toggle
-
-The search toggle appears as a globe icon (🌐) next to the search bar:
-
-Globe (no slash): Global search mode - searches external sources via Gelato
-
-Globe with slash (🚫): Local search mode - searches only your Jellyfin library
-
-
-To use:
-
-1. Type your search query
-
-
-2. Click the globe icon to toggle between local and global
-
-
-3. Results refresh automatically on toggle
-
-
-
-Media Requests
-
-For Users:
-
-1. Browse or search for media
-
-
-2. Click "Request" button on items not in your library
-
-
-3. Track your requests in the Requests dropdown
-
-
-4. Get notified when requests are approved
-
-
-
-For Admins:
-
-1. Open the Requests dropdown (bell icon)
-
-
-2. View pending requests organized by Movies/Series
-
-
-3. Click a request to see details
-
-
-4. Approve or Deny with one click
-
-
-5. Approved items move to the "Approved" section
-
-
-
-TV Client Behavior
-
-When Force TV Client Local Search is enabled (default: ON):
-
-Android TV, Fire TV, and other TV clients automatically use local search
-
-The "local:" prefix is added server-side
-
-No user interaction needed - transparent enforcement
-
-
-Troubleshooting
-
-Search toggle not appearing
-
-Clear browser cache
-
-Check browser console for JavaScript errors
-
-Verify plugin is loaded: Dashboard → Plugins
-
-
-TV client not using local search
-
-Enable "Force TV Client Local Search" in settings
-
-Check server logs for "✓ Detected TV client" messages
-
-Verify filter order (Baklava should be order 0)
-
-
-Requests not saving
-
-Check file permissions on plugin data directory
-
-Verify TMDB API key is valid
-
-Check server logs for errors
-
-
-📧 Support
-
-Issues: https://github.com/j4ckgrey/Baklava/issues
-
-Discussions: https://github.com/j4ckgrey/Baklava/discussions
+<p align="center">
+<i>Because every server deserves a sweet layer of Baklava 🍯</i>
+</p>
