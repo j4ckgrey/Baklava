@@ -168,11 +168,7 @@
         style.textContent = `
             /* Hide original select containers */
             form.trackSelections .selectContainer { display: none !important; }
-            form.trackSelections { 
-                max-width: 1200px !important; 
-                width: 100% !important; 
-                margin: 0 auto !important;
-            }
+            form.trackSelections { max-width: none !important; width: 100% !important; }
             
             /* Carousel wrapper */
             .stc-wrapper {
@@ -182,7 +178,7 @@
                 overflow: hidden;
             }
             
-            /* Control bar for arrows and label (audio/subtitle only) */
+            /* Control bar for arrows and label */
             .stc-controls {
                 display: flex;
                 align-items: center;
@@ -191,7 +187,7 @@
                 min-height: 32px;
             }
             
-            /* Carousel label */
+            /* Carousel label (only for audio and subtitle) */
             .stc-label {
                 font-size: 1.1em;
                 font-weight: 500;
@@ -200,7 +196,7 @@
                 flex: 1;
             }
             
-            /* Navigation arrows - default for audio/subtitle in controls */
+            /* Navigation arrows */
             .stc-arrow {
                 width: 32px;
                 height: 32px;
@@ -213,7 +209,6 @@
                 align-items: center;
                 justify-content: center;
                 transition: background 0.15s;
-                border-radius: 4px;
             }
             
             .stc-arrow:hover:not(:disabled) {
@@ -225,9 +220,8 @@
                 cursor: default;
             }
             
-            /* In controls, arrows positioned left and right */
-            .stc-controls .stc-arrow.stc-arrow-left { order: -1; }
-            .stc-controls .stc-arrow.stc-arrow-right { order: 1; }
+            .stc-arrow.stc-arrow-left { order: -1; }
+            .stc-arrow.stc-arrow-right { order: 1; }
             
             /* Cards container */
             .stc-cards {
@@ -236,9 +230,10 @@
                 overflow-x: auto;
                 scroll-behavior: smooth;
                 padding: 8px 4px;
-                max-width: 100%;
                 scrollbar-width: none;
                 -ms-overflow-style: none;
+                position: relative;
+                max-width: 100%;
             }
             .stc-cards::-webkit-scrollbar { display: none; }
             
@@ -396,7 +391,7 @@
             /* Toggle to show original selects */
             body.stc-show-selects form.trackSelections .selectContainer { display: block !important; }
             
-            /* Separator line between carousels */
+            /* Separator line after carousels */
             .stc-separator {
                 margin: 20px 0;
                 height: 1px;
@@ -404,22 +399,17 @@
                 border: none;
             }
 
-            /* Detail page layout restructure */
+            /* Center single carousel when it's the only one in form */
+            form.trackSelections .stc-wrapper:only-of-type {
+                max-width: 900px;
+                margin-left: auto;
+                margin-right: auto;
+            }
+
+            /* Detail page layout fixes - make primary content full width when alone */
             .detailPagePrimaryContent {
-                display: flex;
-                flex-direction: column;
                 width: 100% !important;
                 max-width: none !important;
-            }
-            
-            /* Move details/info section above player form */
-            .detailPagePrimaryContent .detailSection {
-                order: 2;
-            }
-            
-            .detailPagePrimaryContent .itemDetailsGroup {
-                order: 1;
-                margin-bottom: 2em;
             }
         `;
         
@@ -715,8 +705,8 @@
             wrapper = document.createElement('div');
             wrapper.className = 'stc-wrapper';
             
-            // For version selects, create filename display with arrows inside it
             if (type === 'version') {
+                // For version: filename div with arrows inside, no controls div
                 const filenameDiv = document.createElement('div');
                 filenameDiv.className = 'stc-filename';
                 filenameDiv.textContent = '';
@@ -727,9 +717,9 @@
                 wrapper.appendChild(cardsContainer);
                 
                 // Create arrows inside filename div
-                createArrows(cardsContainer, cardsContainer, { appendTo: filenameDiv });
+                createArrows(filenameDiv, cardsContainer, { appendTo: filenameDiv });
             } else {
-                // For audio/subtitle, create controls div with label and arrows
+                // For audio/subtitle: controls div with label and arrows
                 controlsDiv = document.createElement('div');
                 controlsDiv.className = 'stc-controls';
                 
@@ -758,8 +748,7 @@
             
             select._stcWrapper = wrapper;
             select._stcCards = cardsContainer;
-            if (controlsDiv) select._stcControls = controlsDiv;
-            if (type === 'version') select._stcFilename = wrapper.querySelector('.stc-filename');
+            select._stcControls = controlsDiv;
         }
         
         // Clear and populate cards

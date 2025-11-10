@@ -9,6 +9,15 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.png",
     "versions": [
       {
+        "version": "0.1.13",
+        "changelog": "ACTUAL FIX: Arrows properly inside filename div (no empty controls div for version); version carousel overflow fixed; config save for dropdown toggle fixed",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.1.13/baklava_0.1.13.zip",
+        "checksum": "fd49aaf4d934169258a234399627334a",
+        "checksumType": "md5",
+        "timestamp": "2025-11-10T16:00:00Z"
+      },
+      {
         "version": "0.1.12",
         "changelog": "Fix: arrows now properly embedded in filename div for version carousel; cards overflow containment fixed; config toggle for cards vs dropdowns now functional; detail page layout improved; code cleanup with reduced redundancy",
         "targetAbi": "10.11.0.0",
