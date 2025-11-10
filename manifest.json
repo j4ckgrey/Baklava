@@ -9,11 +9,20 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.svg",
     "versions": [
       {
+        "version": "0.1.7",
+        "changelog": "Release: Assembly version bump and minor fixes",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.1.7/baklava_0.1.7.zip",
+  "checksum": "105a0594c2edfcf2aee7ae1d281da0ed",
+        "checksumType": "md5",
+        "timestamp": "2025-11-10T00:00:00Z"
+      },
+      {
         "version": "0.1.6",
         "changelog": "Added option to disable requests for non-admin users (shows Import button instead)",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.1.6/baklava_0.1.6.zip",
-  "checksum": "335d6a29b4fa7c9cf5e03dd11abc8545",
+        "checksum": "335d6a29b4fa7c9cf5e03dd11abc8545",
         "checksumType": "md5",
         "timestamp": "2025-11-09T23:00:00Z"
       },
