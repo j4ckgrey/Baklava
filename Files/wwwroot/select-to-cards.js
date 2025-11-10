@@ -317,7 +317,19 @@
                 line-height: 1.3;
                 word-break: break-word;
             }
-            
+
+            .stc-card-version {
+                font-size: 13px;
+                font-weight: 700;
+                color: rgba(255,255,255,0.95);
+            }
+
+            .stc-card-quality {
+                font-size: 12px;
+                opacity: 0.9;
+                margin-top: 4px;
+            }
+
             /* Loading state */
             .stc-loading {
                 color: rgba(255,255,255,0.6);
@@ -348,7 +360,26 @@
                 font-size: 12px;
                 text-align: center;
                 font-family: monospace;
+                position: relative;
             }
+
+            /* When arrows are embedded into filename container they are positioned at its bottom corners */
+            .stc-filename .stc-arrow {
+                position: absolute;
+                bottom: 6px;
+                width: 30px;
+                height: 28px;
+                background: rgba(0,0,0,0.45);
+                border-radius: 4px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .stc-filename .stc-arrow.stc-arrow-left { left: 8px; }
+            .stc-filename .stc-arrow.stc-arrow-right { right: 8px; }
+
+            /* Toggle to show original selects */
+            body.stc-show-selects form.trackSelections .selectContainer { display: block !important; }
             
             /* Separator line after carousels */
             .stc-separator {
@@ -392,10 +423,23 @@
                 <div class="stc-card-type">${trackType}</div>
             `;
         } else {
-            // Version cards - show compact title
-            const text = option.textContent || option.value;
-            const cleanText = text.includes('(cut)') ? text.split('(cut)')[1].trim() : text;
-            card.innerHTML = `<div class="stc-card-title">${cleanText}</div>`;
+            // Version cards - parse version/quality and display them alone
+            const text = (option.textContent || option.value || '').trim();
+            // Try to extract quality (e.g., 2160p, 1080p)
+            const qualityMatch = text.match(/(\d{3,4}p)/i);
+            const quality = qualityMatch ? qualityMatch[1] : '';
+
+            // Extract common version tokens (WEB-DL, WEB, NF, DV, HEVC, HDR, BluRay, x265, etc.)
+            const tokenRegex = /WEB-?DL|WEB|NF|DV|HEVC|HDR10\+?|HDR10|HDR|BLURAY|BLU-?RAY|BDRIP|BRRIP|X264|X265|H264|H265|UHD|REMUX/ig;
+            const tokens = (text.match(tokenRegex) || []).map(t => t.toUpperCase());
+            const versionLabel = tokens.join(' ') || (option.getAttribute('data-version') || '').toString();
+
+            card.innerHTML = `
+                <div class="stc-card-title">
+                    <div class="stc-card-version">${versionLabel || 'Standard'}</div>
+                    <div class="stc-card-quality">${quality || 'Unknown'}</div>
+                </div>
+            `;
         }
         
         // Handle click
@@ -428,7 +472,7 @@
         return card;
     }
 
-    function createArrows(controlsDiv, cardsContainer) {
+    function createArrows(controlsDiv, cardsContainer, opts = {}) {
         const leftArrow = document.createElement('button');
         leftArrow.className = 'stc-arrow stc-arrow-left';
         leftArrow.innerHTML = '‹';
@@ -456,8 +500,14 @@
         
         cardsContainer.addEventListener('scroll', debounce(updateArrows, 100));
         
-        controlsDiv.appendChild(leftArrow);
-        controlsDiv.appendChild(rightArrow);
+        // If opts.appendTo provided, place arrows inside that element (used for filename container)
+        if (opts.appendTo) {
+            opts.appendTo.appendChild(leftArrow);
+            opts.appendTo.appendChild(rightArrow);
+        } else {
+            controlsDiv.appendChild(leftArrow);
+            controlsDiv.appendChild(rightArrow);
+        }
         
         setTimeout(updateArrows, 100);
     }
@@ -644,12 +694,30 @@
                 controlsDiv.appendChild(labelDiv);
             }
             
-            wrapper.appendChild(controlsDiv);
-            
-            cardsContainer = document.createElement('div');
-            cardsContainer.className = 'stc-cards';
-            
-            wrapper.appendChild(cardsContainer);
+            // For version selects, create filename display above controls and embed arrows inside filename
+            if (type === 'version') {
+                const filenameDiv = document.createElement('div');
+                filenameDiv.className = 'stc-filename';
+                filenameDiv.textContent = '';
+                // Append filename at top, then controls, then cards
+                wrapper.appendChild(filenameDiv);
+                wrapper.appendChild(controlsDiv);
+
+                cardsContainer = document.createElement('div');
+                cardsContainer.className = 'stc-cards';
+                wrapper.appendChild(cardsContainer);
+                // create arrows embedded into filename
+                createArrows(controlsDiv, cardsContainer, { appendTo: filenameDiv });
+            } else {
+                wrapper.appendChild(controlsDiv);
+
+                cardsContainer = document.createElement('div');
+                cardsContainer.className = 'stc-cards';
+
+                wrapper.appendChild(cardsContainer);
+
+                createArrows(controlsDiv, cardsContainer);
+            }
             
             // Insert after the select's container
             const selectContainer = select.closest('.selectContainer');
@@ -683,16 +751,10 @@
         if (type === 'version' && select.options.length > 0) {
             const selectedOption = Array.from(select.options).find(opt => opt.selected) || select.options[0];
             if (selectedOption && selectedOption.textContent) {
-                // Remove existing filename if any
                 const existingFilename = wrapper.querySelector('.stc-filename');
                 if (existingFilename) {
-                    existingFilename.remove();
+                    existingFilename.textContent = selectedOption.textContent;
                 }
-                
-                const filenameDiv = document.createElement('div');
-                filenameDiv.className = 'stc-filename';
-                filenameDiv.textContent = selectedOption.textContent;
-                wrapper.appendChild(filenameDiv);
             }
         }
         
