@@ -35,5 +35,8 @@ namespace Baklava
 
         // Disable requests for non-admin users (they get "Open" button instead)
         public bool DisableNonAdminRequests { get; set; } = false;
+
+        // UI preference: use dropdown selects instead of carousel cards
+        public bool UseDropdownsInsteadOfCards { get; set; } = false;
     }
 }

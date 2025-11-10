@@ -6,8 +6,17 @@
     "overview": "Adds media request system with user submissions and admin approval, smart search toggle between local and global sources, automatic TV client local search enforcement, and seamless Gelato integration for external content discovery",
     "owner": "j4ckgrey",
     "category": "General",
-    "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.svg",
+    "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.png",
     "versions": [
+      {
+        "version": "0.1.11",
+        "changelog": "Fix: infinite transform loop prevention; plugin logo 404 fixed; added UI mode toggle for cards vs dropdowns; improved script double-load prevention",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.1.11/baklava_0.1.11.zip",
+        "checksum": "8609043c22a6290d3c79985d3c309f66",
+        "checksumType": "md5",
+        "timestamp": "2025-11-10T14:00:00Z"
+      },
       {
         "version": "0.1.10",
         "changelog": "Feature: version/quality card parsing; UI toggle for cards vs selects; bugfixes for streams/import navigation",

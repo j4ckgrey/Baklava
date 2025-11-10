@@ -6,6 +6,13 @@
 (function () {
     'use strict';
     
+    // Prevent double-loading if script is injected multiple times
+    if (window.SelectToCardsLoaded) {
+        console.log('[SelectToCards] Already loaded, skipping re-initialization');
+        return;
+    }
+    window.SelectToCardsLoaded = true;
+    
     console.log('[SelectToCards] Loading simplified version...');
 
     // ============================================
@@ -388,6 +395,19 @@
                 background: rgba(255,255,255,0.1);
                 border: none;
             }
+
+            /* Center single carousel when it's the only one in form */
+            form.trackSelections .stc-wrapper:only-of-type {
+                max-width: 900px;
+                margin-left: auto;
+                margin-right: auto;
+            }
+
+            /* Detail page layout fixes - make primary content full width when alone */
+            .detailPagePrimaryContent {
+                width: 100% !important;
+                max-width: none !important;
+            }
         `;
         
         document.head.appendChild(style);
@@ -731,8 +751,6 @@
             select._stcWrapper = wrapper;
             select._stcCards = cardsContainer;
             select._stcControls = controlsDiv;
-            
-            createArrows(controlsDiv, cardsContainer);
         }
         
         // Clear and populate cards

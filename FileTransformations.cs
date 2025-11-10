@@ -35,43 +35,42 @@ namespace Baklava
         {
             try
             {
-                PluginLogger.Log("=== Transform METHOD CALLED ===");
-                
                 if (payload?.Contents == null)
                 {
-                    PluginLogger.Log("Transform: payload or Contents is null");
                     return string.Empty;
                 }
 
                 var html = payload.Contents;
-                PluginLogger.Log($"Transform: Processing content ({html.Length} chars)");
 
-                // CRITICAL: Only transform HTML files, not JavaScript chunks!
-                // If content doesn't look like HTML, return unchanged
+                // CRITICAL: Only transform HTML files, not JavaScript chunks or fragments
+                // If content doesn't look like a complete HTML document, return unchanged
                 if (!html.TrimStart().StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase) &&
                     !html.TrimStart().StartsWith("<html", StringComparison.OrdinalIgnoreCase))
                 {
-                    PluginLogger.Log("Transform: Not an HTML file, skipping injection");
                     return html;
                 }
 
                 // Check if already injected to prevent double-injection
-                if (html.Contains(InjectionMarker))
+                if (html.Contains(InjectionMarker, StringComparison.Ordinal))
                 {
-                    PluginLogger.Log("Transform: Already injected, skipping");
+                    return html;
+                }
+
+                // Also check if scripts are already present (additional safety check)
+                if (html.Contains("SelectToCardsLoaded", StringComparison.Ordinal) ||
+                    html.Contains("select-to-cards-style", StringComparison.Ordinal))
+                {
                     return html;
                 }
 
                 // Inject the script
                 var modified = InjectScript(html);
-                PluginLogger.Log($"Transform: Injection complete ({modified.Length} chars)");
 
                 return modified;
             }
             catch (Exception ex)
             {
                 PluginLogger.Log($"Transform EXCEPTION: {ex.Message}");
-                PluginLogger.Log($"Stack: {ex.StackTrace}");
                 return payload?.Contents ?? string.Empty; // Return original on error
             }
         }

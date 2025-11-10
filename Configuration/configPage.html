@@ -56,7 +56,22 @@
                             <span style="color:#ddd;">Enable Auto Import</span>
                         </label>
                         <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
-                            When enabled, non-admin users will see an "Open" button instead of "Request" for items in the library. Items not in library will show "Import" for discovery. Best used when auto-approval is not desired.
+                            When enabled, non-admin users will be able to "Importer" directly instead of "Request" for items in the library.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- UI Settings -->
+                <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    <h4 style="margin-top: 0; color: #1e90ff;">UI Settings</h4>
+                    
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input id="useDropdownsInsteadOfCards" type="checkbox" style="margin-right: 8px;">
+                            <span style="color:#ddd;">Use dropdown selects instead of carousel cards</span>
+                        </label>
+                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
+                            When enabled, the player will show native dropdown menus for selecting versions, audio, and subtitle tracks instead of the carousel card interface.
                         </p>
                     </div>
                 </div>
@@ -76,6 +91,7 @@
                                 document.getElementById('enableSearchFilter').checked = response?.enableSearchFilter !== false;
                                 document.getElementById('forceTVClientLocalSearch').checked = response?.forceTVClientLocalSearch === true;
                                 document.getElementById('disableNonAdminRequests').checked = response?.disableNonAdminRequests === true;
+                                document.getElementById('useDropdownsInsteadOfCards').checked = response?.useDropdownsInsteadOfCards === true;
                                 return;
                             }
 
@@ -87,6 +103,7 @@
                             document.getElementById('enableSearchFilter').checked = json.enableSearchFilter !== false;
                             document.getElementById('forceTVClientLocalSearch').checked = json.forceTVClientLocalSearch === true;
                             document.getElementById('disableNonAdminRequests').checked = json.disableNonAdminRequests === true;
+                            document.getElementById('useDropdownsInsteadOfCards').checked = json.useDropdownsInsteadOfCards === true;
                         }catch(e){ console.error(e); }
                     }
 
@@ -95,12 +112,14 @@
                         const enableFilter = document.getElementById('enableSearchFilter').checked;
                         const forceTVLocal = document.getElementById('forceTVClientLocalSearch').checked;
                         const disableNonAdminRequests = document.getElementById('disableNonAdminRequests').checked;
+                        const useDropdownsInsteadOfCards = document.getElementById('useDropdownsInsteadOfCards').checked;
                         
                         const configData = {
                             tmdbApiKey: key,
                             enableSearchFilter: enableFilter,
                             forceTVClientLocalSearch: forceTVLocal,
-                            disableNonAdminRequests: disableNonAdminRequests
+                            disableNonAdminRequests: disableNonAdminRequests,
+                            useDropdownsInsteadOfCards: useDropdownsInsteadOfCards
                         };
                         
                         try {

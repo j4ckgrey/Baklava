@@ -48,5 +48,8 @@ Thumbs.db
 *.tar.gz
 *.dll.config
 
+# Local helper scripts (private, not for repo)
+release.sh
+
 # Cloned repositories
 Gelato/
