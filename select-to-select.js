@@ -9,6 +9,7 @@
 
     let currentItemId = null;
 
+    // Parse version text same as cards
     function parseVersionText(text) {
         const qualityMatch = text.match(/(\d{3,4}p)/i);
         const quality = qualityMatch ? qualityMatch[1] : 'Unknown';
@@ -18,17 +19,19 @@
         return `${quality} - ${versionLabel}`;
     }
 
+    // Format stream title (simplified from cards)
     function formatStreamTitle(stream, isAudio) {
         if (!stream) return 'Unknown';
-        const lang = stream.language || stream.displayLanguage || 'Unknown';
-        const codec = stream.codec?.toUpperCase() || '';
-        const channels = stream.channels ? `${stream.channels}.0` : '';
+        const lang = stream.Language || stream.DisplayLanguage || 'Unknown';
+        const codec = stream.Codec?.toUpperCase() || '';
+        const channels = stream.Channels ? `${stream.Channels}.0` : '';
         const parts = [lang];
         if (codec) parts.push(codec);
         if (channels) parts.push(channels);
         return parts.join(' | ');
     }
 
+    // Fetch streams from API (same endpoint as cards)
     async function fetchStreams(itemId, mediaSourceId) {
         try {
             const params = new URLSearchParams({ itemId });
@@ -47,6 +50,7 @@
         }
     }
 
+    // Populate audio/subtitle selects from fetched streams
     async function populateTrackSelects(mediaSourceId) {
         if (!currentItemId) return;
         
@@ -56,26 +60,28 @@
         const audioSelect = document.querySelector('select#selectAudioTrack');
         const subtitleSelect = document.querySelector('select#selectSubtitleTrack');
 
-        if (audioSelect && streams.audio && streams.audio.length > 0) {
+        // Populate audio
+        if (audioSelect && streams.audioStreams) {
             const currentValue = audioSelect.value;
             audioSelect.innerHTML = '';
-            streams.audio.forEach(stream => {
+            streams.audioStreams.forEach(stream => {
                 const option = document.createElement('option');
-                option.value = stream.index;
+                option.value = stream.Index;
                 option.textContent = formatStreamTitle(stream, true);
-                if (stream.index == currentValue) option.selected = true;
+                if (stream.Index == currentValue) option.selected = true;
                 audioSelect.appendChild(option);
             });
         }
 
-        if (subtitleSelect && streams.subs && streams.subs.length > 0) {
+        // Populate subtitle
+        if (subtitleSelect && streams.subtitleStreams) {
             const currentValue = subtitleSelect.value;
             subtitleSelect.innerHTML = '<option value="-1">None</option>';
-            streams.subs.forEach(stream => {
+            streams.subtitleStreams.forEach(stream => {
                 const option = document.createElement('option');
-                option.value = stream.index;
+                option.value = stream.Index;
                 option.textContent = formatStreamTitle(stream, false);
-                if (stream.index == currentValue) option.selected = true;
+                if (stream.Index == currentValue) option.selected = true;
                 subtitleSelect.appendChild(option);
             });
         }
@@ -83,104 +89,108 @@
 
     function enhanceSelects() {
         const versionSelect = document.querySelector('select#selectMediaSource');
-        const audioSelect = document.querySelector('select#selectAudioTrack');
-        const subtitleSelect = document.querySelector('select#selectSubtitleTrack');
-        
-        if (versionSelect && !versionSelect._stcEnhanced) {
-            const versionLabel = document.createElement('div');
-            versionLabel.className = 'stc-select-label';
-            versionLabel.style.cssText = 'font-size: 1.1em; font-weight: 500; color: rgba(255,255,255,0.9); margin: 12px 0 8px 0;';
-            versionLabel.textContent = 'Version';
-            
+        if (versionSelect && !versionSelect._stcFilename) {
+            // Create filename display (use stc-filename class to match cards)
             const filenameDiv = document.createElement('div');
             filenameDiv.className = 'stc-filename';
             filenameDiv.style.cssText = 'margin: 8px 0; padding: 8px 12px; background: rgba(0,0,0,0.3); border-radius: 4px; color: rgba(255,255,255,0.6); font-size: 12px; text-align: center; font-family: monospace;';
             
             const container = versionSelect.closest('.selectContainer');
-            if (container) {
-                container.parentNode.insertBefore(versionLabel, container);
-                container.parentNode.insertBefore(filenameDiv, container);
-            }
+            if (container) container.parentNode.insertBefore(filenameDiv, container);
             
             versionSelect._stcFilename = filenameDiv;
-            versionSelect._stcLabel = versionLabel;
-            versionSelect._stcEnhanced = true;
             
+            // Update filename on change
             const updateFilename = () => {
                 const selectedOption = versionSelect.options[versionSelect.selectedIndex];
                 if (selectedOption) {
+                    // Show original filename in the stc-filename div
                     const originalText = selectedOption.getAttribute('data-original') || selectedOption.textContent;
                     filenameDiv.textContent = originalText;
                 }
             };
             
+            // Parse and format version options - keep original in data attribute, show parsed in option text
             Array.from(versionSelect.options).forEach(option => {
                 if (!option.hasAttribute('data-original')) {
+                    // Store the original filename
                     option.setAttribute('data-original', option.textContent);
+                    // Set the parsed version as the visible text
                     option.textContent = parseVersionText(option.textContent);
                 }
             });
             
             updateFilename();
             
-            const initialMediaSourceId = versionSelect.value;
-            if (initialMediaSourceId) {
-                populateTrackSelects(initialMediaSourceId);
-            }
-            
+            // When version changes, fetch and populate audio/subtitle tracks
             versionSelect.addEventListener('change', () => {
                 updateFilename();
                 const mediaSourceId = versionSelect.value;
                 populateTrackSelects(mediaSourceId);
             });
         }
-        
-        if (audioSelect && !audioSelect._stcLabel) {
-            const audioLabel = document.createElement('div');
-            audioLabel.className = 'stc-select-label';
-            audioLabel.style.cssText = 'font-size: 1.1em; font-weight: 500; color: rgba(255,255,255,0.9); margin: 12px 0 8px 0;';
-            audioLabel.textContent = 'Audio Track';
-            
-            const audioContainer = audioSelect.closest('.selectContainer');
-            if (audioContainer) {
-                audioContainer.parentNode.insertBefore(audioLabel, audioContainer);
-            }
-            audioSelect._stcLabel = audioLabel;
+    }
+
+    function initToggle() {
+        const form = document.querySelector('form.trackSelections');
+        if (!form) return;
+        if (document.getElementById('stc-mode-toggle')) return;
+
+        // Extract itemId from form or URL
+        if (!currentItemId) {
+            const urlParams = new URLSearchParams(window.location.search);
+            currentItemId = urlParams.get('id');
         }
-        
-        if (subtitleSelect && !subtitleSelect._stcLabel) {
-            const subtitleLabel = document.createElement('div');
-            subtitleLabel.className = 'stc-select-label';
-            subtitleLabel.style.cssText = 'font-size: 1.1em; font-weight: 500; color: rgba(255,255,255,0.9); margin: 12px 0 8px 0;';
-            subtitleLabel.textContent = 'Subtitles';
-            
-            const subtitleContainer = subtitleSelect.closest('.selectContainer');
-            if (subtitleContainer) {
-                subtitleContainer.parentNode.insertBefore(subtitleLabel, subtitleContainer);
-            }
-            subtitleSelect._stcLabel = subtitleLabel;
+
+        const wrapper = document.createElement('div');
+        wrapper.id = 'stc-mode-toggle';
+        wrapper.style.cssText = 'display:flex;gap:8px;align-items:center;margin:6px 0;';
+
+        const label = document.createElement('span');
+        label.textContent = 'View:';
+        label.style.color = 'rgba(255,255,255,0.85)';
+
+        const select = document.createElement('select');
+        select.style.cssText = 'background:rgba(0,0,0,0.35);color:#fff;padding:4px;border-radius:4px;border:1px solid rgba(255,255,255,0.08);';
+        const optCards = document.createElement('option'); optCards.value = 'cards'; optCards.textContent = 'Cards';
+        const optSelects = document.createElement('option'); optSelects.value = 'selects'; optSelects.textContent = 'Selects';
+        select.appendChild(optCards); select.appendChild(optSelects);
+
+        wrapper.appendChild(label);
+        wrapper.appendChild(select);
+        form.parentNode.insertBefore(wrapper, form);
+
+        const mode = localStorage.getItem('baklava_view_mode') || 'cards';
+        select.value = mode;
+        applyMode(mode);
+
+        select.addEventListener('change', () => {
+            localStorage.setItem('baklava_view_mode', select.value);
+            applyMode(select.value);
+        });
+    }
+
+    function applyMode(mode) {
+        if (mode === 'selects') {
+            document.body.classList.add('stc-show-selects');
+            enhanceSelects();
+        } else {
+            document.body.classList.remove('stc-show-selects');
         }
     }
 
     function start() {
-        const urlParams = new URLSearchParams(window.location.search);
-        currentItemId = urlParams.get('id');
-        
+        initToggle();
         const observer = new MutationObserver(() => {
+            initToggle();
             if (document.body.classList.contains('stc-show-selects')) {
                 enhanceSelects();
             }
         });
         observer.observe(document.body, { childList: true, subtree: true });
-        
-        if (document.body.classList.contains('stc-show-selects')) {
-            enhanceSelects();
-        }
     }
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', start);
-    } else {
-        start();
-    }
+    } else start();
 })();

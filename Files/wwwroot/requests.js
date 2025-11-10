@@ -595,12 +595,9 @@
                 pendingCount = requests.filter(r => r.Status === 'pending' && r.Username === username).length;
             }
             
-            if (pendingCount > 0) {
-                badge.textContent = pendingCount > 99 ? '99+' : pendingCount.toString();
-                badge.style.display = 'flex';
-            } else {
-                badge.style.display = 'none';
-            }
+            // Always show the badge with the count (including 0)
+            badge.textContent = pendingCount > 99 ? '99+' : pendingCount.toString();
+            badge.style.display = 'flex';
         } catch (err) {
             console.error('[Requests.updateNotificationBadge] Error:', err);
             badge.style.display = 'none';
@@ -636,19 +633,19 @@
         badge.className = 'requests-notification-badge';
         badge.style.cssText = `
             position: absolute;
-            top: 4px;
-            right: 4px;
+            top: 2px;
+            right: 2px;
             background: #f44336;
             color: #fff;
             border-radius: 50%;
-            min-width: 18px;
-            height: 18px;
-            font-size: 11px;
+            min-width: 16px;
+            height: 16px;
+            font-size: 10px;
             font-weight: 700;
             display: none;
             align-items: center;
             justify-content: center;
-            padding: 2px;
+            padding: 1px;
             line-height: 1;
             z-index: 10;
         `;
@@ -839,6 +836,8 @@
             const item = e.detail;
             try {
                 await saveRequest(item);
+                // Update badge immediately after saving
+                updateNotificationBadge();
                 // Reload both dropdown and page if visible
                 if (dropdownMenu && dropdownMenu.style.display === 'block') {
                     await loadDropdownRequests();
@@ -859,6 +858,8 @@
     window.RequestManager = {
         updateStatus: async (requestId, status, approvedBy) => {
             await updateRequestStatus(requestId, status, approvedBy);
+            // Update badge immediately
+            updateNotificationBadge();
             if (dropdownMenu && dropdownMenu.style.display === 'block') {
                 await loadDropdownRequests();
             }
@@ -868,6 +869,8 @@
         },
         deleteRequest: async (requestId) => {
             await deleteRequest(requestId);
+            // Update badge immediately
+            updateNotificationBadge();
             if (dropdownMenu && dropdownMenu.style.display === 'block') {
                 await loadDropdownRequests();
             }
