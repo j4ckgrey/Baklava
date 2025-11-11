@@ -9,11 +9,20 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.png",
     "versions": [
       {
+        "version": "0.1.23.0",
+        "changelog": "Fixed stream probing for Gelato and other plugin sources by using Jellyfin's SupportsProbing property instead of URL pattern matching",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.1.23.0/baklava_0.1.23.0.zip",
+        "checksum": "489eb88d50880120a39b17ba631f652f",
+        "checksumType": "md5",
+        "timestamp": "2025-11-11T21:00:00Z"
+      },
+      {
         "version": "0.1.22.0",
         "changelog": "Removed UI overrides",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.1.22.0/baklava_0.1.22.0.zip",
-  "checksum": "6c95245e2b8309e6c91a9c5a60ab0076",
+        "checksum": "6c95245e2b8309e6c91a9c5a60ab0076",
         "checksumType": "md5",
         "timestamp": "2025-11-11T00:00:00Z"
       },

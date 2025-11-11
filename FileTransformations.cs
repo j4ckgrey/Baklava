@@ -17,21 +17,41 @@ namespace Baklava
     // match the actual folder the plugin is installed to (e.g. "Baklava").
     private static readonly string PluginFolderName = Assembly.GetExecutingAssembly().GetName().Name ?? "Baklava";
 
-        // Get JavaScript files to inject
+        // Get JavaScript files to inject (based on config)
         private static string[] GetJsFiles()
         {
-            return new[]
-            {
-                "details-modal.js",       // Modal & TMDB metadata integration
-                "library-status.js",      // Library presence / status UI
-                "select-to-cards.js",     // Playback streams UI (card carousel)
-                "reviews-carousel.js",    // TMDB reviews carousel
-                "requests.js",            // Consolidated requests manager, header button, menu
-                "search-toggle.js"        // Search toggle globe icon
-            };
-        }
+            // Check if dropdown mode is enabled - if so, don't inject select-to-cards or carousel
+            var playbackUi = Plugin.Instance?.Configuration?.PlaybackUi ?? "cards";
+            var isDropdownMode = playbackUi.Equals("dropdowns", StringComparison.OrdinalIgnoreCase);
 
-        // Transform method signature: accepts PatchRequestPayload, returns string
+            if (isDropdownMode)
+            {
+                // Dropdown mode: use native Jellyfin selects with simple track population
+                return new[]
+                {
+                    "details-modal.js",       // Modal & TMDB metadata integration
+                    "library-status.js",      // Library presence / status UI
+                    "simple-tracks.js",       // Simple version/audio/subtitle handler for dropdown mode
+                    "reviews-carousel.js",    // TMDB reviews carousel
+                    "requests.js",            // Consolidated requests manager, header button, menu
+                    "search-toggle.js"        // Search toggle globe icon
+                };
+            }
+            else
+            {
+                // Carousel/cards mode: inject everything including carousel UI
+                return new[]
+                {
+                    "details-modal.js",       // Modal & TMDB metadata integration
+                    "library-status.js",      // Library presence / status UI
+                    "carousel.js",            // Carousel helper (extracted functions)
+                    "select-to-cards.js",     // Playback streams UI (adapter - creates carousels)
+                    "reviews-carousel.js",    // TMDB reviews carousel
+                    "requests.js",            // Consolidated requests manager, header button, menu
+                    "search-toggle.js"        // Search toggle globe icon
+                };
+            }
+        }        // Transform method signature: accepts PatchRequestPayload, returns string
         public static string Transform(PatchRequestPayload payload)
         {
             try

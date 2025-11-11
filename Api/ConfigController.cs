@@ -38,30 +38,46 @@ namespace Baklava.Api
                     enableSearchFilter = cfg.EnableSearchFilter,
                     forceTVClientLocalSearch = cfg.ForceTVClientLocalSearch,
                     disableNonAdminRequests = cfg.DisableNonAdminRequests
+                    , playbackUi = cfg.PlaybackUi
+                    , showReviewsCarousel = cfg.ShowReviewsCarousel
                 });
             }
 
             return Ok(new { 
                 defaultTmdbId = cfg.DefaultTmdbId,
-                disableNonAdminRequests = cfg.DisableNonAdminRequests
+                disableNonAdminRequests = cfg.DisableNonAdminRequests,
+                showReviewsCarousel = cfg.ShowReviewsCarousel,
+                playbackUi = cfg.PlaybackUi
             });
         }
 
-        // Admin-only update: requires authenticated admin user
         [HttpPut]
         [Authorize]
         public ActionResult SetConfig([FromBody] ConfigDto dto)
         {
+            _logger.LogInformation("[ConfigController] PUT request received");
+            
             // Basic admin check
             var user = HttpContext.User;
             var isAdmin = user?.IsInRole("Administrator") ?? false;
+            
+            _logger.LogInformation("[ConfigController] User admin check: {IsAdmin}, User: {User}", isAdmin, user?.Identity?.Name ?? "anonymous");
+            
             if (!isAdmin)
             {
+                _logger.LogWarning("[ConfigController] PUT rejected - user is not admin");
                 return Forbid();
             }
 
             var cfg = Plugin.Instance?.Configuration;
-            if (cfg == null) return BadRequest("Configuration not available");
+            if (cfg == null)
+            {
+                _logger.LogError("[ConfigController] Configuration not available");
+                return BadRequest("Configuration not available");
+            }
+
+            _logger.LogInformation("[ConfigController] Updating config - playbackUi: {PlaybackUi}, showReviews: {ShowReviews}", 
+                dto?.playbackUi ?? "null", dto?.showReviewsCarousel?.ToString() ?? "null");
 
             cfg.DefaultTmdbId = dto?.defaultTmdbId?.Trim();
             cfg.TmdbApiKey = dto?.tmdbApiKey?.Trim();
@@ -79,10 +95,19 @@ namespace Baklava.Api
             {
                 cfg.DisableNonAdminRequests = dto.disableNonAdminRequests.Value;
             }
+            if (!string.IsNullOrWhiteSpace(dto.playbackUi))
+            {
+                cfg.PlaybackUi = dto.playbackUi.Trim();
+            }
+            // Show/hide reviews carousel
+            if (dto.showReviewsCarousel.HasValue)
+            {
+                cfg.ShowReviewsCarousel = dto.showReviewsCarousel.Value;
+            }
             
             Plugin.Instance.SaveConfiguration();
-            _logger.LogInformation("[ConfigController] Updated configuration - SearchFilter: {SearchFilter}, ForceTVLocal: {ForceTVLocal}, DisableNonAdminRequests: {DisableNonAdminRequests}", 
-                cfg.EnableSearchFilter, cfg.ForceTVClientLocalSearch, cfg.DisableNonAdminRequests);
+            _logger.LogInformation("[ConfigController] Configuration saved - SearchFilter: {SearchFilter}, ForceTVLocal: {ForceTVLocal}, DisableNonAdminRequests: {DisableNonAdminRequests}, PlaybackUi: {PlaybackUi}, ShowReviews: {ShowReviews}", 
+                cfg.EnableSearchFilter, cfg.ForceTVClientLocalSearch, cfg.DisableNonAdminRequests, cfg.PlaybackUi, cfg.ShowReviewsCarousel);
             return Ok();
         }
     }
@@ -94,5 +119,7 @@ namespace Baklava.Api
         public bool? enableSearchFilter { get; set; }
         public bool? forceTVClientLocalSearch { get; set; }
         public bool? disableNonAdminRequests { get; set; }
+        public bool? showReviewsCarousel { get; set; }
+        public string playbackUi { get; set; }
     }
 }

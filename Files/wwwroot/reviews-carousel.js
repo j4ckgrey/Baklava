@@ -85,7 +85,6 @@
             style.id = 'baklava-reviews-responsive-style';
             style.textContent = `
                 .baklava-reviews-carousel {
-                    margin: 0 3rem;
                     padding: 1.5rem 0;
                 }
                 
@@ -100,7 +99,6 @@
                 /* Tablet and smaller */
                 @media (max-width: 1024px) {
                     .baklava-reviews-carousel {
-                        margin: 0 2rem !important;
                     }
                     .baklava-review-card { width: 300px; }
                 }
@@ -108,7 +106,6 @@
                 /* Tablet */
                 @media (max-width: 768px) {
                     .baklava-reviews-carousel {
-                        margin: 0 1rem !important;
                     }
                     .baklava-review-card {
                         min-height: 180px;
@@ -120,7 +117,6 @@
                 /* Mobile */
                 @media (max-width: 480px) {
                     .baklava-reviews-carousel {
-                        margin: 0 1rem !important;
                     }
                     .baklava-review-card {
                         min-height: 150px;

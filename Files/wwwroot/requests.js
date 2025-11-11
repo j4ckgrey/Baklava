@@ -680,11 +680,6 @@
         setTimeout(() => {
             updateNotificationBadge();
         }, 1000);
-        
-        // Update every 30 seconds
-        setInterval(() => {
-            updateNotificationBadge();
-        }, 30000);
     }
 
     // ============================================

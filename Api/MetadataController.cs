@@ -493,8 +493,15 @@ namespace Baklava.Api
                     IsDefault = s.IsDefault
                 })
                 .ToList();
-            // If Jellyfin didn't populate any streams, try a lightweight ffprobe fallback for HTTP(S) sources.
-            if ((audioDtos.Count == 0 && subtitleDtos.Count == 0) && !string.IsNullOrEmpty(targetSource.Path) && (targetSource.Path.StartsWith("http://") || targetSource.Path.StartsWith("https://")))
+            // If Jellyfin didn't populate any streams, try a lightweight ffprobe fallback.
+            // Use Jellyfin's built-in properties to determine if probing is safe:
+            // - SupportsProbing: Jellyfin already knows if this source can be probed
+            // - Protocol == Http: External HTTP sources (not File protocol which is local)
+            // This respects Jellyfin's own logic and works with all plugins/sources correctly.
+            if ((audioDtos.Count == 0 && subtitleDtos.Count == 0) && 
+                targetSource.SupportsProbing && 
+                targetSource.Protocol == MediaBrowser.Model.MediaInfo.MediaProtocol.Http &&
+                !string.IsNullOrEmpty(targetSource.Path))
             {
                 try
                 {

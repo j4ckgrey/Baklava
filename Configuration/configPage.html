@@ -38,10 +38,10 @@
                     <div style="margin-bottom: 12px;">
                         <label style="display: flex; align-items: center; cursor: pointer;">
                             <input id="forceTVClientLocalSearch" type="checkbox" style="margin-right: 8px;">
-                            <span style="color:#ddd;">Force Local Search for TV Clients (Admin Override)</span>
+                            <span style="color:#ddd;">Force Local Search for TV Clients</span>
                         </label>
                         <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
-                            When enabled, all TV clients (AndroidTV, FireTV, WebOS, etc.) will only see local library results, regardless of user preference. This is useful for restricting external search on shared/public servers.
+                            When enabled, all TV clients will only see local library results. This is useful for restricting external search on shared/public servers.
                         </p>
                     </div>
                 </div>
@@ -74,6 +74,17 @@
                             When enabled, a carousel of user reviews will be displayed above the Cast & Crew section on movie and TV show details pages.
                         </p>
                     </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label for="playbackUiSelect" style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Playback UI</label>
+                        <select id="playbackUiSelect" style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                            <option value="cards">Carousel with Cards</option>
+                            <option value="dropdowns">Select with Dropdown</option>
+                        </select>
+                        <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
+                            Choose whether playback tracks are shown as card carousels or compact dropdowns.
+                        </p>
+                    </div>
                 </div>
 
                 <div>
@@ -91,8 +102,9 @@
                                 document.getElementById('enableSearchFilter').checked = response?.enableSearchFilter !== false;
                                 document.getElementById('forceTVClientLocalSearch').checked = response?.forceTVClientLocalSearch === true;
                                 document.getElementById('disableNonAdminRequests').checked = response?.disableNonAdminRequests === true;
-                                document.getElementById('useDropdownsInsteadOfCards').checked = response?.useDropdownsInsteadOfCards === true;
                                 document.getElementById('showReviewsCarousel').checked = response?.showReviewsCarousel !== false;
+                                document.getElementById('playbackUiSelect').value = response?.playbackUi || 'cards';
+                                console.log('[Baklava][Config] Loaded config:', response);
                                 return;
                             }
 
@@ -105,6 +117,8 @@
                             document.getElementById('forceTVClientLocalSearch').checked = json.forceTVClientLocalSearch === true;
                             document.getElementById('disableNonAdminRequests').checked = json.disableNonAdminRequests === true;
                             document.getElementById('showReviewsCarousel').checked = json.showReviewsCarousel !== false;
+                            document.getElementById('playbackUiSelect').value = json.playbackUi || 'cards';
+                            console.log('[Baklava][Config] Loaded config:', json);
                         }catch(e){ console.error(e); }
                     }
 
@@ -114,13 +128,15 @@
                         const forceTVLocal = document.getElementById('forceTVClientLocalSearch').checked;
                         const disableNonAdminRequests = document.getElementById('disableNonAdminRequests').checked;
                         const showReviewsCarousel = document.getElementById('showReviewsCarousel').checked;
+                        const playbackUi = document.getElementById('playbackUiSelect').value || 'cards';
                         
                         const configData = {
                             tmdbApiKey: key,
                             enableSearchFilter: enableFilter,
                             forceTVClientLocalSearch: forceTVLocal,
                             disableNonAdminRequests: disableNonAdminRequests,
-                            showReviewsCarousel: showReviewsCarousel
+                            showReviewsCarousel: showReviewsCarousel,
+                            playbackUi: playbackUi
                         };
                         
                         try {
@@ -133,10 +149,19 @@
                                     contentType: 'application/json'
                                 };
                                 const res = await window.ApiClient.ajax(ajaxOpts);
+                                console.log('[Baklava][Config] ApiClient.ajax PUT result:', res);
                                 // Some ApiClient implementations return Response-like objects
-                                if (res && res.status === 403) {
+                                if (res && ((res.status && res.status === 403) || (res.statusCode && res.statusCode === 403))) {
                                     document.getElementById('configStatus').textContent = 'Forbidden: admin only';
                                     return;
+                                }
+                                // If res is a Response-like object, check ok
+                                if (res && res.constructor && res.constructor.name === 'Response') {
+                                    if (!res.ok) {
+                                        document.getElementById('configStatus').textContent = 'Error saving configuration';
+                                        console.error('[Baklava][Config] PUT failed (Response):', res);
+                                        return;
+                                    }
                                 }
                                 // Update cached plugin config in page context so client code picks it up immediately
                                 try { if (window.MediaServerUI) window.MediaServerUI._pluginConfig = configData; } catch(e) {}
@@ -151,6 +176,7 @@
                                 body: JSON.stringify(configData),
                                 credentials: 'same-origin'
                             });
+                            console.log('[Baklava][Config] fetch PUT result:', res);
                             if (res.status === 403) {
                                 document.getElementById('configStatus').textContent = 'Forbidden: admin only';
                                 return;
@@ -160,7 +186,7 @@
                             document.getElementById('configStatus').textContent = 'Configuration saved successfully!';
                         } catch (err) {
                             document.getElementById('configStatus').textContent = 'Error saving configuration';
-                            console.error(err);
+                            console.error('[Baklava][Config] Save error:', err);
                         }
                     });
 

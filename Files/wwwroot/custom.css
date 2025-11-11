@@ -5,35 +5,6 @@
 
 /* Removed ::before pseudo-element that injected a custom image into the loader */
 
-/* Portrait card styling (moved via JS to #itemDetailPage) */
-.card.portraitCard {
-    position: absolute !important;
-    top: 10rem !important;
-    left: 2rem !important;
-    width: 350px !important;
-}
-
-/* Responsive styling for mobile devices */
-@media screen and (max-width: 768px) {
-    .card.portraitCard {
-        width: 200px !important;
-        left: 1rem !important;
-    }
-}
-
-@media screen and (max-width: 480px) {
-    .card.portraitCard {
-        width: 150px !important;
-        left: 0.5rem !important;
-        top: 8rem !important;
-    }
-}
-
-/* Disable grid layout on detail section */
-#itemDetailPage .detailSection {
-    display: block !important;
-}
-
 /* Modal for item details (opened when clicking a title) */
 .item-detail-modal-overlay {
     position: fixed;
@@ -324,49 +295,71 @@
     box-sizing: border-box;  /* safe for padding/width calculations */
 }
 
-/* Reset Jellyfin detail page layout paddings and widths */
-.detailPageWrapperContainer,
-.padded-right,
-.detailPageContent {
-    padding: 0 !important;
-    margin: 0 !important;
-    width: auto !important;
-    max-width: none !important;
-    min-width: 0 !important;
-    box-sizing: border-box;
+.emby-scroller {
+    overflow-x: hidden !important;
 }
 
-.detailPagePrimaryContent {
-    margin: 0 8rem !important;
-    width: auto !important;
-    max-width: none !important;
-    min-width: 0 !important;
-    box-sizing: border-box;
+/* ============================================
+   DROPDOWN MODE - Native Select Styling
+   ============================================ */
+
+/* Container styling */
+.trackSelections {
+    max-width: 100% !important;
 }
 
-/* Responsive margins for smaller screens */
-@media (max-width: 1024px) {
-    .detailPagePrimaryContent {
-        margin: 0 4rem !important;
-    }
+.trackSelectionFieldContainer,
+.selectContainer {
+    max-width: 100% !important;
 }
 
-@media (max-width: 768px) {
-    .detailPagePrimaryContent {
-        margin: 0 2rem !important;
-    }
+/* Select element styling */
+.detailTrackSelect {
+    padding: 8px 12px !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
 }
 
-@media (max-width: 480px) {
-    .detailPagePrimaryContent {
-        margin: 0 1rem !important;
-    }
+/* Force dropdown to match select width */
+.detailTrackSelect,
+.detailTrackSelect * {
+    max-width: inherit !important;
 }
 
-#peopleHeader {
-    padding: 2rem 8rem 0 8rem !important;
+/* Option elements - truncate text */
+.detailTrackSelect option {
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 100% !important;
+    padding: 4px 8px !important;
 }
 
-.detailRibbon {
-    padding: 0 8rem !important;
+/* Prevent the browser from expanding dropdown beyond select width */
+.selectContainer {
+    position: relative !important;
+}
+
+.detailTrackSelect {
+    display: block !important;
+}
+
+/* Filename display */
+.stc-filename {
+    margin-top: 8px;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 4px;
+    color: rgba(255,255,255,0.6);
+    font-size: 12px;
+    text-align: center;
+    font-family: monospace;
+    max-width: 100%;
+    word-wrap: break-word;
+    line-height: 1.4;
 }

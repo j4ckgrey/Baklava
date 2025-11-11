@@ -910,18 +910,6 @@
     // OBSERVERS & HOOKS
     // ============================================
 
-    function movePortraitCard() {
-        // Move .card.portraitCard to #itemDetailPage
-        const portraitCard = document.querySelector('.card.portraitCard');
-        const itemDetailPage = document.getElementById('itemDetailPage');
-        
-        if (portraitCard && itemDetailPage && !portraitCard._moved) {
-            console.log('[SelectToCards] Moving portrait card to itemDetailPage');
-            portraitCard._moved = true;
-            itemDetailPage.insertBefore(portraitCard, itemDetailPage.firstChild);
-        }
-    }
-
     function setupObservers() {
         // Watch for form additions and portrait card
         const observer = new MutationObserver(mutations => {
@@ -933,11 +921,6 @@
                         setTimeout(initializeForm, 50);
                     }
                     
-                    // Check for portrait card or itemDetailPage
-                    if (node.matches?.('.card.portraitCard') || node.querySelector?.('.card.portraitCard') ||
-                        node.matches?.('#itemDetailPage') || node.querySelector?.('#itemDetailPage')) {
-                        setTimeout(movePortraitCard, 50);
-                    }
                 }
             }
         });
@@ -1031,7 +1014,6 @@
         
         injectStyles();
         setupObservers();
-        movePortraitCard(); // Try to move portrait card immediately if it exists
         
         // Check if form already exists
         if (document.querySelector('form.trackSelections')) {
