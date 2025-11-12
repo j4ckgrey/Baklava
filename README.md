@@ -1,4 +1,4 @@
-<h1 align="center">🍮 Baklava</h1>
+<h1 align="center">Baklava</h1>
 <h3 align="center">Smart Media Layer for Jellyfin</h3>
 
 <p align="center">
@@ -52,9 +52,9 @@ Users can submit requests for unavailable content, track status, and get notifie
 - Admins can **approve or deny** requests via a built-in interface  
 - Works seamlessly with **manual imports** and **Gelato discovery**
 
-![Requests Window](./Screenshots/screenshot3.png)
-![Request Details](./Screenshots/screenshot4.png)
-![Admin Approval View](./Screenshots/screenshot5.png)
+![Requests Window](./Screenshots/3.png)
+![Request Details](./Screenshots/4.png)
+![Admin Approval View](./Screenshots/5.png)
 
 #### ⚙️ Configurable Behavior
 From the **plugin configuration page**, you can:
@@ -62,7 +62,7 @@ From the **plugin configuration page**, you can:
 - Toggle **Auto Import** to allow or restrict direct imports (ideal for managing user permissions)
 - Enable/disable the **Requests Feature** entirely for automation scenarios
 
-![Config Controls](./Screenshots/screenshot6.png)
+![Config Controls](./Screenshots/6.png)
 
 ---
 
@@ -76,7 +76,7 @@ Instead of automatically importing everything Gelato finds, Baklava opens a deta
 - Prevents redundant or accidental imports  
 - Streamlines admin control
 
-![Manual Import Modal](./Screenshots/screenshot2.png)
+![Manual Import Modal](./Screenshots/2.png)
 
 ---
 
@@ -88,7 +88,7 @@ Baklava replaces Jellyfin’s old dropdowns with modern, flexible UI components.
 Each version, audio, and subtitle field now uses a **responsive carousel or dropdown**, designed for clarity and speed.  
 Long filenames are truncated elegantly, with hover or click revealing full details.
 
-![Version Selector](./Screenshots/screenshot1.png)
+![Version Selector](./Screenshots/1.png)
 
 #### 🌈 Stremio-Inspired Look
 The new design blends Jellyfin’s structure with Stremio-like cues —  
