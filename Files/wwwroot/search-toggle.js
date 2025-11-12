@@ -230,7 +230,7 @@
             });
             obs.observe(document.documentElement, { childList: true, subtree: true });
         } catch (error) {
-            console.error('[MyJellyfinPlugin] ERROR in init():', error);
+            console.error('[Baklava] ERROR in init():', error);
         }
     }
 

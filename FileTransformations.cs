@@ -11,7 +11,7 @@ namespace Baklava
     // registration payload (callbackClass + callbackMethod). 
     public static class FileTransformations
     {
-        private const string InjectionMarker = "<!-- MyJellyfinPlugin Injected -->";
+        private const string InjectionMarker = "<!-- Baklava Injected -->";
     // Folder name used under the Jellyfin plugins directory.
     // Use the assembly name at runtime so fallback static references
     // match the actual folder the plugin is installed to (e.g. "Baklava").
