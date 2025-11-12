@@ -48,6 +48,9 @@ Thumbs.db
 *.tar.gz
 *.dll.config
 
+# Deployment script (local only)
+deploy.sh
+
 # Local helper scripts (private, not for repo)
 release.sh
 
