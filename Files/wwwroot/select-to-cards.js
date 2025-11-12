@@ -1,70 +1,36 @@
-/**
- * Select to Cards - Simplified & Reliable
- * Converts playback version/audio/subtitle dropdowns to card carousels
- * Rewritten for simplicity, reliability, and faster initialization
+/*
+ * Select  Cards (minimal carousel)
+ * - Mirrors the native version select (select.selectSource)
+ * - Builds a simple horizontal card carousel from the select options
+ * - Keeps the original select in the DOM and syncs selection both ways
+ * Minimal, dependency-free, inspired by simple-tracks.js
  */
-(function () {
-    'use strict';
-    
-    // Prevent double-loading if script is injected multiple times
-    if (window.SelectToCardsLoaded) {
-        console.log('[SelectToCards] Already loaded, skipping re-initialization');
-        return;
-    }
-    window.SelectToCardsLoaded = true;
-    
-    console.log('[SelectToCards] Loading simplified version...');
+(function (){
+	'use strict';
+	if (window.SelectToCardsLoaded) return; window.SelectToCardsLoaded = true;
 
-    // ============================================
-    // STATE & CONFIGURATION
-    // ============================================
-    
-    let initialized = false;
+    const log = (...args) => console.log('[SelectToCards]', ...args);
+    const error = (...args) => console.error('[SelectToCards]', ...args);
+
     let currentItemId = null;
-    let streamCache = new Map(); // Cache streams per mediaSourceId to avoid re-fetching
-    
-    // Clear cache when navigating away or player stops
-    function clearStreamCache() {
-        console.log('[SelectToCards] Clearing stream cache');
-        streamCache.clear();
-        // Don't clear currentItemId here - we might still need it
-    }
-    
-    // ============================================
-    // UTILITY FUNCTIONS
-    // ============================================
 
-    function debounce(func, wait) {
-        let timeout;
-        return function executedFunction(...args) {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func(...args), wait);
-        };
-    }
 
-    function emitEvent(element, eventName) {
-        const event = new Event(eventName, { bubbles: true, cancelable: true });
-        element.dispatchEvent(event);
-    }
-
-    async function fetchStreams(itemId, mediaSourceId, forceRefresh = false) {
-        const cacheKey = `${itemId}_${mediaSourceId}`;
-        
-        // Return cached result if available and fresh (under 3 seconds old) and not forced
-        if (!forceRefresh && streamCache.has(cacheKey)) {
-            const cached = streamCache.get(cacheKey);
-            if (Date.now() - cached.timestamp < 3000) {
-                console.log('[SelectToCards] Using cached streams for', cacheKey);
-                return cached.data;
-            }
+    function captureItemId() {
+        const urlMatch = window.location.href.match(/[?&]id=([a-f0-9]+)/i);
+        if (urlMatch) {
+            currentItemId = urlMatch[1];
+            log('Captured itemId from URL:', currentItemId);
+            return currentItemId;
         }
-        
-        console.log('[SelectToCards] Fetching streams for itemId:', itemId, 'mediaSourceId:', mediaSourceId);
+        return null;
+    }
+
+    async function fetchStreams(itemId, mediaSourceId) {
+        log('Fetching streams for itemId:', itemId, 'mediaSourceId:', mediaSourceId);
         
         try {
             const params = new URLSearchParams({ itemId });
             if (mediaSourceId) params.append('mediaSourceId', mediaSourceId);
-            // Add timestamp to force bypass any HTTP cache
             params.append('_t', Date.now().toString());
 
             const url = window.ApiClient.getUrl('api/baklava/metadata/streams') + '?' + params;
@@ -74,489 +40,15 @@
                 dataType: 'json'
             });
 
-            // Cache the result
-            streamCache.set(cacheKey, {
-                data: response,
-                timestamp: Date.now()
-            });
-
             return response;
         } catch (err) {
-            console.error('[SelectToCards] Error fetching streams:', err);
+            error('Error fetching streams:', err);
             return null;
         }
     }
 
-    function formatStreamTitle(stream, isAudio) {
-        // Get language - convert to full name and capitalize first letter
-        let langCode = stream.language || stream.displayLanguage || '';
-        let lang = 'Unknown';
-        
-        // Debug: log streams that have no language code
-        if (!langCode && stream) {
-            console.log('[SelectToCards] Stream with no language:', stream);
-        }
-        
-        if (langCode) {
-            // Map common language codes to full names
-            const langMap = {
-                'eng': 'English',
-                'spa': 'Spanish',
-                'fre': 'French',
-                'fra': 'French',
-                'ger': 'German',
-                'deu': 'German',
-                'ita': 'Italian',
-                'por': 'Portuguese',
-                'rus': 'Russian',
-                'jpn': 'Japanese',
-                'kor': 'Korean',
-                'chi': 'Chinese',
-                'zho': 'Chinese',
-                'ara': 'Arabic',
-                'hin': 'Hindi',
-                'tur': 'Turkish',
-                'pol': 'Polish',
-                'dut': 'Dutch',
-                'nld': 'Dutch',
-                'swe': 'Swedish',
-                'nor': 'Norwegian',
-                'dan': 'Danish',
-                'fin': 'Finnish',
-                'gre': 'Greek',
-                'ell': 'Greek',
-                'heb': 'Hebrew',
-                'cze': 'Czech',
-                'ces': 'Czech',
-                'hun': 'Hungarian',
-                'rum': 'Romanian',
-                'ron': 'Romanian',
-                'tha': 'Thai',
-                'vie': 'Vietnamese',
-                'ind': 'Indonesian',
-                'may': 'Malay',
-                'msa': 'Malay',
-                'ukr': 'Ukrainian',
-                'bul': 'Bulgarian',
-                'hrv': 'Croatian',
-                'srp': 'Serbian',
-                'slv': 'Slovenian',
-                'cat': 'Catalan'
-            };
-            
-            const lowerCode = langCode.toLowerCase();
-            if (langMap[lowerCode]) {
-                lang = langMap[lowerCode];
-            } else {
-                // Capitalize first letter of unknown language
-                console.log('[SelectToCards] Unknown language code:', langCode);
-                lang = langCode.charAt(0).toUpperCase() + langCode.slice(1).toLowerCase();
-            }
-        }
-        
-        const codec = (stream.codec || '').toUpperCase();
-        const type = isAudio 
-            ? (stream.channels === 2 ? 'Stereo' : stream.channels ? `${stream.channels}ch` : codec)
-            : codec;
-        
-        return { lang, type };
-    }
-
-    // ============================================
-    // UI STYLING
-    // ============================================
-
-    function injectStyles() {
-        if (document.getElementById('select-to-cards-style')) return;
-        
-        const style = document.createElement('style');
-        style.id = 'select-to-cards-style';
-        style.textContent = `
-            /* Hide original select containers */
-            form.trackSelections .selectContainer { display: none !important; }
-            form.trackSelections { max-width: unset !important; width: unset !important; }
-            
-            /* Carousel wrapper */
-            .stc-wrapper {
-                position: relative;
-                margin: 8px 0;
-                max-width: 100%;
-                overflow: hidden;
-            }
-            
-            /* Control bar for arrows and label */
-            .stc-controls {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                margin-bottom: 8px;
-                min-height: 32px;
-            }
-            
-            /* Carousel label (only for audio and subtitle) */
-            .stc-label {
-                font-size: 1.1em;
-                font-weight: 500;
-                color: rgba(255,255,255,0.9);
-                text-align: center;
-                flex: 1;
-            }
-            
-            /* Navigation arrows */
-            .stc-arrow {
-                width: 32px;
-                height: 32px;
-                background: rgba(128,128,128,0.5);
-                border: none;
-                color: #fff;
-                font-size: 20px;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                transition: background 0.15s;
-            }
-            
-            .stc-arrow:hover:not(:disabled) {
-                background: rgba(128,128,128,0.8);
-            }
-            
-            .stc-arrow:disabled {
-                opacity: 0.3;
-                cursor: default;
-            }
-            
-            .stc-arrow.stc-arrow-left { order: -1; }
-            .stc-arrow.stc-arrow-right { order: 1; }
-            
-            /* Cards container */
-            .stc-cards {
-                display: flex;
-                gap: 12px;
-                overflow-x: auto;
-                scroll-behavior: smooth;
-                padding: 8px 4px;
-                scrollbar-width: none;
-                -ms-overflow-style: none;
-                position: relative;
-                max-width: 100%;
-            }
-            .stc-cards::-webkit-scrollbar { display: none; }
-            
-            /* Individual card */
-            .stc-card {
-                flex: 0 0 auto;
-                width: 200px;
-                height: 50px;
-                background: rgba(255,255,255,0.08);
-                border: 2px solid rgba(255,255,255,0.15);
-                border-radius: 8px;
-                padding: 16px;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                text-align: center;
-                cursor: pointer;
-                transition: all 0.15s ease;
-                color: rgba(255,255,255,0.85);
-                user-select: none;
-            }
-            
-            .stc-card:hover:not(.stc-placeholder) {
-                background: rgba(255,255,255,0.12);
-                border-color: rgba(255,255,255,0.3);
-                transform: translateY(-2px);
-            }
-            
-            .stc-card.stc-selected {
-                background: #00a4dc !important;
-                border-color: #00a4dc !important;
-                color: #fff !important;
-            }
-            
-            .stc-card.stc-placeholder {
-                opacity: 0.5;
-                cursor: default;
-            }
-            
-            .stc-card.stc-loading {
-                border-style: dashed;
-                border-color: rgba(255,255,255,0.2);
-                background: rgba(100,150,255,0.1);
-                position: relative;
-                overflow: hidden;
-            }
-            
-            .stc-card.stc-loading::after {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: -100%;
-                width: 100%;
-                height: 100%;
-                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-                animation: shimmer 1.5s infinite;
-            }
-            
-            @keyframes shimmer {
-                to { left: 100%; }
-            }
-            
-            .stc-card.stc-empty {
-                border-style: dashed;
-                border-color: rgba(255,255,255,0.15);
-                background: transparent;
-                cursor: default;
-            }
-            
-            /* Track cards (audio/subtitle) - smaller & compact */
-            .stc-card.stc-track {
-                width: 80px;
-                height: 30px;
-                padding: 8px;
-            }
-            
-            .stc-card-lang {
-                font-size: 14px;
-                font-weight: 700;
-                margin-bottom: 4px;
-            }
-            
-            .stc-card-type {
-                font-size: 11px;
-                opacity: 0.85;
-            }
-            
-            .stc-card-title {
-                font-size: 13px;
-                line-height: 1.3;
-                word-break: break-word;
-            }
-
-            .stc-card-version {
-                font-size: 13px;
-                font-weight: 700;
-                color: rgba(255,255,255,0.95);
-            }
-
-            .stc-card-quality {
-                font-size: 12px;
-                opacity: 0.9;
-                margin-top: 4px;
-            }
-
-            /* Loading state */
-            .stc-loading {
-                color: rgba(255,255,255,0.6);
-                font-size: 13px;
-                padding: 24px;
-                text-align: center;
-            }
-            
-            /* Format display */
-            .stc-format {
-                margin-bottom: 16px;
-                padding: 12px 16px;
-                background: rgba(255,255,255,0.08);
-                border: 1px solid rgba(255,255,255,0.15);
-                border-radius: 6px;
-                text-align: center;
-                color: rgba(255,255,255,0.8);
-                font-size: 14px;
-            }
-            
-            /* Filename display */
-            .stc-filename {
-                margin-top: 8px;
-                padding: 8px 12px;
-                background: rgba(0,0,0,0.3);
-                border-radius: 4px;
-                color: rgba(255,255,255,0.6);
-                font-size: 12px;
-                text-align: center;
-                font-family: monospace;
-            }
-
-            /* Toggle to show original selects */
-            body.stc-show-selects form.trackSelections .selectContainer { display: block !important; }
-
-            /* Center single carousel when it's the only one in form */
-            form.trackSelections .stc-wrapper:only-of-type {
-                max-width: 900px;
-                margin-left: auto;
-                margin-right: auto;
-            }
-        `;
-        
-        document.head.appendChild(style);
-    }
-
-    // ============================================
-    // CARD CREATION
-    // ============================================
-
-    function createCard(option, type, select) {
-        const card = document.createElement('div');
-        const isTrack = type === 'audio' || type === 'subtitle';
-        
-        card.className = `stc-card ${isTrack ? 'stc-track' : ''}`;
-        card.dataset.value = option.value;
-        card.tabIndex = 0;
-        
-        if (option.selected) {
-            card.classList.add('stc-selected');
-        }
-        
-        if (option.disabled) {
-            card.style.opacity = '0.4';
-            card.style.cursor = 'not-allowed';
-            card.tabIndex = -1;
-        }
-        
-        // Build card content
-        if (isTrack && option._meta) {
-            const { lang, type: trackType } = formatStreamTitle(option._meta, type === 'audio');
-            card.innerHTML = `
-                <div class="stc-card-lang">${lang}</div>
-                <div class="stc-card-type">${trackType}</div>
-            `;
-        } else {
-            // Version cards - parse version/quality and display them alone
-            const text = (option.textContent || option.value || '').trim();
-            // Try to extract quality (e.g., 2160p, 1080p)
-            const qualityMatch = text.match(/(\d{3,4}p)/i);
-            const quality = qualityMatch ? qualityMatch[1] : '';
-
-            // Extract common version tokens (WEB-DL, WEB, NF, DV, HEVC, HDR, BluRay, x265, etc.)
-            const tokenRegex = /WEB-?DL|WEB|NF|DV|HEVC|HDR10\+?|HDR10|HDR|BLURAY|BLU-?RAY|BDRIP|BRRIP|X264|X265|H264|H265|UHD|REMUX/ig;
-            const tokens = (text.match(tokenRegex) || []).map(t => t.toUpperCase());
-            const versionLabel = tokens.join(' ') || (option.getAttribute('data-version') || '').toString();
-
-            card.innerHTML = `
-                <div class="stc-card-title">
-                    <div class="stc-card-version">${versionLabel || 'Standard'}</div>
-                    <div class="stc-card-quality">${quality || 'Unknown'}</div>
-                </div>
-            `;
-        }
-        
-        // Handle click
-        if (!option.disabled) {
-            card.addEventListener('click', () => selectCard(select, option.value, type));
-        }
-        
-        return card;
-    }
-
-    function createPlaceholderCard(message = 'No tracks') {
-        const card = document.createElement('div');
-        card.className = 'stc-card stc-track stc-placeholder';
-        card.innerHTML = `<div style="font-size:12px;color:rgba(255,255,255,0.5);">${message}</div>`;
-        card.tabIndex = -1;
-        return card;
-    }
-
-    function createLoadingCard() {
-        const card = document.createElement('div');
-        card.className = 'stc-card stc-track stc-loading';
-        card.tabIndex = -1;
-        return card;
-    }
-
-    function createEmptyCard() {
-        const card = document.createElement('div');
-        card.className = 'stc-card stc-track stc-empty';
-        card.tabIndex = -1;
-        return card;
-    }
-
-    function createArrows(controlsDiv, cardsContainer, opts = {}) {
-        const leftArrow = document.createElement('button');
-        leftArrow.className = 'stc-arrow stc-arrow-left';
-        leftArrow.innerHTML = '‹';
-        leftArrow.setAttribute('aria-label', 'Previous');
-        
-        const rightArrow = document.createElement('button');
-        rightArrow.className = 'stc-arrow stc-arrow-right';
-        rightArrow.innerHTML = '›';
-        rightArrow.setAttribute('aria-label', 'Next');
-        
-        const updateArrows = () => {
-            leftArrow.disabled = cardsContainer.scrollLeft <= 0;
-            rightArrow.disabled = cardsContainer.scrollLeft >= cardsContainer.scrollWidth - cardsContainer.offsetWidth - 1;
-        };
-        
-        leftArrow.addEventListener('click', () => {
-            cardsContainer.scrollBy({ left: -300, behavior: 'smooth' });
-            setTimeout(updateArrows, 100);
-        });
-        
-        rightArrow.addEventListener('click', () => {
-            cardsContainer.scrollBy({ left: 300, behavior: 'smooth' });
-            setTimeout(updateArrows, 100);
-        });
-        
-        cardsContainer.addEventListener('scroll', debounce(updateArrows, 100));
-        
-        // If opts.appendTo provided, place arrows inside that element (used for filename container)
-        if (opts.appendTo) {
-            opts.appendTo.appendChild(leftArrow);
-            opts.appendTo.appendChild(rightArrow);
-        } else {
-            controlsDiv.appendChild(leftArrow);
-            controlsDiv.appendChild(rightArrow);
-        }
-        
-        setTimeout(updateArrows, 100);
-    }
-
-    // ============================================
-    // SELECTION HANDLING
-    // ============================================
-
-    function selectCard(select, value, type) {
-        console.log('[SelectToCards] Selecting', type, 'value:', value);
-        
-        // Update select element
-        Array.from(select.options).forEach(opt => {
-            opt.selected = opt.value === value;
-        });
-        
-        // Update card UI
-        const wrapper = select._stcWrapper;
-        if (wrapper) {
-            wrapper.querySelectorAll('.stc-card').forEach(card => {
-                card.classList.toggle('stc-selected', card.dataset.value === value);
-            });
-            
-            // Update filename display if version select
-            if (type === 'version') {
-                const selectedOption = Array.from(select.options).find(opt => opt.value === value);
-                const filenameDiv = wrapper.querySelector('.stc-filename');
-                if (selectedOption && filenameDiv) {
-                    // Store original if not already stored
-                    if (!selectedOption.hasAttribute('data-original')) {
-                        selectedOption.setAttribute('data-original', selectedOption.textContent);
-                    }
-                    // Display the original filename
-                    filenameDiv.textContent = selectedOption.getAttribute('data-original') || selectedOption.textContent;
-                }
-            }
-        }
-        
-        // Emit change events
-        emitEvent(select, 'change');
-        emitEvent(select, 'input');
-        
-        // If version changed, load new audio/subtitle tracks
-        if (type === 'version') {
-            loadTracksForVersion(select, value);
-        }
-    }
-
     async function loadTracksForVersion(versionSelect, mediaSourceId) {
-        console.log('[SelectToCards] Loading tracks for version:', mediaSourceId);
+        log('Loading tracks for version:', mediaSourceId);
         
         const form = versionSelect.closest('form.trackSelections');
         if (!form) return;
@@ -564,469 +56,466 @@
         const audioSelect = form.querySelector('select.selectAudio');
         const subtitleSelect = form.querySelector('select.selectSubtitles');
         
-        // Clear existing tracks immediately
+        // Clear old carousels and reset flags
+        const oldAudioCarousel = form.querySelector('#stc-carousel-audio');
+        const oldSubCarousel = form.querySelector('#stc-carousel-subtitle');
+        if (oldAudioCarousel) oldAudioCarousel.remove();
+        if (oldSubCarousel) oldSubCarousel.remove();
+        if (audioSelect) audioSelect._stcCarouselBuilt = false;
+        if (subtitleSelect) subtitleSelect._stcCarouselBuilt = false;
+        
+        // Enable the selects
         if (audioSelect) {
+            audioSelect.disabled = false;
             audioSelect.innerHTML = '';
-            if (audioSelect._stcCards) {
-                audioSelect._stcCards.innerHTML = '';
-                // Add 3 loading cards
-                for (let i = 0; i < 3; i++) {
-                    audioSelect._stcCards.appendChild(createLoadingCard());
-                }
-            }
+            // Rebuild empty carousel immediately
+            buildCarouselFromSelect(audioSelect, 'audio');
         }
-        
         if (subtitleSelect) {
+            subtitleSelect.disabled = false;
             subtitleSelect.innerHTML = '';
-            if (subtitleSelect._stcCards) {
-                subtitleSelect._stcCards.innerHTML = '';
-                // Add 3 loading cards
-                for (let i = 0; i < 3; i++) {
-                    subtitleSelect._stcCards.appendChild(createLoadingCard());
-                }
-            }
+            // Rebuild empty carousel immediately
+            buildCarouselFromSelect(subtitleSelect, 'subtitle');
         }
         
-        // Try to get itemId if we don't have it
+        // Show the containers
+        const audioContainer = form.querySelector('.selectAudioContainer');
+        const subtitleContainer = form.querySelector('.selectSubtitlesContainer');
+        if (audioContainer) audioContainer.classList.remove('hide');
+        if (subtitleContainer) subtitleContainer.classList.remove('hide');
+        
+        // Get itemId if needed
         if (!currentItemId) {
-            console.log('[SelectToCards] No currentItemId, attempting to capture...');
             captureItemId();
         }
         
-        // Fetch streams
         if (!currentItemId) {
-            console.warn('[SelectToCards] No itemId available after capture attempt');
-            if (audioSelect?._stcCards) {
-                audioSelect._stcCards.innerHTML = '';
-                for (let i = 0; i < 3; i++) {
-                    audioSelect._stcCards.appendChild(createEmptyCard());
-                }
-            }
-            if (subtitleSelect?._stcCards) {
-                subtitleSelect._stcCards.innerHTML = '';
-                for (let i = 0; i < 3; i++) {
-                    subtitleSelect._stcCards.appendChild(createEmptyCard());
-                }
-            }
+            console.warn('[SelectToCards] No itemId available');
             return;
         }
         
-        console.log('[SelectToCards] Fetching streams with itemId:', currentItemId, 'mediaSourceId:', mediaSourceId);
+        // Fetch streams
         const streams = await fetchStreams(currentItemId, mediaSourceId);
         
         if (!streams) {
-            console.error('[SelectToCards] Failed to fetch streams');
-            if (audioSelect?._stcCards) {
-                audioSelect._stcCards.innerHTML = '';
-                for (let i = 0; i < 3; i++) {
-                    audioSelect._stcCards.appendChild(createEmptyCard());
-                }
-            }
-            if (subtitleSelect?._stcCards) {
-                subtitleSelect._stcCards.innerHTML = '';
-                for (let i = 0; i < 3; i++) {
-                    subtitleSelect._stcCards.appendChild(createEmptyCard());
-                }
-            }
+            error('Failed to fetch streams');
             return;
         }
         
-        // Populate audio tracks - CLEAR FIRST to avoid duplicates
-        if (audioSelect) {
-            audioSelect.innerHTML = '';  // Clear existing options
-            if (streams.audio && streams.audio.length > 0) {
-                streams.audio.forEach((track, idx) => {
-                    const option = document.createElement('option');
-                    option.value = String(track.index);
-                    option.textContent = track.title;
-                    option._meta = track;
-                    if (idx === 0) option.selected = true;
-                    audioSelect.appendChild(option);
-                });
-                populateCarousel(audioSelect, 'audio');
-            } else if (audioSelect._stcCards) {
-                audioSelect._stcCards.innerHTML = '';
-                // Add 3 empty state cards
-                for (let i = 0; i < 3; i++) {
-                    audioSelect._stcCards.appendChild(createEmptyCard());
-                }
-            }
+        log('Received streams:', streams);
+        
+        // Populate audio tracks
+        if (audioSelect && streams.audio && streams.audio.length > 0) {
+            streams.audio.forEach((track, idx) => {
+                const option = document.createElement('option');
+                option.value = String(track.index);
+                option.textContent = track.title;
+                if (idx === 0) option.selected = true;
+                audioSelect.appendChild(option);
+            });
+            log('Populated', streams.audio.length, 'audio tracks');
+            // Build carousel for audio
+            setTimeout(() => buildCarouselFromSelect(audioSelect, 'audio'), 50);
         }
         
-        // Populate subtitle tracks - CLEAR FIRST to avoid duplicates
-        if (subtitleSelect) {
-            subtitleSelect.innerHTML = '';  // Clear existing options
-            if (streams.subs && streams.subs.length > 0) {
-                streams.subs.forEach((track, idx) => {
-                    const option = document.createElement('option');
-                    option.value = String(track.index);
-                    option.textContent = track.title;
-                    option._meta = track;
-                    if (idx === 0) option.selected = true;
-                    subtitleSelect.appendChild(option);
-                });
-                populateCarousel(subtitleSelect, 'subtitle');
-            } else if (subtitleSelect._stcCards) {
-                subtitleSelect._stcCards.innerHTML = '';
-                // Add 3 empty state cards
-                for (let i = 0; i < 3; i++) {
-                    subtitleSelect._stcCards.appendChild(createEmptyCard());
-                }
-            }
+        // Populate subtitle tracks
+        if (subtitleSelect && streams.subs && streams.subs.length > 0) {
+            streams.subs.forEach((track, idx) => {
+                const option = document.createElement('option');
+                option.value = String(track.index);
+                option.textContent = track.title;
+                if (idx === 0) option.selected = true;
+                subtitleSelect.appendChild(option);
+            });
+            log('Populated', streams.subs.length, 'subtitle tracks');
+            // Build carousel for subtitles
+            setTimeout(() => buildCarouselFromSelect(subtitleSelect, 'subtitle'), 50);
         }
     }
 
-    // ============================================
-    // CAROUSEL CREATION
-    // ============================================
+    function buildCarouselFromSelect(selectElement, type = 'version') {
+        try {
+            if (!selectElement) return;
 
-    function populateCarousel(select, type) {
-        if (!select) return;
-        
-        // Get or create wrapper
-        let wrapper = select._stcWrapper;
-        let cardsContainer = select._stcCards;
-        let controlsDiv = select._stcControls;
-        
-        if (!wrapper) {
-            wrapper = document.createElement('div');
-            wrapper.className = 'stc-wrapper';
-            
-            if (type === 'version') {
-                // For version: add controls div with arrows (no label), then filename div, then carousel
-                controlsDiv = document.createElement('div');
-                controlsDiv.className = 'stc-controls';
-                wrapper.appendChild(controlsDiv);
-                
-                // Filename div (without arrows inside)
-                const filenameDiv = document.createElement('div');
-                filenameDiv.className = 'stc-filename';
-                filenameDiv.textContent = ''; // Will be filled later
-                wrapper.appendChild(filenameDiv);
+            // ensure single wrapper per select
+            const form = selectElement.closest('form.trackSelections');
+            if (!form) return;
 
-                cardsContainer = document.createElement('div');
-                cardsContainer.className = 'stc-cards';
-                wrapper.appendChild(cardsContainer);
-                
-                // Create arrows in controls div
-                createArrows(controlsDiv, cardsContainer);
-            } else {
-                // For audio/subtitle: controls div with label and arrows
-                controlsDiv = document.createElement('div');
-                controlsDiv.className = 'stc-controls';
-                
-                const labelDiv = document.createElement('div');
-                labelDiv.className = 'stc-label';
-                labelDiv.textContent = type === 'audio' ? 'Audio Track' : 'Subtitles';
-                controlsDiv.appendChild(labelDiv);
-                
-                wrapper.appendChild(controlsDiv);
-
-                cardsContainer = document.createElement('div');
-                cardsContainer.className = 'stc-cards';
-                wrapper.appendChild(cardsContainer);
-
-                createArrows(controlsDiv, cardsContainer);
-            }
-            
-            // Insert after the select's container
-            const selectContainer = select.closest('.selectContainer');
-            if (selectContainer) {
-                selectContainer.parentNode.insertBefore(wrapper, selectContainer.nextSibling);
-            } else {
-                const form = select.closest('form');
-                if (form) form.appendChild(wrapper);
-            }
-            
-            select._stcWrapper = wrapper;
-            select._stcCards = cardsContainer;
-            select._stcControls = controlsDiv;
-        }
-        
-        // Clear and populate cards
-        cardsContainer.innerHTML = '';
-        
-        if (select.options.length === 0) {
-            // Show placeholder cards for audio/subtitle tracks
-            if (type === 'audio' || type === 'subtitle') {
-                for (let i = 0; i < 3; i++) {
-                    cardsContainer.appendChild(createPlaceholderCard('Waiting...'));
-                }
-            } else {
-                cardsContainer.appendChild(createPlaceholderCard());
-            }
-            return;
-        }
-        
-        Array.from(select.options).forEach(option => {
-            cardsContainer.appendChild(createCard(option, type, select));
-        });
-        
-        // Add filename display if version select
-        if (type === 'version' && select.options.length > 0) {
-            const selectedOption = Array.from(select.options).find(opt => opt.selected) || select.options[0];
-            if (selectedOption) {
-                const filenameDiv = wrapper.querySelector('.stc-filename');
-                if (filenameDiv) {
-                    // Store original filename if not already stored
-                    if (!selectedOption.hasAttribute('data-original')) {
-                        selectedOption.setAttribute('data-original', selectedOption.textContent);
-                    }
-                    // Display the original filename in the stc-filename div
-                    filenameDiv.textContent = selectedOption.getAttribute('data-original') || selectedOption.textContent;
-                }
-            }
-        }
-        
-        // Auto-scroll to selected card
-        setTimeout(() => {
-            const selectedCard = cardsContainer.querySelector('.stc-selected');
-            if (selectedCard) {
-                selectedCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-            }
-        }, 100);
-    }
-
-    // ============================================
-    // INITIALIZATION
-    // ============================================
-
-    function captureItemId() {
-        // Try multiple sources to get the current item ID
-        
-        // 1. From URL
-        const urlMatch = window.location.href.match(/[?&]id=([a-f0-9-]+)/i);
-        if (urlMatch) {
-            currentItemId = urlMatch[1].replace(/-/g, '');
-            console.log('[SelectToCards] Captured itemId from URL:', currentItemId);
-            return;
-        }
-        
-        // 2. From form
-        const form = document.querySelector('form.trackSelections');
-        if (form) {
-            const itemIdInput = form.querySelector('input[name*="itemId"], input[name*="Id"]');
-            if (itemIdInput?.value) {
-                currentItemId = itemIdInput.value.replace(/-/g, '');
-                console.log('[SelectToCards] Captured itemId from form input:', currentItemId);
+            // Check if already built - but allow rebuild if we now have options
+            if (selectElement._stcCarouselBuilt && selectElement.options.length === 0) {
+                log('Carousel already built for', type, 'select, skipping empty');
                 return;
             }
-        }
-        
-        // 3. From global window variables
-        if (window.__currentPlaybackItemId) {
-            currentItemId = window.__currentPlaybackItemId;
-            console.log('[SelectToCards] Using window.__currentPlaybackItemId:', currentItemId);
-            return;
-        }
-        
-        console.warn('[SelectToCards] Could not capture itemId');
-    }
+            
+            // Mark as built only if we have options
+            if (selectElement.options.length > 0) {
+                selectElement._stcCarouselBuilt = true;
+            }
 
-    function initializeForm() {
-        const form = document.querySelector('form.trackSelections');
-        if (!form || form._stcInitialized) return;
-        
-        console.log('[SelectToCards] Initializing form');
-        form._stcInitialized = true;
-        
-        captureItemId();
-        
-        // Find all select elements (but skip selectVideo)
-        const selects = Array.from(form.querySelectorAll('select.detailTrackSelect'))
-            .filter(sel => !sel.classList.contains('selectVideo'));
-        
-        if (selects.length === 0) {
-            console.warn('[SelectToCards] No select elements found');
-            return;
-        }
-        
-        console.log('[SelectToCards] Found', selects.length, 'select elements');
-        
-        // Process each select
-        selects.forEach(select => {
-            let type = 'unknown';
-            if (select.classList.contains('selectSource')) type = 'version';
-            else if (select.classList.contains('selectAudio')) type = 'audio';
-            else if (select.classList.contains('selectSubtitles')) type = 'subtitle';
-            
-            console.log('[SelectToCards] Processing select:', type, 'options:', select.options.length);
-            
-            // Watch for options being added dynamically
-            const selectObserver = new MutationObserver(() => {
-                if (select.options.length > 0 && !select._stcCardsPopulated) {
-                    console.log('[SelectToCards] Options added to', type, 'select, populating carousel');
-                    select._stcCardsPopulated = true;
-                    populateCarousel(select, type);
-                    
-                    if (type === 'version') {
-                        const selectedOption = Array.from(select.options).find(opt => opt.selected);
-                        if (selectedOption) {
-                            setTimeout(() => {
-                                loadTracksForVersion(select, selectedOption.value);
-                            }, 100);
-                        }
-                    }
+            // remove previous carousel if any
+            const existingId = 'stc-carousel-' + type;
+            const existing = form.querySelector('#' + existingId);
+            if (existing) {
+                // Also remove separator that follows the carousel
+                const nextSibling = existing.nextElementSibling;
+                if (nextSibling && nextSibling.classList.contains('stc-separator')) {
+                    nextSibling.remove();
                 }
-            });
-            
-            selectObserver.observe(select, { childList: true });
-            
-            // For version select, populate immediately if options exist OR wait for them
+                existing.remove();
+            }
+
+		const wrapper = document.createElement('div');
+		wrapper.id = existingId;
+		wrapper.className = 'stc-carousel-wrapper';
+		// minimal inline styles so it works without CSS files
+		wrapper.style.display = 'flex';
+		wrapper.style.flexDirection = 'column';
+		wrapper.style.gap = '8px';
+		wrapper.style.margin = '8px 0';
+		
+	// Label for audio/subtitle (not for version)
+	if (type === 'audio' || type === 'subtitle') {
+		const labelDiv = document.createElement('div');
+		labelDiv.className = 'stc-type-label';
+		labelDiv.textContent = type === 'audio' ? 'Audio' : 'Subtitles';
+		labelDiv.style.fontSize = '16px';
+		labelDiv.style.fontWeight = '500';
+		labelDiv.style.color = 'rgba(255,255,255,0.9)';
+		labelDiv.style.marginBottom = '4px';
+		labelDiv.style.textAlign = 'center';
+		wrapper.appendChild(labelDiv);
+	}		const rail = document.createElement('div');
+		rail.className = 'stc-rail';
+		rail.style.display = 'flex';
+		rail.style.overflowX = 'auto';
+		rail.style.scrollBehavior = 'smooth';
+		rail.style.padding = '6px 2px';
+		rail.style.gap = '8px';
+		rail.style.flex = '1 1 auto';
+		
+		// Determine height based on type
+		const cardHeight = type === 'version' ? '100px' : '60px';
+		rail.style.minHeight = cardHeight;
+		
+		// Hide scrollbar by default, show on hover
+		rail.style.scrollbarWidth = 'thin';
+		rail.style.scrollbarColor = 'transparent transparent';
+		rail.addEventListener('mouseenter', () => {
+			rail.style.scrollbarColor = 'rgba(255,255,255,0.3) transparent';
+		});
+		rail.addEventListener('mouseleave', () => {
+			rail.style.scrollbarColor = 'transparent transparent';
+		});
+		// Webkit browsers
+		const styleEl = document.createElement('style');
+		styleEl.textContent = `
+			.stc-rail::-webkit-scrollbar {
+				height: 8px;
+			}
+			.stc-rail::-webkit-scrollbar-track {
+				background: transparent;
+			}
+			.stc-rail::-webkit-scrollbar-thumb {
+				background: transparent;
+				border-radius: 4px;
+			}
+			.stc-rail:hover::-webkit-scrollbar-thumb {
+				background: rgba(255,255,255,0.3);
+			}
+		`;
+		if (!document.querySelector('#stc-scrollbar-style')) {
+			styleEl.id = 'stc-scrollbar-style';
+			document.head.appendChild(styleEl);
+		}
+		rail.style.flex = '1 1 auto';
+
+		// If no options and audio/subtitle, show empty placeholder cards
+		if (selectElement.options.length === 0 && (type === 'audio' || type === 'subtitle')) {
+			// Create 3 empty dashed cards
+			for (let i = 0; i < 3; i++) {
+				const emptyCard = document.createElement('div');
+				emptyCard.className = 'stc-card stc-empty';
+				emptyCard.style.minWidth = '180px';
+				emptyCard.style.maxWidth = '180px';
+				emptyCard.style.height = '50px';
+				emptyCard.style.flex = '0 0 auto';
+				emptyCard.style.padding = '12px';
+				emptyCard.style.border = '1px dashed rgba(255,255,255,0.15)';
+				emptyCard.style.borderRadius = '6px';
+				emptyCard.style.background = 'transparent';
+				emptyCard.style.display = 'flex';
+				emptyCard.style.alignItems = 'center';
+				emptyCard.style.justifyContent = 'center';
+				rail.appendChild(emptyCard);
+			}
+		}
+
+		// build cards from options
+		Array.from(selectElement.options).forEach(opt => {
+		const card = document.createElement('div');
+		card.className = 'stc-card';
+		card.dataset.value = opt.value;
+		
+		// Size based on type
+		if (type === 'version') {
+			card.style.minWidth = '200px';
+			card.style.maxWidth = '200px';
+			card.style.height = '50px';
+		} else {
+			// Audio and subtitle cards
+			card.style.minWidth = '150px';
+			card.style.maxWidth = '150px';
+			card.style.minHeight = '35px';
+			card.style.height = '35px';
+		}			card.style.flex = '0 0 auto';
+			card.style.padding = '12px';
+			card.style.border = '1px solid rgba(255,255,255,0.15)';
+			card.style.borderRadius = '6px';
+			card.style.background = 'rgba(255,255,255,0.05)';
+			card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
+			card.style.cursor = 'pointer';
+			card.style.transition = 'all 0.2s ease';
+			card.style.overflow = 'hidden';
+		card.style.display = 'flex';
+		card.style.flexDirection = 'column';
+		card.style.justifyContent = 'center';
+
+		// Get text and split by folder icon if present
+		const fullText = opt.getAttribute('data-original') || opt.textContent;
+		let displayText = fullText;
+		
+		// For version cards, show only the part before 📁
+		if (type === 'version' && fullText.includes('📁')) {
+			const parts = fullText.split('📁');
+			displayText = parts[0].trim();
+			
+			// Store both parts for later use
+			if (!opt.hasAttribute('data-info')) {
+				opt.setAttribute('data-info', displayText);
+			}
+			if (!opt.hasAttribute('data-filename')) {
+				opt.setAttribute('data-filename', '📁 ' + parts.slice(1).join('📁').trim());
+			}
+			
+			// Update the option text in the select to show the info part
+			opt.textContent = displayText;
+		} else if (type === 'version') {
+			// No folder icon, store original
+			if (!opt.hasAttribute('data-info')) {
+				opt.setAttribute('data-info', displayText);
+			}
+			if (!opt.hasAttribute('data-filename')) {
+				opt.setAttribute('data-filename', displayText);
+			}
+		}
+
+	// primary label
+	const label = document.createElement('div');
+	label.className = 'stc-label';
+	label.textContent = displayText;
+	// Version: 13px, Audio/Subtitle: 11px
+	label.style.fontSize = type === 'version' ? '13px' : '11px';
+	label.style.fontWeight = '500';
+	label.style.marginBottom = '0';
+	label.style.color = 'inherit';
+	label.style.whiteSpace = 'normal';
+	label.style.overflow = 'visible';
+	label.style.textOverflow = 'clip';
+	label.style.lineHeight = '1.3';
+	label.style.wordBreak = 'break-word';
+	label.style.textAlign = 'center';
+		card.appendChild(label);			// click -> update select
+			card.addEventListener('click', (e) => {
+				e.preventDefault();
+				if (selectElement.value === card.dataset.value) return;
+				selectElement.value = card.dataset.value;
+				// trigger native change handlers
+				const evt = new Event('change', { bubbles: true });
+				selectElement.dispatchEvent(evt);
+				updateActiveCard(rail, card.dataset.value);
+				// scroll card into view within the rail (not the whole page)
+				card.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+			// Update filename display for version select
+			if (type === 'version') {
+				const form = selectElement.closest('form.trackSelections');
+				const filenameDiv = form?.querySelector('.stc-filename');
+				const selectedOption = Array.from(selectElement.options).find(opt => opt.value === card.dataset.value);
+				if (filenameDiv && selectedOption) {
+					// Use data-filename attribute which contains the part after 📁
+					const filename = selectedOption.getAttribute('data-filename');
+					filenameDiv.textContent = filename || (selectedOption.getAttribute('data-original') || selectedOption.textContent);
+				}
+					// load audio/subtitle tracks
+					loadTracksForVersion(selectElement, card.dataset.value);
+				}
+			});
+
+			rail.appendChild(card);
+			
+			// hover effect
+			card.addEventListener('mouseenter', () => {
+				if (selectElement.value !== card.dataset.value) {
+					card.style.background = 'rgba(255,255,255,0.1)';
+					card.style.borderColor = 'rgba(255,255,255,0.25)';
+				}
+			});
+			card.addEventListener('mouseleave', () => {
+				if (selectElement.value !== card.dataset.value) {
+					card.style.background = 'rgba(255,255,255,0.05)';
+					card.style.borderColor = 'rgba(255,255,255,0.15)';
+				}
+			});
+		});
+
+		// helper to mark active card
+		function updateActiveCard(railEl, value) {
+			const cards = railEl.querySelectorAll('.stc-card');
+			cards.forEach(c => {
+				if (c.dataset.value === String(value)) {
+					c.style.borderColor = 'rgba(0,164,220,1)';
+					c.style.background = 'rgba(0,164,220,0.15)';
+					c.style.boxShadow = '0 4px 12px rgba(0,164,220,0.3)';
+				} else {
+					c.style.borderColor = 'rgba(255,255,255,0.15)';
+					c.style.background = 'rgba(255,255,255,0.05)';
+					c.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
+				}
+			});
+		}
+
+		wrapper.appendChild(rail);
+
+		// inject after select container
+		const selectContainer = selectElement.closest('.selectContainer') || selectElement.parentNode;
+		selectContainer.parentNode.insertBefore(wrapper, selectContainer.nextSibling);
+		
+		// Add separator line after version and audio carousels (only if it doesn't exist)
+		if (type === 'version' || type === 'audio') {
+			const existingSeparator = wrapper.nextElementSibling;
+			if (!existingSeparator || !existingSeparator.classList.contains('stc-separator')) {
+				const separator = document.createElement('div');
+				separator.className = 'stc-separator';
+				separator.style.width = '100%';
+				separator.style.height = '1px';
+				separator.style.background = 'rgba(255,255,255,0.1)';
+				separator.style.margin = '16px 0';
+				wrapper.parentNode.insertBefore(separator, wrapper.nextSibling);
+			}
+		}
+		
+		// For version select, add filename display at the TOP of the form
+		if (type === 'version') {
+			const form = selectElement.closest('form.trackSelections');
+			if (form && !form.querySelector('.stc-filename')) {
+				const filenameDiv = document.createElement('div');
+				filenameDiv.className = 'stc-filename';
+				filenameDiv.style.marginBottom = '16px';
+				filenameDiv.style.padding = '8px 12px';
+				filenameDiv.style.background = 'rgba(0,0,0,0.3)';
+				filenameDiv.style.borderRadius = '4px';
+				filenameDiv.style.color = 'rgba(255,255,255,0.6)';
+				filenameDiv.style.fontSize = '12px';
+				filenameDiv.style.textAlign = 'center';
+				filenameDiv.style.fontFamily = 'monospace';
+				filenameDiv.style.wordBreak = 'break-all';
+				filenameDiv.textContent = ''; // Will be filled later
+				
+			// Insert at the very beginning of the form (first child)
+			form.insertBefore(filenameDiv, form.firstChild);
+			
+			// Update filename from current selection
+			const selectedOption = Array.from(selectElement.options).find(opt => opt.selected);
+			if (selectedOption) {
+				// Use data-filename attribute which contains the part after 📁
+				const filename = selectedOption.getAttribute('data-filename');
+				filenameDiv.textContent = filename || (selectedOption.getAttribute('data-original') || selectedOption.textContent);
+			}
+		}
+	}		// set initial active
+		updateActiveCard(rail, selectElement.value);
+		
+		// load tracks for initial selection (version only)
+		if (type === 'version' && selectElement.value) {
+			captureItemId();
+			setTimeout(() => {
+				loadTracksForVersion(selectElement, selectElement.value);
+			}, 100);
+		}
+
+        // when select changes externally, sync carousel
+        selectElement.addEventListener('change', () => {
+            updateActiveCard(rail, selectElement.value);
+            // ensure selected card visible within rail only
+            const active = Array.from(rail.querySelectorAll('.stc-card')).find(c => c.dataset.value === selectElement.value);
+            if (active) active.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+            // Update filename and load tracks (version only)
             if (type === 'version') {
-                if (select.options.length > 0) {
-                    console.log('[SelectToCards] Version has options, populating now');
-                    select._stcCardsPopulated = true;
-                    populateCarousel(select, type);
-                    
-                    // Auto-load tracks for the first selected version
-                    const selectedOption = Array.from(select.options).find(opt => opt.selected);
-                    if (selectedOption) {
-                        setTimeout(() => {
-                            loadTracksForVersion(select, selectedOption.value);
-                        }, 100);
-                    }
-                } else {
-                    console.log('[SelectToCards] Version select waiting for options (observer active)...');
+                const form = selectElement.closest('form.trackSelections');
+                const filenameDiv = form?.querySelector('.stc-filename');
+                const selectedOption = Array.from(selectElement.options).find(opt => opt.value === selectElement.value);
+                if (filenameDiv && selectedOption) {
+                    // Use data-filename attribute which contains the part after 📁
+                    const filename = selectedOption.getAttribute('data-filename');
+                    filenameDiv.textContent = filename || (selectedOption.getAttribute('data-original') || selectedOption.textContent);
                 }
+                loadTracksForVersion(selectElement, selectElement.value);
             }
-            // For audio/subtitle, create carousel with placeholder cards initially
-            else if (type === 'audio' || type === 'subtitle') {
-                console.log('[SelectToCards] Creating placeholder carousel for', type);
-                populateCarousel(select, type);
-                
-                // Add placeholder cards if empty
-                if (select.options.length === 0 && select._stcCards) {
-                    select._stcCards.innerHTML = '';
-                    for (let i = 0; i < 3; i++) {
-                        select._stcCards.appendChild(createPlaceholderCard('Waiting...'));
-                    }
-                }
-            }
-        });
-    }
-
-    // ============================================
-    // OBSERVERS & HOOKS
-    // ============================================
-
-    function setupObservers() {
-        // Watch for form additions and portrait card
-        const observer = new MutationObserver(mutations => {
-            for (const mutation of mutations) {
-                for (const node of mutation.addedNodes) {
-                    if (node.nodeType !== 1) continue;
-                    
-                    if (node.matches?.('form.trackSelections') || node.querySelector?.('form.trackSelections')) {
-                        setTimeout(initializeForm, 50);
-                    }
-                    
-                }
-            }
-        });
-        
-        observer.observe(document.body, { childList: true, subtree: true });
-        
-        // Also check on modal open events
-        document.addEventListener('openDetailsModal', () => {
-            setTimeout(initializeForm, 100);
-        });
-        
-        // Clear cache when navigating away (detect page changes)
-        let lastUrl = window.location.href;
-        const urlCheckInterval = setInterval(() => {
-            const currentUrl = window.location.href;
-            if (currentUrl !== lastUrl) {
-                // Only log if we actually had a cache to clear
-                if (streamCache.size > 0) {
-                    console.log('[SelectToCards] URL changed, clearing cache');
-                }
-                clearStreamCache();
-                lastUrl = currentUrl;
-            }
-        }, 2000); // Check every 2 seconds instead of 1
-        
-        // Listen for player stop/exit events
-        document.addEventListener('playbackstop', () => {
-            console.log('[SelectToCards] Playback stopped, clearing cache');
-            clearStreamCache();
-        });
-        
-        document.addEventListener('playbackerror', () => {
-            console.log('[SelectToCards] Playback error, clearing cache');
-            clearStreamCache();
-        });
-        
-        // Watch for modal/dialog closures (when user exits playback UI)
-        const modalObserver = new MutationObserver(mutations => {
-            for (const mutation of mutations) {
-                for (const node of mutation.removedNodes) {
-                    if (node.nodeType !== 1) continue;
-                    
-                    // If the details modal or player UI is removed, clear cache
-                    if (node.id === 'item-detail-modal-overlay' || 
-                        node.classList?.contains('videoPlayerContainer') ||
-                        node.querySelector?.('form.trackSelections')) {
-                        console.log('[SelectToCards] Player UI removed, clearing cache');
-                        clearStreamCache();
-                    }
-                }
-            }
-        });
-        
-        modalObserver.observe(document.body, { childList: true, subtree: true });
-        
-        // Watch for API calls to capture itemId
-        if (window.ApiClient?.ajax) {
-            const originalAjax = window.ApiClient.ajax;
-            window.ApiClient.ajax = function(options) {
-                // Try to extract itemId from API calls
-                if (options?.url) {
-                    const match = options.url.match(/\/Items\/([a-f0-9-]+)/i);
-                    if (match) {
-                        const extractedId = match[1].replace(/-/g, '');
-                        if (extractedId.length === 32) {
-                            // If itemId changed, clear cache
-                            if (currentItemId && currentItemId !== extractedId) {
-                                console.log('[SelectToCards] Item changed, clearing cache');
-                                clearStreamCache();
-                            }
-                            currentItemId = extractedId;
-                            console.log('[SelectToCards] Intercepted itemId from API:', currentItemId);
-                        }
-                    }
-                }
-                
-                return originalAjax.apply(this, arguments);
-            };
+        });		// expose simple API for debugging
+		wrapper._stc = { rail, updateActiveCard };
+		log('Carousel built for', type, 'with', selectElement.options.length, 'cards');
+        } catch (err) {
+            error('Failed to build carousel:', err);
         }
-    }
+	}
 
-    // ============================================
-    // STARTUP
-    // ============================================
+	function initialize() {
+		const form = document.querySelector('form.trackSelections');
+		if (!form || form._stcInitialized) return;
+		form._stcInitialized = true;
 
-    function init() {
-        if (initialized) return;
-        initialized = true;
-        
-        console.log('[SelectToCards] Initializing...');
-        
-        injectStyles();
-        setupObservers();
-        
-        // Check if form already exists
-        if (document.querySelector('form.trackSelections')) {
-            initializeForm();
-        }
-    }
+		const versionSelect = form.querySelector('select.selectSource');
+		const audioSelect = form.querySelector('select.selectAudio');
+		const subtitleSelect = form.querySelector('select.selectSubtitles');
+		
+	if (!versionSelect) return;
 
-    // Start on DOM ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
+	// Build carousels for all selects (CSS will control visibility)
+	if (audioSelect) buildCarouselFromSelect(audioSelect, 'audio');
+	if (subtitleSelect) buildCarouselFromSelect(subtitleSelect, 'subtitle');
 
-    console.log('[SelectToCards] Simplified version loaded');
+	// watch for version options population
+	const mo = new MutationObserver(() => {
+		if (versionSelect.options.length > 0 && !versionSelect._stcCarouselBuilt) {
+			buildCarouselFromSelect(versionSelect, 'version');
+			mo.disconnect(); // stop watching after first build
+		}
+	});
+	mo.observe(versionSelect, { childList: true, subtree: true });
+
+	// If already populated, build immediately
+	if (versionSelect.options.length > 0 && !versionSelect._stcCarouselBuilt) {
+		buildCarouselFromSelect(versionSelect, 'version');
+		mo.disconnect();
+	}
+}	function setupObserver() {
+		const observer = new MutationObserver(() => {
+			const form = document.querySelector('form.trackSelections');
+			if (form && !form._stcInitialized) {
+				initialize();
+			}
+		});
+		observer.observe(document.body, { childList: true, subtree: true });
+
+		// try immediate
+		setTimeout(initialize, 100);
+	}
+
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', setupObserver);
+	} else {
+		setupObserver();
+	}
+
+	log('Loaded');
 })();
+

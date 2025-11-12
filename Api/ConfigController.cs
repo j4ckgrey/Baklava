@@ -37,9 +37,11 @@ namespace Baklava.Api
                     tmdbApiKey = cfg.TmdbApiKey,
                     enableSearchFilter = cfg.EnableSearchFilter,
                     forceTVClientLocalSearch = cfg.ForceTVClientLocalSearch,
-                    disableNonAdminRequests = cfg.DisableNonAdminRequests
-                    , playbackUi = cfg.PlaybackUi
-                    , showReviewsCarousel = cfg.ShowReviewsCarousel
+                    disableNonAdminRequests = cfg.DisableNonAdminRequests,
+                    versionUi = cfg.VersionUi,
+                    audioUi = cfg.AudioUi,
+                    subtitleUi = cfg.SubtitleUi,
+                    showReviewsCarousel = cfg.ShowReviewsCarousel
                 });
             }
 
@@ -47,7 +49,9 @@ namespace Baklava.Api
                 defaultTmdbId = cfg.DefaultTmdbId,
                 disableNonAdminRequests = cfg.DisableNonAdminRequests,
                 showReviewsCarousel = cfg.ShowReviewsCarousel,
-                playbackUi = cfg.PlaybackUi
+                versionUi = cfg.VersionUi,
+                audioUi = cfg.AudioUi,
+                subtitleUi = cfg.SubtitleUi
             });
         }
 
@@ -76,8 +80,8 @@ namespace Baklava.Api
                 return BadRequest("Configuration not available");
             }
 
-            _logger.LogInformation("[ConfigController] Updating config - playbackUi: {PlaybackUi}, showReviews: {ShowReviews}", 
-                dto?.playbackUi ?? "null", dto?.showReviewsCarousel?.ToString() ?? "null");
+            _logger.LogInformation("[ConfigController] Updating config - versionUi: {VersionUi}, audioUi: {AudioUi}, subtitleUi: {SubtitleUi}, showReviews: {ShowReviews}", 
+                dto?.versionUi ?? "null", dto?.audioUi ?? "null", dto?.subtitleUi ?? "null", dto?.showReviewsCarousel?.ToString() ?? "null");
 
             cfg.DefaultTmdbId = dto?.defaultTmdbId?.Trim();
             cfg.TmdbApiKey = dto?.tmdbApiKey?.Trim();
@@ -95,9 +99,17 @@ namespace Baklava.Api
             {
                 cfg.DisableNonAdminRequests = dto.disableNonAdminRequests.Value;
             }
-            if (!string.IsNullOrWhiteSpace(dto.playbackUi))
+            if (!string.IsNullOrWhiteSpace(dto.versionUi))
             {
-                cfg.PlaybackUi = dto.playbackUi.Trim();
+                cfg.VersionUi = dto.versionUi.Trim();
+            }
+            if (!string.IsNullOrWhiteSpace(dto.audioUi))
+            {
+                cfg.AudioUi = dto.audioUi.Trim();
+            }
+            if (!string.IsNullOrWhiteSpace(dto.subtitleUi))
+            {
+                cfg.SubtitleUi = dto.subtitleUi.Trim();
             }
             // Show/hide reviews carousel
             if (dto.showReviewsCarousel.HasValue)
@@ -106,8 +118,8 @@ namespace Baklava.Api
             }
             
             Plugin.Instance.SaveConfiguration();
-            _logger.LogInformation("[ConfigController] Configuration saved - SearchFilter: {SearchFilter}, ForceTVLocal: {ForceTVLocal}, DisableNonAdminRequests: {DisableNonAdminRequests}, PlaybackUi: {PlaybackUi}, ShowReviews: {ShowReviews}", 
-                cfg.EnableSearchFilter, cfg.ForceTVClientLocalSearch, cfg.DisableNonAdminRequests, cfg.PlaybackUi, cfg.ShowReviewsCarousel);
+            _logger.LogInformation("[ConfigController] Configuration saved - SearchFilter: {SearchFilter}, ForceTVLocal: {ForceTVLocal}, DisableNonAdminRequests: {DisableNonAdminRequests}, VersionUi: {VersionUi}, AudioUi: {AudioUi}, SubtitleUi: {SubtitleUi}, ShowReviews: {ShowReviews}", 
+                cfg.EnableSearchFilter, cfg.ForceTVClientLocalSearch, cfg.DisableNonAdminRequests, cfg.VersionUi, cfg.AudioUi, cfg.SubtitleUi, cfg.ShowReviewsCarousel);
             return Ok();
         }
     }
@@ -120,6 +132,8 @@ namespace Baklava.Api
         public bool? forceTVClientLocalSearch { get; set; }
         public bool? disableNonAdminRequests { get; set; }
         public bool? showReviewsCarousel { get; set; }
-        public string playbackUi { get; set; }
+        public string versionUi { get; set; }
+        public string audioUi { get; set; }
+        public string subtitleUi { get; set; }
     }
 }

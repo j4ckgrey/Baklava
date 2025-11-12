@@ -363,3 +363,51 @@
     word-wrap: break-word;
     line-height: 1.4;
 }
+.selectArrowContainer {
+    top: 0.6em !important;
+}
+
+/* Hide only video */
+.selectContainer.selectVideoContainer {
+    display: none !important;
+}
+
+/* Targets the label inside it */
+.selectContainer.selectSourceContainer.trackSelectionFieldContainer.flex-shrink-zero .selectLabel {
+    display: none !important;
+}
+
+.selectContainer.selectAudioContainer.trackSelectionFieldContainer.flex-shrink-zero .selectLabel {
+    display: none !important;
+}
+
+.selectContainer.selectSubtitlesContainer.trackSelectionFieldContainer.flex-shrink-zero .selectLabel {
+    display: none !important;
+}
+/* Hide only audio */
+/* .selectContainer.selectAudioContainer {
+    display: none !important;
+} */
+
+/* Hide only subtitles */
+/* .selectContainer.selectSubtitlesContainer {
+    display: none !important;
+}
+
+.selectContainer.selectSourceContainer {
+    display: none !important;
+} */
+
+/* Example: Hide specific carousels if needed */
+/* #stc-carousel-audio {
+    display: none !important;
+}
+
+#stc-carousel-version {
+    display: none !important;
+}
+
+#stc-carousel-subtitle {
+    display: none !important;
+} */
+

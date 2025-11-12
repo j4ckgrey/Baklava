@@ -643,7 +643,7 @@
         badge.className = 'requests-notification-badge';
         badge.style.cssText = `
             position: absolute;
-            top: 2px;
+            top: 3px;
             right: 2px;
             background: #f44336;
             color: #fff;
