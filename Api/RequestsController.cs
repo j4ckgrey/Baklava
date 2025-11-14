@@ -418,53 +418,34 @@ namespace Baklava.Api
                 var title = $"{request.Title ?? "Unknown"} ({request.Year ?? "N/A"})";
                 var color = request.ItemType == "series" ? 3447003 : 15844367; // Blue for series, gold for movies
 
-                // Build embed as Dictionary to allow conditional fields
-                var embed = new Dictionary<string, object>
-                {
-                    ["title"] = title,
-                    ["description"] = $"Requested by: **{request.Username ?? "Unknown"}**",
-                    ["color"] = color,
-                    ["fields"] = new[]
-                    {
-                        new Dictionary<string, object>
-                        {
-                            ["name"] = "Type",
-                            ["value"] = mediaType,
-                            ["inline"] = true
-                        },
-                        new Dictionary<string, object>
-                        {
-                            ["name"] = "Status",
-                            ["value"] = request.Status?.ToUpper() ?? "PENDING",
-                            ["inline"] = true
-                        },
-                        new Dictionary<string, object>
-                        {
-                            ["name"] = "TMDB ID",
-                            ["value"] = request.TmdbId ?? "N/A",
-                            ["inline"] = true
-                        }
-                    },
-                    ["timestamp"] = DateTimeOffset.UtcNow.ToString("o")
-                };
+                // Build JSON manually to ensure proper formatting for Discord API
+                var embedJson = new StringBuilder();
+                embedJson.Append("{");
+                embedJson.AppendFormat("\"title\":\"{0}\",", title.Replace("\"", "\\\""));
+                embedJson.AppendFormat("\"description\":\"Requested by: **{0}**\",", (request.Username ?? "Unknown").Replace("\"", "\\\""));
+                embedJson.AppendFormat("\"color\":{0},", color);
+                embedJson.Append("\"fields\":[");
+                embedJson.AppendFormat("{{\"name\":\"Type\",\"value\":\"{0}\",\"inline\":true}},", mediaType);
+                embedJson.AppendFormat("{{\"name\":\"Status\",\"value\":\"{0}\",\"inline\":true}},", (request.Status?.ToUpper() ?? "PENDING"));
+                embedJson.AppendFormat("{{\"name\":\"TMDB ID\",\"value\":\"{0}\",\"inline\":true}}", request.TmdbId ?? "N/A");
+                embedJson.Append("],");
 
                 // Only add thumbnail if image URL is present
                 if (!string.IsNullOrEmpty(request.Img))
                 {
-                    embed["thumbnail"] = new Dictionary<string, string> { ["url"] = request.Img };
+                    embedJson.AppendFormat("\"thumbnail\":{{\"url\":\"{0}\"}},", request.Img.Replace("\"", "\\\""));
                 }
 
-                var payload = new Dictionary<string, object>
-                {
-                    ["content"] = "📢 **New Media Request**",
-                    ["embeds"] = new[] { embed }
-                };
+                embedJson.AppendFormat("\"timestamp\":\"{0}\"", DateTimeOffset.UtcNow.ToString("o"));
+                embedJson.Append("}");
+
+                var payloadJson = $"{{\"content\":\"📢 **New Media Request**\",\"embeds\":[{embedJson}]}}";
 
                 using var http = new HttpClient();
-                var json = System.Text.Json.JsonSerializer.Serialize(payload);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
 
                 _logger.LogInformation("[RequestsController] Sending Discord notification for request: {RequestId}", request.Id);
+                _logger.LogDebug("[RequestsController] Discord payload: {Payload}", payloadJson);
 
                 var response = await http.PostAsync(webhookUrl, content).ConfigureAwait(false);
 
