@@ -418,6 +418,17 @@ namespace Baklava.Api
                 var title = $"{request.Title ?? "Unknown"} ({request.Year ?? "N/A"})";
                 var color = request.ItemType == "series" ? 3447003 : 15844367; // Blue for series, gold for movies
 
+                // Extract actual URL from CSS url() format if present
+                var imageUrl = request.Img;
+                if (!string.IsNullOrEmpty(imageUrl))
+                {
+                    // Handle url("...") or url('...') format
+                    if (imageUrl.StartsWith("url("))
+                    {
+                        imageUrl = imageUrl.Substring(4).TrimEnd(')').Trim('"', '\'');
+                    }
+                }
+
                 // Build JSON manually to ensure proper formatting for Discord API
                 var embedJson = new StringBuilder();
                 embedJson.Append("{");
@@ -431,9 +442,9 @@ namespace Baklava.Api
                 embedJson.Append("],");
 
                 // Only add thumbnail if image URL is present
-                if (!string.IsNullOrEmpty(request.Img))
+                if (!string.IsNullOrEmpty(imageUrl))
                 {
-                    embedJson.AppendFormat("\"thumbnail\":{{\"url\":\"{0}\"}},", request.Img.Replace("\"", "\\\""));
+                    embedJson.AppendFormat("\"thumbnail\":{{\"url\":\"{0}\"}},", imageUrl.Replace("\"", "\\\""));
                 }
 
                 embedJson.AppendFormat("\"timestamp\":\"{0}\"", DateTimeOffset.UtcNow.ToString("o"));
