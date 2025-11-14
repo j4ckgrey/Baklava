@@ -32,8 +32,8 @@ namespace Baklava.Api
 
             if (isAdmin)
             {
-                return Ok(new { 
-                    defaultTmdbId = cfg.DefaultTmdbId, 
+                return Ok(new {
+                    defaultTmdbId = cfg.DefaultTmdbId,
                     tmdbApiKey = cfg.TmdbApiKey,
                     enableSearchFilter = cfg.EnableSearchFilter,
                     forceTVClientLocalSearch = cfg.ForceTVClientLocalSearch,
@@ -42,7 +42,8 @@ namespace Baklava.Api
                     enableDownloads = cfg.EnableDownloads,
                     versionUi = cfg.VersionUi,
                     audioUi = cfg.AudioUi,
-                    subtitleUi = cfg.SubtitleUi
+                    subtitleUi = cfg.SubtitleUi,
+                    discordWebhookUrl = cfg.DiscordWebhookUrl
                 });
             }
 
@@ -123,7 +124,12 @@ namespace Baklava.Api
             {
                 cfg.EnableDownloads = dto.enableDownloads.Value;
             }
-            
+            // Update Discord webhook URL
+            if (dto.discordWebhookUrl != null)
+            {
+                cfg.DiscordWebhookUrl = dto.discordWebhookUrl.Trim();
+            }
+
             Plugin.Instance.SaveConfiguration();
             _logger.LogInformation("[ConfigController] Configuration saved - SearchFilter: {SearchFilter}, ForceTVLocal: {ForceTVLocal}, DisableNonAdminRequests: {DisableNonAdminRequests}, VersionUi: {VersionUi}, AudioUi: {AudioUi}, SubtitleUi: {SubtitleUi}, ShowReviews: {ShowReviews}, EnableDownloads: {EnableDownloads}", 
                 cfg.EnableSearchFilter, cfg.ForceTVClientLocalSearch, cfg.DisableNonAdminRequests, cfg.VersionUi, cfg.AudioUi, cfg.SubtitleUi, cfg.ShowReviewsCarousel, cfg.EnableDownloads);
@@ -143,5 +149,6 @@ namespace Baklava.Api
         public string versionUi { get; set; }
         public string audioUi { get; set; }
         public string subtitleUi { get; set; }
+        public string discordWebhookUrl { get; set; }
     }
 }

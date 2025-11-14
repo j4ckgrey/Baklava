@@ -21,6 +21,15 @@
                     <input id="tmdbApiKey" type="text" placeholder="Enter TMDB API Key" style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
                 </div>
 
+                <!-- Discord Webhook URL -->
+                <div style="margin-bottom: 20px;">
+                    <label for="discordWebhookUrl" style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Discord Webhook URL (for media request notifications)</label>
+                    <input id="discordWebhookUrl" type="text" placeholder="https://discord.com/api/webhooks/..." style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
+                        Get notified in Discord when users request media. Leave empty to disable notifications.
+                    </p>
+                </div>
+
                 <!-- Search Filter Settings -->
                 <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
                     <h4 style="margin-top: 0; color: #1e90ff;">Search Settings</h4>
@@ -121,6 +130,7 @@
                                 let response = await window.ApiClient.ajax({ type: 'GET', url: window.ApiClient.getUrl('api/baklava/config'), dataType: 'json' });
                                 if (response && response.constructor && response.constructor.name === 'Response') response = await response.json();
                                 document.getElementById('tmdbApiKey').value = response?.tmdbApiKey || '';
+                                document.getElementById('discordWebhookUrl').value = response?.discordWebhookUrl || '';
                                 document.getElementById('forceTVClientLocalSearch').checked = response?.forceTVClientLocalSearch === true;
                                 document.getElementById('disableNonAdminRequests').checked = response?.disableNonAdminRequests === true;
                                 document.getElementById('showReviewsCarousel').checked = response?.showReviewsCarousel !== false;
@@ -137,6 +147,7 @@
                             if (!res.ok) throw new Error('Failed to load config');
                             const json = await res.json();
                             document.getElementById('tmdbApiKey').value = json.tmdbApiKey || '';
+                            document.getElementById('discordWebhookUrl').value = json.discordWebhookUrl || '';
                             document.getElementById('forceTVClientLocalSearch').checked = json.forceTVClientLocalSearch === true;
                             document.getElementById('disableNonAdminRequests').checked = json.disableNonAdminRequests === true;
                             document.getElementById('showReviewsCarousel').checked = json.showReviewsCarousel !== false;
@@ -152,15 +163,17 @@
 
                     document.getElementById('saveConfigBtn').addEventListener('click', async ()=>{
                         const key = document.getElementById('tmdbApiKey').value;
+                        const discordWebhookUrl = document.getElementById('discordWebhookUrl').value;
                         const forceTVLocal = document.getElementById('forceTVClientLocalSearch').checked;
                         const disableNonAdminRequests = document.getElementById('disableNonAdminRequests').checked;
                         const showReviewsCarousel = document.getElementById('showReviewsCarousel').checked;
                         const versionUi = document.getElementById('versionUiSelect').value || 'carousel';
                         const audioUi = document.getElementById('audioUiSelect').value || 'carousel';
                         const subtitleUi = document.getElementById('subtitleUiSelect').value || 'carousel';
-                        
+
                         const configData = {
                             tmdbApiKey: key,
+                            discordWebhookUrl: discordWebhookUrl,
                             enableSearchFilter: false,
                             forceTVClientLocalSearch: forceTVLocal,
                             disableNonAdminRequests: disableNonAdminRequests,
