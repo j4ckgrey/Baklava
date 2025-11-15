@@ -55,12 +55,6 @@ namespace Baklava
                     Name = Name,
                     EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Configuration.configPage.html", GetType().Namespace)
                 },
-                // Admin requests management page
-                new PluginPageInfo
-                {
-                    Name = Name + ".AdminRequests",
-                    EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Configuration.adminRequestsPage.html", GetType().Namespace)
-                },
                 // Client-side script served via PluginPages (embedded resource)
                 new PluginPageInfo
                 {

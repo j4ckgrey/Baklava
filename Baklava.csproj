@@ -70,7 +70,6 @@
       <TargetPath>thumb.png</TargetPath>
     </Content>
     <EmbeddedResource Include="Configuration/configPage.html" />
-    <EmbeddedResource Include="Configuration/adminRequestsPage.html" />
     <!-- Embed ALL JavaScript files so they can be inlined into index.html at transform time -->
     <EmbeddedResource Include="Files/wwwroot/*.js" />
     <!-- Embed CSS file for injection -->

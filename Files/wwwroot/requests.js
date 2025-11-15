@@ -817,13 +817,10 @@
                     const adminView = await checkAdmin();
 
                     if (adminView) {
-                        // Route admins to the admin page
-                        const adminPageUrl = '/web/configurationpage?name=Baklava.AdminRequests';
-                        if (window.Dashboard && window.Dashboard.navigate) {
-                            window.Dashboard.navigate(adminPageUrl);
-                        } else {
-                            window.location.href = adminPageUrl;
-                        }
+                        // Show admin requests page
+                        setTimeout(() => {
+                            showAdminRequestsPage();
+                        }, 100);
                     } else {
                         // Open requests dropdown for regular users
                         setTimeout(() => {
@@ -883,16 +880,15 @@
                         const adminView = await checkAdmin();
 
                         if (adminView) {
-                            // Route admins to the admin page
-                            const adminPageUrl = '/web/configurationpage?name=Baklava.AdminRequests';
-                            if (window.Dashboard && window.Dashboard.navigate) {
-                                window.Dashboard.navigate(adminPageUrl);
-                            } else {
-                                window.location.href = adminPageUrl;
-                            }
+                            // Show admin requests page
+                            setTimeout(() => {
+                                showAdminRequestsPage();
+                            }, 100);
                         } else {
                             // Open requests dropdown for regular users
-                            showDropdown();
+                            setTimeout(() => {
+                                showDropdown();
+                            }, 100);
                         }
                     });
 
@@ -928,6 +924,356 @@
                 setTimeout(checkForMenu, 200);
             }
         });
+    }
+
+    // ============================================
+    // ADMIN REQUESTS PAGE
+    // ============================================
+
+    function createAdminRequestsPage() {
+        const oldPage = document.getElementById('adminRequestsPage');
+        if (oldPage) oldPage.remove();
+
+        const adminPage = document.createElement('div');
+        adminPage.id = 'adminRequestsPage';
+        adminPage.className = 'page type-interior';
+        adminPage.setAttribute('data-role', 'page');
+        adminPage.style.cssText = 'display:none;';
+
+        adminPage.innerHTML = `
+            <div class="skinHeader focuscontainer-x padded-top padded-left padded-right padded-bottom-page">
+                <div class="flex align-items-center flex-grow headerTop">
+                    <div class="flex align-items-center flex-grow">
+                        <h1 class="pageTitle">Manage Media Requests</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="padded-left padded-right padded-top padded-bottom-page">
+                <div class="verticalSection">
+                    <h2 class="sectionTitle sectionTitle-cards padded-left">Movie Requests</h2>
+                    <div class="admin-requests-movies-panel">
+                        <div class="itemsContainer scrollSlider focuscontainer-x padded-left padded-right" style="white-space:nowrap;overflow-x:auto;"></div>
+                    </div>
+                </div>
+                <div class="verticalSection" style="margin-top:2em;">
+                    <h2 class="sectionTitle sectionTitle-cards padded-left">Series Requests</h2>
+                    <div class="admin-requests-series-panel">
+                        <div class="itemsContainer scrollSlider focuscontainer-x padded-left padded-right" style="white-space:nowrap;overflow-x:auto;"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(adminPage);
+    }
+
+    function showAdminRequestsPage() {
+        document.querySelectorAll('.page').forEach(p => {
+            if (p.id !== 'adminRequestsPage') {
+                p.style.display = 'none';
+            }
+        });
+
+        let adminPage = document.getElementById('adminRequestsPage');
+        if (!adminPage) {
+            createAdminRequestsPage();
+            adminPage = document.getElementById('adminRequestsPage');
+        }
+
+        adminPage.style.display = 'block';
+        loadAndDisplayAdminRequestsPage();
+    }
+
+    async function createAdminRequestCard(request) {
+        const card = document.createElement('div');
+        card.className = 'request-card admin-request-card';
+        card.dataset.requestId = request.id || '';
+        card.style.cssText = `
+            display: inline-block;
+            width: 140px;
+            position: relative;
+            flex-shrink: 0;
+            border-radius: 8px;
+            overflow: visible;
+            background: rgba(30, 30, 30, 0.5);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        `;
+
+        const imgDiv = document.createElement('div');
+        imgDiv.style.cssText = `
+            width: 100%;
+            height: 210px;
+            background-size: cover;
+            background-position: center;
+            position: relative;
+            background-color: #1a1a1a;
+            border-radius: 8px 8px 0 0;
+        `;
+        imgDiv.style.backgroundImage = request.img;
+
+        // Add overlay gradient
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
+            pointer-events: none;
+        `;
+        imgDiv.appendChild(overlay);
+        card.appendChild(imgDiv);
+
+        // Status badge (top-right)
+        if (request.status === 'pending') {
+            const statusBadge = document.createElement('div');
+            statusBadge.textContent = 'Pending';
+            statusBadge.style.cssText = `
+                position: absolute;
+                top: 6px;
+                right: 6px;
+                background: rgba(255, 152, 0, 0.95);
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 2;
+            `;
+            card.appendChild(statusBadge);
+        } else if (request.status === 'approved') {
+            const statusBadge = document.createElement('div');
+            statusBadge.textContent = '✓ Approved';
+            statusBadge.style.cssText = `
+                position: absolute;
+                top: 6px;
+                right: 6px;
+                background: rgba(76, 175, 80, 0.95);
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 2;
+            `;
+            card.appendChild(statusBadge);
+        } else if (request.status === 'rejected') {
+            const statusBadge = document.createElement('div');
+            statusBadge.textContent = '✗ Rejected';
+            statusBadge.style.cssText = `
+                position: absolute;
+                top: 6px;
+                right: 6px;
+                background: rgba(244, 67, 54, 0.95);
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 2;
+            `;
+            card.appendChild(statusBadge);
+        }
+
+        // Username badge (bottom-left)
+        if (request.username) {
+            const userBadge = document.createElement('div');
+            userBadge.textContent = request.username;
+            userBadge.title = `Requested by ${request.username}`;
+            userBadge.style.cssText = `
+                position: absolute;
+                bottom: 86px;
+                left: 6px;
+                background: rgba(30, 144, 255, 0.95);
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 700;
+                max-width: 120px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 2;
+            `;
+            card.appendChild(userBadge);
+        }
+
+        // Title section
+        const titleDiv = document.createElement('div');
+        titleDiv.style.cssText = `
+            padding: 8px;
+            background: rgba(20, 20, 20, 0.9);
+            min-height: 40px;
+        `;
+
+        const titleText = document.createElement('div');
+        titleText.textContent = request.title || 'Unknown';
+        titleText.title = request.title || 'Unknown';
+        titleText.style.cssText = `
+            font-size: 12px;
+            font-weight: 600;
+            color: #fff;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            line-height: 1.3;
+            margin-bottom: 2px;
+        `;
+        titleDiv.appendChild(titleText);
+
+        if (request.year) {
+            const yearText = document.createElement('div');
+            yearText.textContent = request.year;
+            yearText.style.cssText = `
+                font-size: 10px;
+                color: #999;
+                font-weight: 500;
+            `;
+            titleDiv.appendChild(yearText);
+        }
+
+        card.appendChild(titleDiv);
+
+        // Action buttons for pending requests
+        if (request.status === 'pending') {
+            const actionsDiv = document.createElement('div');
+            actionsDiv.style.cssText = `
+                padding: 8px;
+                background: rgba(15, 15, 15, 0.9);
+                display: flex;
+                gap: 8px;
+            `;
+
+            const approveBtn = document.createElement('button');
+            approveBtn.textContent = 'Approve';
+            approveBtn.className = 'raised button-submit emby-button';
+            approveBtn.style.cssText = `
+                flex: 1;
+                padding: 6px;
+                background: rgba(76, 175, 80, 0.9);
+                font-size: 11px;
+                font-weight: 600;
+            `;
+            approveBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await updateRequestStatus(request.id, 'approved', currentUsername);
+            });
+
+            const rejectBtn = document.createElement('button');
+            rejectBtn.textContent = 'Reject';
+            rejectBtn.className = 'raised button-cancel emby-button';
+            rejectBtn.style.cssText = `
+                flex: 1;
+                padding: 6px;
+                background: rgba(244, 67, 54, 0.9);
+                font-size: 11px;
+                font-weight: 600;
+            `;
+            rejectBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await updateRequestStatus(request.id, 'rejected', currentUsername);
+            });
+
+            actionsDiv.appendChild(approveBtn);
+            actionsDiv.appendChild(rejectBtn);
+            card.appendChild(actionsDiv);
+        } else {
+            // Delete button for approved/rejected
+            const deleteDiv = document.createElement('div');
+            deleteDiv.style.cssText = `
+                padding: 8px;
+                background: rgba(15, 15, 15, 0.9);
+            `;
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.className = 'raised emby-button';
+            deleteBtn.style.cssText = `
+                width: 100%;
+                padding: 6px;
+                background: rgba(150, 150, 150, 0.8);
+                font-size: 11px;
+                font-weight: 600;
+            `;
+            deleteBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (confirm(`Delete request for "${request.title}"?`)) {
+                    await deleteRequest(request.id);
+                    await loadAndDisplayAdminRequestsPage();
+                }
+            });
+
+            deleteDiv.appendChild(deleteBtn);
+            card.appendChild(deleteDiv);
+        }
+
+        // Hover effects
+        card.addEventListener('mouseenter', () => {
+            card.style.transform = 'translateY(-4px) scale(1.02)';
+            card.style.boxShadow = '0 8px 16px rgba(0,0,0,0.6)';
+        });
+        card.addEventListener('mouseleave', () => {
+            card.style.transform = 'translateY(0) scale(1)';
+            card.style.boxShadow = 'none';
+        });
+
+        return card;
+    }
+
+    async function loadAndDisplayAdminRequestsPage() {
+        const page = document.getElementById('adminRequestsPage');
+        if (!page) return;
+
+        const moviesContainer = page.querySelector('.admin-requests-movies-panel .itemsContainer');
+        const seriesContainer = page.querySelector('.admin-requests-series-panel .itemsContainer');
+
+        moviesContainer.innerHTML = '<div style="color: #999; padding: 20px;">Loading...</div>';
+        seriesContainer.innerHTML = '<div style="color: #999; padding: 20px;">Loading...</div>';
+
+        try {
+            const requests = await fetchAllRequests();
+
+            // Admin page shows ALL requests from all users
+            const movies = requests.filter(r => r.itemType === 'movie');
+            const series = requests.filter(r => r.itemType === 'series');
+
+            moviesContainer.innerHTML = '';
+            seriesContainer.innerHTML = '';
+
+            if (movies.length === 0) {
+                moviesContainer.appendChild(createPlaceholderCard());
+            } else {
+                for (const req of movies) {
+                    moviesContainer.appendChild(await createAdminRequestCard(req));
+                }
+            }
+
+            if (series.length === 0) {
+                seriesContainer.appendChild(createPlaceholderCard());
+            } else {
+                for (const req of series) {
+                    seriesContainer.appendChild(await createAdminRequestCard(req));
+                }
+            }
+        } catch (err) {
+            console.error('[Requests.loadAdminRequestsPage] Error:', err);
+            moviesContainer.innerHTML = '<div style="color: #f44336; padding: 20px;">Error loading requests</div>';
+            seriesContainer.innerHTML = '<div style="color: #f44336; padding: 20px;">Error loading requests</div>';
+        }
     }
 
     // ============================================
@@ -1048,12 +1394,15 @@
                 await saveRequest(item);
                 // Update badge immediately after saving
                 updateNotificationBadge();
-                // Reload both dropdown and page if visible
+                // Reload dropdown, user page, and admin page if visible
                 if (dropdownMenu && dropdownMenu.style.display === 'block') {
                     await loadDropdownRequests();
                 }
                 if (document.getElementById('requestsPage')?.style.display === 'block') {
                     await loadAndDisplayRequestsPage();
+                }
+                if (document.getElementById('adminRequestsPage')?.style.display === 'block') {
+                    await loadAndDisplayAdminRequestsPage();
                 }
             } catch (err) {
                 console.error('[Requests] Error saving request:', err);
@@ -1076,6 +1425,9 @@
             if (document.getElementById('requestsPage')?.style.display === 'block') {
                 await loadAndDisplayRequestsPage();
             }
+            if (document.getElementById('adminRequestsPage')?.style.display === 'block') {
+                await loadAndDisplayAdminRequestsPage();
+            }
         },
         deleteRequest: async (requestId) => {
             await deleteRequest(requestId);
@@ -1087,6 +1439,9 @@
             if (document.getElementById('requestsPage')?.style.display === 'block') {
                 await loadAndDisplayRequestsPage();
             }
+            if (document.getElementById('adminRequestsPage')?.style.display === 'block') {
+                await loadAndDisplayAdminRequestsPage();
+            }
         }
     };
 
@@ -1097,6 +1452,9 @@
             }
             if (document.getElementById('requestsPage')?.style.display === 'block') {
                 await loadAndDisplayRequestsPage();
+            }
+            if (document.getElementById('adminRequestsPage')?.style.display === 'block') {
+                await loadAndDisplayAdminRequestsPage();
             }
         }
     };
@@ -1143,6 +1501,7 @@
     window.RequestsHeaderButton = {
         show: showDropdown,
         hide: hideDropdown,
-        reload: loadDropdownRequests
+        reload: loadDropdownRequests,
+        showAdmin: showAdminRequestsPage
     };
 })();
