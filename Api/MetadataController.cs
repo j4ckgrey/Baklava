@@ -247,11 +247,13 @@ namespace Baklava.Api
                         }
                         else
                         {
-                            _logger.LogInformation("[MetadataController.CheckLibraryStatus] JellyfinId {Id} not found in library - item may have been deleted",
+                            _logger.LogInformation("[MetadataController.CheckLibraryStatus] JellyfinId {Id} not found in library - item may have been deleted, falling back to TMDB/IMDB check",
                                 jellyfinId);
                         }
                     }
-                    else if (!string.IsNullOrEmpty(imdbId) || !string.IsNullOrEmpty(tmdbId))
+
+                    // If not found by JellyfinId (or no JellyfinId provided), search by TMDB/IMDB ID
+                    if (!inLibrary && (!string.IsNullOrEmpty(imdbId) || !string.IsNullOrEmpty(tmdbId)))
                     {
                         _logger.LogInformation("[MetadataController.CheckLibraryStatus] Searching library by TMDB/IMDB ID: tmdb={Tmdb}, imdb={Imdb}",
                             tmdbId ?? "null", imdbId ?? "null");
@@ -274,7 +276,7 @@ namespace Baklava.Api
 
                         var allItems = _libraryManager.GetItemList(query);
 
-                        inLibrary = allItems.Where(item =>
+                        var foundItem = allItems.FirstOrDefault(item =>
                         {
                             var providerIds = item.ProviderIds;
                             if (providerIds == null) return false;
@@ -285,7 +287,25 @@ namespace Baklava.Api
                                 return true;
 
                             return false;
-                        }).Any();
+                        });
+
+                        if (foundItem != null)
+                        {
+                            inLibrary = true;
+                            _logger.LogInformation("[MetadataController.CheckLibraryStatus] Found item in library by TMDB/IMDB ID");
+
+                            // Extract provider IDs from found item (may fill in missing IDs)
+                            if (foundItem.ProviderIds != null)
+                            {
+                                if (string.IsNullOrEmpty(foundImdbId))
+                                    foundItem.ProviderIds.TryGetValue("Imdb", out foundImdbId);
+                                if (string.IsNullOrEmpty(foundTmdbId))
+                                    foundItem.ProviderIds.TryGetValue("Tmdb", out foundTmdbId);
+
+                                _logger.LogInformation("[MetadataController.CheckLibraryStatus] Extracted provider IDs: imdb={Imdb}, tmdb={Tmdb}",
+                                    foundImdbId ?? "null", foundTmdbId ?? "null");
+                            }
+                        }
                     }
                 }
                 catch (Exception ex)
