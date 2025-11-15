@@ -562,10 +562,15 @@
 
         try {
             const requests = await fetchAllRequests();
+            const adminView = await checkAdmin();
 
-            // The popup is for regular users only - they see only their own requests
-            // Admins are routed to the admin page, so this shouldn't be called for admins
-            const filteredRequests = requests.filter(r => r.username === currentUsername);
+            // Filter requests based on user type
+            let filteredRequests;
+            if (adminView) {
+                filteredRequests = requests; // Admins see all requests in popup
+            } else {
+                filteredRequests = requests.filter(r => r.username === currentUsername);
+            }
 
             // Split by item type - include ALL statuses (pending, approved, rejected)
             const movies = filteredRequests.filter(r => r.itemType === 'movie');
@@ -578,7 +583,7 @@
                 moviesContainer.appendChild(createPlaceholderCard());
             } else {
                 for (const req of movies) {
-                    moviesContainer.appendChild(await createRequestCard(req, false));
+                    moviesContainer.appendChild(await createRequestCard(req, adminView));
                 }
             }
 
@@ -586,7 +591,7 @@
                 seriesContainer.appendChild(createPlaceholderCard());
             } else {
                 for (const req of series) {
-                    seriesContainer.appendChild(await createRequestCard(req, false));
+                    seriesContainer.appendChild(await createRequestCard(req, adminView));
                 }
             }
 
