@@ -66,16 +66,6 @@
                     </div>
 
                     <div style="margin-bottom: 12px;">
-                        <label style="display: flex; align-items: center; cursor: not-allowed; opacity: 0.5;">
-                            <input id="enableDownloads" type="checkbox" style="margin-right: 8px;" disabled>
-                            <span style="color:#ddd;">Enable Downloads <span style="color:#ff6b6b;">[EXPERIMENTAL, DISABLED DUE TO INSTABILITY, RELEASE DATE IS CURRENTLY UNKNOWN]</span></span>
-                        </label>
-                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
-                            Allows users to queue media for offline playback within the app. Downloads are cached per-user and can be streamed directly without leaving Jellyfin.
-                        </p>
-                    </div>
-
-                    <div style="margin-bottom: 12px;">
                         <label for="versionUiSelect" style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Version UI</label>
                         <select id="versionUiSelect" style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
                             <option value="carousel">Carousel</option>
@@ -124,7 +114,6 @@
                                 document.getElementById('forceTVClientLocalSearch').checked = response?.forceTVClientLocalSearch === true;
                                 document.getElementById('disableNonAdminRequests').checked = response?.disableNonAdminRequests === true;
                                 document.getElementById('showReviewsCarousel').checked = response?.showReviewsCarousel !== false;
-                                document.getElementById('enableDownloads').checked = response?.enableDownloads === true;
                                 document.getElementById('versionUiSelect').value = response?.versionUi || 'carousel';
                                 document.getElementById('audioUiSelect').value = response?.audioUi || 'carousel';
                                 document.getElementById('subtitleUiSelect').value = response?.subtitleUi || 'carousel';
@@ -140,7 +129,6 @@
                             document.getElementById('forceTVClientLocalSearch').checked = json.forceTVClientLocalSearch === true;
                             document.getElementById('disableNonAdminRequests').checked = json.disableNonAdminRequests === true;
                             document.getElementById('showReviewsCarousel').checked = json.showReviewsCarousel !== false;
-                            document.getElementById('enableDownloads').checked = json.enableDownloads === true;
                             document.getElementById('versionUiSelect').value = json.versionUi || 'carousel';
                             document.getElementById('audioUiSelect').value = json.audioUi || 'carousel';
                             document.getElementById('subtitleUiSelect').value = json.subtitleUi || 'carousel';
@@ -165,7 +153,6 @@
                             forceTVClientLocalSearch: forceTVLocal,
                             disableNonAdminRequests: disableNonAdminRequests,
                             showReviewsCarousel: showReviewsCarousel,
-                            enableDownloads: document.getElementById('enableDownloads').checked,
                             versionUi: versionUi,
                             audioUi: audioUi,
                             subtitleUi: subtitleUi

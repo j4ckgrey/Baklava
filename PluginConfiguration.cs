@@ -10,9 +10,6 @@ namespace Baklava
         // Stored list of requests
         public List<MediaRequest> Requests { get; set; } = new List<MediaRequest>();
 
-        // Stored list of user downloads
-        public List<UserDownload> Downloads { get; set; } = new List<UserDownload>();
-
         // Optional configuration values used by the API
         // Default TMDB ID to show on the config page
         public string DefaultTmdbId { get; set; } = string.Empty;
@@ -41,9 +38,6 @@ namespace Baklava
 
         // Show TMDB reviews carousel on item details pages
         public bool ShowReviewsCarousel { get; set; } = true;
-        
-        // Enable downloads functionality (disabled by default)
-        public bool EnableDownloads { get; set; } = false;
         
         // Playback UI selection per track type: 'carousel' or 'dropdown'
         public string VersionUi { get; set; } = "carousel";

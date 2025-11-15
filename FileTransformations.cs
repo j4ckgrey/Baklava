@@ -52,8 +52,6 @@ namespace Baklava
                 "select-to-cards.js",     // Playback streams UI (carousel/dropdown controlled by CSS)
                 "reviews-carousel.js",    // TMDB reviews carousel
                 "requests.js",            // Consolidated requests manager, header button, menu
-                "downloads-window.js",    // Downloads window with header button
-                "details-download.js",    // Download button on detail pages
                 "search-toggle.js"        // Search toggle globe icon
             };
         }        // Transform method signature: accepts PatchRequestPayload, returns string
