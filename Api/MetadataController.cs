@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
@@ -264,11 +265,11 @@ namespace Baklava.Api
                         // Filter by type at the query level to prevent Jellyfin from trying to deserialize unknown types
                         if (itemType == "series")
                         {
-                            query.IncludeItemTypes = new[] { "Series" };
+                            query.IncludeItemTypes = new[] { BaseItemKind.Series };
                         }
                         else if (itemType == "movie")
                         {
-                            query.IncludeItemTypes = new[] { "Movie" };
+                            query.IncludeItemTypes = new[] { BaseItemKind.Movie };
                         }
 
                         var allItems = _libraryManager.GetItemList(query);
