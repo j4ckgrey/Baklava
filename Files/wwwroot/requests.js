@@ -154,47 +154,43 @@
         card.dataset.requestId = request.Id || request.id || request.requestId || '';
         card.style.cssText = `
             display: inline-block;
-            width: 100px;
+            width: 140px;
             cursor: pointer;
-            text-align: center;
             color: #ccc;
             position: relative;
             flex-shrink: 0;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(30, 30, 30, 0.5);
         `;
 
         const imgDiv = document.createElement('div');
         imgDiv.style.cssText = `
             width: 100%;
-            height: 150px;
+            height: 210px;
             background-size: cover;
             background-position: center;
-            border-radius: 6px;
-            margin-bottom: 8px;
+            position: relative;
+            background-color: #1a1a1a;
         `;
         imgDiv.style.backgroundImage = request.img;
+
+        // Add overlay gradient for better badge visibility
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
+            pointer-events: none;
+        `;
+        imgDiv.appendChild(overlay);
         card.appendChild(imgDiv);
 
-        if (adminView && request.username) {
-            const userBadge = document.createElement('div');
-            userBadge.textContent = request.username;
-            userBadge.style.cssText = `
-                position: absolute;
-                top: 8px;
-                left: 8px;
-                background: rgba(30, 144, 255, 0.9);
-                color: #fff;
-                padding: 4px 8px;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 600;
-                max-width: 85px;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            `;
-            card.appendChild(userBadge);
-        }
-
+        // Status badge (top-right)
         if (request.status === 'pending') {
             const statusBadge = document.createElement('div');
             statusBadge.className = 'request-status-badge';
@@ -202,93 +198,223 @@
             statusBadge.textContent = 'Pending';
             statusBadge.style.cssText = `
                 position: absolute;
-                top: 8px;
-                right: 8px;
-                background: rgba(255, 152, 0, 0.9);
+                top: 6px;
+                right: 6px;
+                background: rgba(255, 152, 0, 0.95);
                 color: #fff;
                 padding: 4px 8px;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 600;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 2;
             `;
             card.appendChild(statusBadge);
         } else if (request.status === 'approved') {
             const statusBadge = document.createElement('div');
             statusBadge.className = 'request-status-badge';
             statusBadge.dataset.status = 'approved';
-            statusBadge.textContent = 'Approved';
+            statusBadge.textContent = '✓ Approved';
             statusBadge.style.cssText = `
                 position: absolute;
-                top: 8px;
-                right: 8px;
+                top: 6px;
+                right: 6px;
                 background: rgba(76, 175, 80, 0.95);
                 color: #fff;
                 padding: 4px 8px;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 600;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 2;
             `;
             card.appendChild(statusBadge);
         } else if (request.status === 'rejected') {
             const statusBadge = document.createElement('div');
             statusBadge.className = 'request-status-badge';
             statusBadge.dataset.status = 'rejected';
-            statusBadge.textContent = 'Rejected';
+            statusBadge.textContent = '✗ Rejected';
             statusBadge.style.cssText = `
                 position: absolute;
-                top: 8px;
-                right: 8px;
+                top: 6px;
+                right: 6px;
                 background: rgba(244, 67, 54, 0.95);
                 color: #fff;
                 padding: 4px 8px;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 600;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 2;
             `;
             card.appendChild(statusBadge);
+        }
 
-            // Add delete button for rejected requests
-            if (adminView) {
-                const deleteBtn = document.createElement('button');
-                deleteBtn.innerHTML = '×';
-                deleteBtn.style.cssText = `
-                    position: absolute;
-                    bottom: 40px;
-                    right: 8px;
-                    width: 28px;
-                    height: 28px;
-                    border-radius: 50%;
-                    background: rgba(244, 67, 54, 0.9);
-                    color: #fff;
-                    border: none;
-                    font-size: 24px;
-                    line-height: 24px;
-                    cursor: pointer;
+        // Username badge (bottom-left, only in admin view)
+        if (adminView && request.username) {
+            const userBadge = document.createElement('div');
+            userBadge.textContent = request.username;
+            userBadge.title = `Requested by ${request.username}`;
+            userBadge.style.cssText = `
+                position: absolute;
+                bottom: 86px;
+                left: 6px;
+                background: rgba(30, 144, 255, 0.95);
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 700;
+                max-width: 120px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 2;
+            `;
+            card.appendChild(userBadge);
+        }
+
+        // Title section at bottom
+        const titleDiv = document.createElement('div');
+        titleDiv.style.cssText = `
+            padding: 8px;
+            background: rgba(20, 20, 20, 0.9);
+            min-height: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        `;
+
+        const titleText = document.createElement('div');
+        titleText.textContent = request.title || 'Unknown';
+        titleText.title = request.title || 'Unknown';
+        titleText.style.cssText = `
+            font-size: 12px;
+            font-weight: 600;
+            color: #fff;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            line-height: 1.3;
+            margin-bottom: 2px;
+        `;
+        titleDiv.appendChild(titleText);
+
+        if (request.year) {
+            const yearText = document.createElement('div');
+            yearText.textContent = request.year;
+            yearText.style.cssText = `
+                font-size: 10px;
+                color: #999;
+                font-weight: 500;
+            `;
+            titleDiv.appendChild(yearText);
+        }
+
+        card.appendChild(titleDiv);
+
+        // Admin action buttons
+        if (adminView) {
+            if (request.status === 'pending') {
+                const actionsDiv = document.createElement('div');
+                actionsDiv.style.cssText = `
+                    padding: 8px;
+                    background: rgba(15, 15, 15, 0.9);
                     display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    padding: 0;
-                    transition: background 0.2s;
+                    gap: 8px;
                 `;
-                deleteBtn.addEventListener('mouseover', () => {
-                    deleteBtn.style.background = 'rgba(244, 67, 54, 1)';
+
+                const approveBtn = document.createElement('button');
+                approveBtn.textContent = 'Approve';
+                approveBtn.className = 'raised button-submit emby-button';
+                approveBtn.style.cssText = `
+                    flex: 1;
+                    padding: 6px;
+                    background: rgba(76, 175, 80, 0.9);
+                    font-size: 11px;
+                    font-weight: 600;
+                `;
+                approveBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await updateRequestStatus(request.id, 'approved', currentUsername);
+                    await loadDropdownRequests();
                 });
-                deleteBtn.addEventListener('mouseout', () => {
-                    deleteBtn.style.background = 'rgba(244, 67, 54, 0.9)';
+
+                const rejectBtn = document.createElement('button');
+                rejectBtn.textContent = 'Reject';
+                rejectBtn.className = 'raised button-cancel emby-button';
+                rejectBtn.style.cssText = `
+                    flex: 1;
+                    padding: 6px;
+                    background: rgba(244, 67, 54, 0.9);
+                    font-size: 11px;
+                    font-weight: 600;
+                `;
+                rejectBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await updateRequestStatus(request.id, 'rejected', currentUsername);
+                    await loadDropdownRequests();
                 });
+
+                actionsDiv.appendChild(approveBtn);
+                actionsDiv.appendChild(rejectBtn);
+                card.appendChild(actionsDiv);
+            } else if (request.status === 'approved' || request.status === 'rejected') {
+                const deleteDiv = document.createElement('div');
+                deleteDiv.style.cssText = `
+                    padding: 8px;
+                    background: rgba(15, 15, 15, 0.9);
+                `;
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.textContent = 'Delete';
+                deleteBtn.className = 'raised emby-button';
+                deleteBtn.style.cssText = `
+                    width: 100%;
+                    padding: 6px;
+                    background: rgba(150, 150, 150, 0.8);
+                    font-size: 11px;
+                    font-weight: 600;
+                `;
                 deleteBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    if (confirm(`Delete rejected request for "${request.title}"?`)) {
+                    if (confirm(`Delete request for "${request.title}"?`)) {
                         await deleteRequest(request.id);
+                        await loadDropdownRequests();
                     }
                 });
-                card.appendChild(deleteBtn);
+
+                deleteDiv.appendChild(deleteBtn);
+                card.appendChild(deleteDiv);
             }
         }
 
-        card.addEventListener('click', () => {
-            openRequestModal(request, adminView);
+        // Hover effects
+        card.addEventListener('mouseenter', () => {
+            card.style.transform = 'translateY(-4px) scale(1.02)';
+            card.style.boxShadow = '0 8px 16px rgba(0,0,0,0.6)';
         });
+
+        card.addEventListener('mouseleave', () => {
+            card.style.transform = 'translateY(0) scale(1)';
+            card.style.boxShadow = 'none';
+        });
+
+        // Only open modal for non-admin or when not clicking action buttons
+        if (!adminView) {
+            card.addEventListener('click', () => {
+                openRequestModal(request, adminView);
+            });
+        }
 
         return card;
     }
@@ -299,32 +425,56 @@
         card.className = 'request-card placeholder-card';
         card.style.cssText = `
             display: inline-block;
-            width: 100px;
-            margin: 10px;
+            width: 140px;
             cursor: default;
-            text-align: center;
             color: #666;
             position: relative;
+            flex-shrink: 0;
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(30, 30, 30, 0.3);
+            border: 2px dashed rgba(100, 100, 100, 0.3);
         `;
 
         const imgDiv = document.createElement('div');
         imgDiv.style.cssText = `
             width: 100%;
-            height: 150px;
-            border-radius: 6px;
-            margin-bottom: 8px;
+            height: 210px;
             box-sizing: border-box;
             display: flex;
             align-items: center;
             justify-content: center;
-            border: 2px dashed rgba(150,150,150,0.6);
-            background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.02));
+            background: linear-gradient(135deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.05) 100%);
         `;
 
-        const inner = document.createElement('div');
-        inner.style.cssText = 'width:60%;height:60%;border-radius:4px;';
-        imgDiv.appendChild(inner);
+        const icon = document.createElement('div');
+        icon.innerHTML = '📋';
+        icon.style.cssText = `
+            font-size: 48px;
+            opacity: 0.2;
+        `;
+        imgDiv.appendChild(icon);
         card.appendChild(imgDiv);
+
+        const titleDiv = document.createElement('div');
+        titleDiv.style.cssText = `
+            padding: 8px;
+            background: rgba(20, 20, 20, 0.5);
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        `;
+
+        const emptyText = document.createElement('div');
+        emptyText.textContent = 'No requests';
+        emptyText.style.cssText = `
+            font-size: 11px;
+            color: #666;
+            font-weight: 500;
+        `;
+        titleDiv.appendChild(emptyText);
+        card.appendChild(titleDiv);
 
         return card;
     }
@@ -422,18 +572,6 @@
                 <div class="dropdown-series">
                     <h3 style="color: #1e90ff; margin-bottom: 10px;">Series Requests</h3>
                     <div class="dropdown-series-container" style="display: flex; flex-wrap: wrap; gap: 15px; min-height: 50px;"></div>
-                    <hr style="margin: 20px 0; height: 1px; background: rgba(255,255,255,0.1); border: none;">
-                </div>
-
-                <div class="dropdown-approved">
-                    <h3 style="color: #4caf50; margin-bottom: 10px;">Approved</h3>
-                    <div class="dropdown-approved-container" style="display: flex; flex-wrap: wrap; gap: 15px; min-height: 50px;"></div>
-                    <hr style="margin: 20px 0; height: 1px; background: rgba(255,255,255,0.1); border: none;">
-                </div>
-
-                <div class="dropdown-rejected">
-                    <h3 style="color: #f44336; margin-bottom: 10px;">Rejected</h3>
-                    <div class="dropdown-rejected-container" style="display: flex; flex-wrap: wrap; gap: 15px; min-height: 50px;"></div>
                 </div>
             </div>
         `;
@@ -458,36 +596,19 @@
 
         try {
             const requests = await fetchAllRequests();
-            
             const adminView = await checkAdmin();
-            
-            // For admins: show all non-approved requests (pending) in movies/series lists,
-            // but show only admin-owned approved copies in the Approved row. This
-            // prevents admins from seeing the original user's approved record alongside
-            // their own admin copy.
+
+            // Filter requests based on user type
             let filteredRequests;
             if (adminView) {
-                // non-approved (pending/rejected/etc.) for lists
-                filteredRequests = requests.filter(r => r.status !== 'approved');
+                filteredRequests = requests; // Admins see all requests in popup
             } else {
-                filteredRequests = requests.filter(r => {
-                    return r.username === currentUsername;
-                });
+                filteredRequests = requests.filter(r => r.username === currentUsername);
             }
 
-            // Approved requests are shown in their own row. Admins only see their own approved copies.
-            const approved = adminView
-                ? requests.filter(r => r.status === 'approved' && r.username === currentUsername)
-                : filteredRequests.filter(r => r.status === 'approved');
-
-            // Rejected requests - admins only see their own rejected copies (like approved)
-            const rejected = adminView
-                ? requests.filter(r => r.status === 'rejected' && r.username === currentUsername)
-                : filteredRequests.filter(r => r.status === 'rejected');
-
-            const movies = filteredRequests.filter(r => r.itemType === 'movie' && r.status !== 'approved' && r.status !== 'rejected');
-            const series = filteredRequests.filter(r => r.itemType === 'series' && r.status !== 'approved' && r.status !== 'rejected');
-            
+            // Split by item type - include ALL statuses (pending, approved, rejected)
+            const movies = filteredRequests.filter(r => r.itemType === 'movie');
+            const series = filteredRequests.filter(r => r.itemType === 'series');
 
             moviesContainer.innerHTML = '';
             seriesContainer.innerHTML = '';
@@ -508,34 +629,6 @@
                 }
             }
 
-            // Approved section
-            const approvedContainer = dropdown.querySelector('.dropdown-approved-container');
-            if (approvedContainer) {
-                if (approved && approved.length > 0) {
-                    approvedContainer.innerHTML = '';
-                    for (const req of approved) {
-                        approvedContainer.appendChild(await createRequestCard(req, adminView));
-                    }
-                } else {
-                    approvedContainer.innerHTML = '';
-                    approvedContainer.appendChild(createPlaceholderCard());
-                }
-            }
-
-            // Rejected section
-            const rejectedContainer = dropdown.querySelector('.dropdown-rejected-container');
-            if (rejectedContainer) {
-                if (rejected && rejected.length > 0) {
-                    rejectedContainer.innerHTML = '';
-                    for (const req of rejected) {
-                        rejectedContainer.appendChild(await createRequestCard(req, adminView));
-                    }
-                } else {
-                    rejectedContainer.innerHTML = '';
-                    rejectedContainer.appendChild(createPlaceholderCard());
-                }
-            }
-            
             // Update notification badge after loading requests
             updateNotificationBadge();
         } catch (err) {
@@ -573,28 +666,28 @@
     }
 
     // ============================================
-    // HEADER BUTTON
+    // USER MENU INTEGRATION
     // ============================================
-    
+
     async function updateNotificationBadge() {
         const badge = document.querySelector('.requests-notification-badge');
         if (!badge) return;
-        
+
         // Check if ApiClient is ready
         if (!window.ApiClient) {
             console.warn('[Requests.updateNotificationBadge] ApiClient not ready yet');
             return;
         }
-        
+
         try {
             const requests = await fetchAllRequests();
             const username = await getCurrentUsername();
             const adminView = await checkAdmin();
-            
+
             console.log('[Requests.updateNotificationBadge] Fetched', requests.length, 'total requests');
-            
+
             let pendingCount = 0;
-            
+
             if (adminView) {
                 // For admins: count all pending requests (from any user)
                 pendingCount = requests.filter(r => r.status === 'pending').length;
@@ -602,42 +695,40 @@
                 // For regular users: count only their own pending requests
                 pendingCount = requests.filter(r => r.status === 'pending' && r.username === username).length;
             }
-            
+
             console.log('[Requests.updateNotificationBadge] Pending count:', pendingCount, '(admin:', adminView, ')');
-            
-            // Always show the badge with the count (including 0)
-            badge.textContent = pendingCount > 99 ? '99+' : pendingCount.toString();
-            badge.style.display = 'flex';
+
+            // Show badge only if there are pending requests
+            if (pendingCount > 0) {
+                badge.textContent = pendingCount > 99 ? '99+' : pendingCount.toString();
+                badge.style.display = 'flex';
+            } else {
+                badge.style.display = 'none';
+            }
         } catch (err) {
             console.error('[Requests.updateNotificationBadge] Error:', err);
             badge.style.display = 'none';
         }
     }
 
-    function addRequestsButton() {
-        // Skip if button already exists
-        if (document.querySelector('.headerRequestsButton')) {
+    function addBadgeToUserButton() {
+        // Find the user button
+        const userButton = document.querySelector('.headerUserButton');
+        if (!userButton) {
+            setTimeout(addBadgeToUserButton, 500);
             return;
         }
-        
-        // Use legacy header only
-        const headerRight = document.querySelector('.headerRight');
-        if (!headerRight) {
-            console.log('[Requests] No header found, will retry');
-            setTimeout(addRequestsButton, 500);
+
+        // Check if badge already exists
+        if (document.querySelector('.requests-notification-badge')) {
             return;
         }
-        
-        console.log('[Requests] Adding button to legacy header');
-        
-        const btn = document.createElement('button');
-        btn.setAttribute('is', 'paper-icon-button-light');
-        btn.setAttribute('data-role', 'requests-button');
-        btn.className = 'headerButton headerButtonRight headerRequestsButton paper-icon-button-light';
-        btn.title = 'Media Requests';
-        btn.style.position = 'relative'; // Needed for badge positioning
-        btn.innerHTML = '<span class="material-icons list_alt" aria-hidden="true"></span>';
-        
+
+        console.log('[Requests] Adding badge to user button');
+
+        // Make sure user button has relative positioning
+        userButton.style.position = 'relative';
+
         // Add notification badge element
         const badge = document.createElement('span');
         badge.className = 'requests-notification-badge';
@@ -658,28 +749,550 @@
             padding: 1px;
             line-height: 1;
             z-index: 10;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
         `;
-        btn.appendChild(badge);
-        
-        const userButton = headerRight.querySelector('.headerUserButton');
-        if (userButton) {
-            headerRight.insertBefore(btn, userButton);
-        } else {
-            headerRight.appendChild(btn);
-        }
-        
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            toggleDropdown(btn);
-        });
-        
-        console.log('[Requests] Button added successfully');
-        
-        // Update badge immediately and then periodically
-        // Wait a bit for ApiClient to be fully ready
+        userButton.appendChild(badge);
+
+        console.log('[Requests] Badge added successfully');
+
+        // Update badge immediately
         setTimeout(() => {
             updateNotificationBadge();
         }, 1000);
+
+        // Update badge periodically
+        setInterval(() => {
+            updateNotificationBadge();
+        }, 30000); // Every 30 seconds
+    }
+
+    function addMenuItemToUserMenu() {
+        // Wait for user menu to be available
+        const checkForMenu = () => {
+            // Try multiple selectors to find the user menu
+            let userMenus = [];
+
+            // Try different common Jellyfin menu patterns
+            const selectors = [
+                '.headerUserButtonRound + div[data-role="controlgroup"]',
+                '.headerUserButton + div[data-role="controlgroup"]',
+                'div[data-role="controlgroup"]',
+                '.mainDrawer-scrollContainer .verticalSection'
+            ];
+
+            for (const selector of selectors) {
+                const found = document.querySelectorAll(selector);
+                if (found.length > 0) {
+                    userMenus = Array.from(found);
+                    console.log('[Requests] Found user menu with selector:', selector);
+                    break;
+                }
+            }
+
+            // Also check for main drawer menu items
+            const drawerButtons = document.querySelectorAll('.navMenuOption');
+            if (drawerButtons.length > 0) {
+                console.log('[Requests] Found drawer menu buttons');
+            }
+
+            if (userMenus.length === 0 && drawerButtons.length === 0) {
+                setTimeout(checkForMenu, 500);
+                return;
+            }
+
+            // Check if menu item already exists
+            if (document.querySelector('.baklava-requests-menu-item')) {
+                return;
+            }
+
+            console.log('[Requests] Adding menu item to user menu');
+
+            // Add to controlgroup menus if found
+            userMenus.forEach(menu => {
+                const menuItem = document.createElement('button');
+                menuItem.className = 'emby-button baklava-requests-menu-item';
+                menuItem.setAttribute('is', 'emby-button');
+                menuItem.setAttribute('data-role', 'button');
+                menuItem.style.cssText = `
+                    display: flex;
+                    align-items: center;
+                    width: 100%;
+                    padding: 0.8em 1em;
+                    border: none;
+                    background: transparent;
+                    color: inherit;
+                    text-align: left;
+                    cursor: pointer;
+                    font-size: inherit;
+                `;
+
+                const icon = document.createElement('span');
+                icon.className = 'material-icons';
+                icon.setAttribute('aria-hidden', 'true');
+                icon.textContent = 'list_alt';
+                icon.style.cssText = `
+                    margin-right: 0.5em;
+                    font-size: 1.5em;
+                `;
+
+                const text = document.createElement('span');
+                text.textContent = 'Media Requests';
+
+                menuItem.appendChild(icon);
+                menuItem.appendChild(text);
+
+                // Add click handler
+                menuItem.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    // Close the user menu
+                    const backdrop = document.querySelector('.dockedMenuBackdrop');
+                    if (backdrop) {
+                        backdrop.click();
+                    }
+
+                    // Open requests popup for all users
+                    setTimeout(() => {
+                        showDropdown();
+                    }, 100);
+                });
+
+                // Insert at the top of the menu
+                const firstChild = menu.firstChild;
+                if (firstChild) {
+                    menu.insertBefore(menuItem, firstChild);
+                } else {
+                    menu.appendChild(menuItem);
+                }
+            });
+
+            // If we found drawer buttons, add there too
+            if (drawerButtons.length > 0 && userMenus.length === 0) {
+                const drawerContainer = drawerButtons[0].parentElement;
+                if (drawerContainer && !drawerContainer.querySelector('.baklava-requests-menu-item')) {
+                    const menuItem = document.createElement('a');
+                    menuItem.className = 'navMenuOption baklava-requests-menu-item';
+                    menuItem.setAttribute('is', 'emby-linkbutton');
+                    menuItem.href = '#';
+                    menuItem.style.cssText = `
+                        display: flex;
+                        align-items: center;
+                        padding: 0.8em 1em;
+                        text-decoration: none;
+                        color: inherit;
+                    `;
+
+                    const icon = document.createElement('span');
+                    icon.className = 'material-icons navMenuOptionIcon';
+                    icon.setAttribute('aria-hidden', 'true');
+                    icon.textContent = 'list_alt';
+
+                    const text = document.createElement('span');
+                    text.className = 'navMenuOptionText';
+                    text.textContent = 'Media Requests';
+
+                    menuItem.appendChild(icon);
+                    menuItem.appendChild(text);
+
+                    menuItem.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        // Close drawer
+                        const backdrop = document.querySelector('.dockedMenuBackdrop');
+                        if (backdrop) {
+                            backdrop.click();
+                        }
+
+                        // Open requests popup for all users
+                        setTimeout(() => {
+                            showDropdown();
+                        }, 100);
+                    });
+
+                    // Insert after first menu item
+                    if (drawerButtons[0].nextSibling) {
+                        drawerContainer.insertBefore(menuItem, drawerButtons[0].nextSibling);
+                    } else {
+                        drawerContainer.appendChild(menuItem);
+                    }
+                }
+            }
+
+            console.log('[Requests] Menu item added successfully');
+        };
+
+        // Initial check
+        checkForMenu();
+
+        // Watch for menu being recreated
+        const observer = new MutationObserver(() => {
+            setTimeout(checkForMenu, 100);
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        // Also listen for clicks on user button to trigger menu check
+        document.addEventListener('click', (e) => {
+            const target = e.target.closest('.headerUserButton, .headerUserButtonRound');
+            if (target) {
+                setTimeout(checkForMenu, 200);
+            }
+        });
+    }
+
+    // ============================================
+    // ADMIN REQUESTS PAGE
+    // ============================================
+
+    function createAdminRequestsPage() {
+        const oldPage = document.getElementById('adminRequestsPage');
+        if (oldPage) oldPage.remove();
+
+        const adminPage = document.createElement('div');
+        adminPage.id = 'adminRequestsPage';
+        adminPage.className = 'page type-interior';
+        adminPage.setAttribute('data-role', 'page');
+        adminPage.style.cssText = 'display:none;';
+
+        adminPage.innerHTML = `
+            <div class="skinHeader focuscontainer-x padded-top padded-left padded-right padded-bottom-page">
+                <div class="flex align-items-center flex-grow headerTop">
+                    <div class="flex align-items-center flex-grow">
+                        <h1 class="pageTitle">Manage Media Requests</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="padded-left padded-right padded-top padded-bottom-page">
+                <div class="verticalSection">
+                    <h2 class="sectionTitle sectionTitle-cards padded-left">Movie Requests</h2>
+                    <div class="admin-requests-movies-panel">
+                        <div class="itemsContainer scrollSlider focuscontainer-x padded-left padded-right" style="white-space:nowrap;overflow-x:auto;"></div>
+                    </div>
+                </div>
+                <div class="verticalSection" style="margin-top:2em;">
+                    <h2 class="sectionTitle sectionTitle-cards padded-left">Series Requests</h2>
+                    <div class="admin-requests-series-panel">
+                        <div class="itemsContainer scrollSlider focuscontainer-x padded-left padded-right" style="white-space:nowrap;overflow-x:auto;"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(adminPage);
+    }
+
+    function showAdminRequestsPage() {
+        document.querySelectorAll('.page').forEach(p => {
+            if (p.id !== 'adminRequestsPage') {
+                p.style.display = 'none';
+            }
+        });
+
+        let adminPage = document.getElementById('adminRequestsPage');
+        if (!adminPage) {
+            createAdminRequestsPage();
+            adminPage = document.getElementById('adminRequestsPage');
+        }
+
+        adminPage.style.display = 'block';
+        loadAndDisplayAdminRequestsPage();
+    }
+
+    async function createAdminRequestCard(request) {
+        const card = document.createElement('div');
+        card.className = 'request-card admin-request-card';
+        card.dataset.requestId = request.id || '';
+        card.style.cssText = `
+            display: inline-block;
+            width: 140px;
+            position: relative;
+            flex-shrink: 0;
+            border-radius: 8px;
+            overflow: visible;
+            background: rgba(30, 30, 30, 0.5);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        `;
+
+        const imgDiv = document.createElement('div');
+        imgDiv.style.cssText = `
+            width: 100%;
+            height: 210px;
+            background-size: cover;
+            background-position: center;
+            position: relative;
+            background-color: #1a1a1a;
+            border-radius: 8px 8px 0 0;
+        `;
+        imgDiv.style.backgroundImage = request.img;
+
+        // Add overlay gradient
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
+            pointer-events: none;
+        `;
+        imgDiv.appendChild(overlay);
+        card.appendChild(imgDiv);
+
+        // Status badge (top-right)
+        if (request.status === 'pending') {
+            const statusBadge = document.createElement('div');
+            statusBadge.textContent = 'Pending';
+            statusBadge.style.cssText = `
+                position: absolute;
+                top: 6px;
+                right: 6px;
+                background: rgba(255, 152, 0, 0.95);
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 2;
+            `;
+            card.appendChild(statusBadge);
+        } else if (request.status === 'approved') {
+            const statusBadge = document.createElement('div');
+            statusBadge.textContent = '✓ Approved';
+            statusBadge.style.cssText = `
+                position: absolute;
+                top: 6px;
+                right: 6px;
+                background: rgba(76, 175, 80, 0.95);
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 2;
+            `;
+            card.appendChild(statusBadge);
+        } else if (request.status === 'rejected') {
+            const statusBadge = document.createElement('div');
+            statusBadge.textContent = '✗ Rejected';
+            statusBadge.style.cssText = `
+                position: absolute;
+                top: 6px;
+                right: 6px;
+                background: rgba(244, 67, 54, 0.95);
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 2;
+            `;
+            card.appendChild(statusBadge);
+        }
+
+        // Username badge (bottom-left)
+        if (request.username) {
+            const userBadge = document.createElement('div');
+            userBadge.textContent = request.username;
+            userBadge.title = `Requested by ${request.username}`;
+            userBadge.style.cssText = `
+                position: absolute;
+                bottom: 86px;
+                left: 6px;
+                background: rgba(30, 144, 255, 0.95);
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 700;
+                max-width: 120px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 2;
+            `;
+            card.appendChild(userBadge);
+        }
+
+        // Title section
+        const titleDiv = document.createElement('div');
+        titleDiv.style.cssText = `
+            padding: 8px;
+            background: rgba(20, 20, 20, 0.9);
+            min-height: 40px;
+        `;
+
+        const titleText = document.createElement('div');
+        titleText.textContent = request.title || 'Unknown';
+        titleText.title = request.title || 'Unknown';
+        titleText.style.cssText = `
+            font-size: 12px;
+            font-weight: 600;
+            color: #fff;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            line-height: 1.3;
+            margin-bottom: 2px;
+        `;
+        titleDiv.appendChild(titleText);
+
+        if (request.year) {
+            const yearText = document.createElement('div');
+            yearText.textContent = request.year;
+            yearText.style.cssText = `
+                font-size: 10px;
+                color: #999;
+                font-weight: 500;
+            `;
+            titleDiv.appendChild(yearText);
+        }
+
+        card.appendChild(titleDiv);
+
+        // Action buttons for pending requests
+        if (request.status === 'pending') {
+            const actionsDiv = document.createElement('div');
+            actionsDiv.style.cssText = `
+                padding: 8px;
+                background: rgba(15, 15, 15, 0.9);
+                display: flex;
+                gap: 8px;
+            `;
+
+            const approveBtn = document.createElement('button');
+            approveBtn.textContent = 'Approve';
+            approveBtn.className = 'raised button-submit emby-button';
+            approveBtn.style.cssText = `
+                flex: 1;
+                padding: 6px;
+                background: rgba(76, 175, 80, 0.9);
+                font-size: 11px;
+                font-weight: 600;
+            `;
+            approveBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await updateRequestStatus(request.id, 'approved', currentUsername);
+            });
+
+            const rejectBtn = document.createElement('button');
+            rejectBtn.textContent = 'Reject';
+            rejectBtn.className = 'raised button-cancel emby-button';
+            rejectBtn.style.cssText = `
+                flex: 1;
+                padding: 6px;
+                background: rgba(244, 67, 54, 0.9);
+                font-size: 11px;
+                font-weight: 600;
+            `;
+            rejectBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await updateRequestStatus(request.id, 'rejected', currentUsername);
+            });
+
+            actionsDiv.appendChild(approveBtn);
+            actionsDiv.appendChild(rejectBtn);
+            card.appendChild(actionsDiv);
+        } else {
+            // Delete button for approved/rejected
+            const deleteDiv = document.createElement('div');
+            deleteDiv.style.cssText = `
+                padding: 8px;
+                background: rgba(15, 15, 15, 0.9);
+            `;
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.className = 'raised emby-button';
+            deleteBtn.style.cssText = `
+                width: 100%;
+                padding: 6px;
+                background: rgba(150, 150, 150, 0.8);
+                font-size: 11px;
+                font-weight: 600;
+            `;
+            deleteBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (confirm(`Delete request for "${request.title}"?`)) {
+                    await deleteRequest(request.id);
+                    await loadAndDisplayAdminRequestsPage();
+                }
+            });
+
+            deleteDiv.appendChild(deleteBtn);
+            card.appendChild(deleteDiv);
+        }
+
+        // Hover effects
+        card.addEventListener('mouseenter', () => {
+            card.style.transform = 'translateY(-4px) scale(1.02)';
+            card.style.boxShadow = '0 8px 16px rgba(0,0,0,0.6)';
+        });
+        card.addEventListener('mouseleave', () => {
+            card.style.transform = 'translateY(0) scale(1)';
+            card.style.boxShadow = 'none';
+        });
+
+        return card;
+    }
+
+    async function loadAndDisplayAdminRequestsPage() {
+        const page = document.getElementById('adminRequestsPage');
+        if (!page) return;
+
+        const moviesContainer = page.querySelector('.admin-requests-movies-panel .itemsContainer');
+        const seriesContainer = page.querySelector('.admin-requests-series-panel .itemsContainer');
+
+        moviesContainer.innerHTML = '<div style="color: #999; padding: 20px;">Loading...</div>';
+        seriesContainer.innerHTML = '<div style="color: #999; padding: 20px;">Loading...</div>';
+
+        try {
+            const requests = await fetchAllRequests();
+
+            // Admin page shows ALL requests from all users
+            const movies = requests.filter(r => r.itemType === 'movie');
+            const series = requests.filter(r => r.itemType === 'series');
+
+            moviesContainer.innerHTML = '';
+            seriesContainer.innerHTML = '';
+
+            if (movies.length === 0) {
+                moviesContainer.appendChild(createPlaceholderCard());
+            } else {
+                for (const req of movies) {
+                    moviesContainer.appendChild(await createAdminRequestCard(req));
+                }
+            }
+
+            if (series.length === 0) {
+                seriesContainer.appendChild(createPlaceholderCard());
+            } else {
+                for (const req of series) {
+                    seriesContainer.appendChild(await createAdminRequestCard(req));
+                }
+            }
+        } catch (err) {
+            console.error('[Requests.loadAdminRequestsPage] Error:', err);
+            moviesContainer.innerHTML = '<div style="color: #f44336; padding: 20px;">Error loading requests</div>';
+            seriesContainer.innerHTML = '<div style="color: #f44336; padding: 20px;">Error loading requests</div>';
+        }
     }
 
     // ============================================
@@ -714,18 +1327,6 @@
                 <div class="verticalSection" style="margin-top:2em;">
                     <h2 class="sectionTitle sectionTitle-cards padded-left">Series Requests</h2>
                     <div class="requests-series-panel">
-                        <div class="itemsContainer scrollSlider focuscontainer-x padded-left padded-right" style="white-space:nowrap;overflow-x:auto;"></div>
-                    </div>
-                </div>
-                <div class="verticalSection" style="margin-top:3em;">
-                    <h2 class="sectionTitle sectionTitle-cards padded-left">Approved</h2>
-                    <div class="requests-approved-panel">
-                        <div class="itemsContainer scrollSlider focuscontainer-x padded-left padded-right" style="white-space:nowrap;overflow-x:auto;"></div>
-                    </div>
-                </div>
-                <div class="verticalSection" style="margin-top:3em;">
-                    <h2 class="sectionTitle sectionTitle-cards padded-left">Rejected</h2>
-                    <div class="requests-rejected-panel">
                         <div class="itemsContainer scrollSlider focuscontainer-x padded-left padded-right" style="white-space:nowrap;overflow-x:auto;"></div>
                     </div>
                 </div>
@@ -764,39 +1365,23 @@
 
         try {
             const requests = await fetchAllRequests();
-            const adminView = await checkAdmin();
-            
-            // Admins: show all non-approved/non-rejected requests in lists, but only their own approved/rejected copies
-            let filteredRequests;
-            if (adminView) {
-                filteredRequests = requests.filter(r => r.status !== 'approved' && r.status !== 'rejected');
-            } else {
-                filteredRequests = requests.filter(r => r.username === currentUsername);
-            }
 
-            const approved = adminView
-                ? requests.filter(r => r.status === 'approved' && r.username === currentUsername)
-                : filteredRequests.filter(r => r.status === 'approved');
+            // This page is for regular users only - they see only their own requests
+            // Admins are routed to the admin page
+            const filteredRequests = requests.filter(r => r.username === currentUsername);
 
-            const rejected = adminView
-                ? requests.filter(r => r.status === 'rejected' && r.username === currentUsername)
-                : filteredRequests.filter(r => r.status === 'rejected');
-
-            const movies = filteredRequests.filter(r => r.itemType === 'movie' && r.status !== 'approved' && r.status !== 'rejected');
-            const series = filteredRequests.filter(r => r.itemType === 'series' && r.status !== 'approved' && r.status !== 'rejected');
+            // Split by item type - include ALL statuses (pending, approved, rejected)
+            const movies = filteredRequests.filter(r => r.itemType === 'movie');
+            const series = filteredRequests.filter(r => r.itemType === 'series');
 
             moviesContainer.innerHTML = '';
             seriesContainer.innerHTML = '';
-            const approvedContainer = page.querySelector('.requests-approved-panel .itemsContainer');
-            const rejectedContainer = page.querySelector('.requests-rejected-panel .itemsContainer');
-            if (approvedContainer) approvedContainer.innerHTML = '';
-            if (rejectedContainer) rejectedContainer.innerHTML = '';
 
             if (movies.length === 0) {
                 moviesContainer.appendChild(createPlaceholderCard());
             } else {
                 for (const req of movies) {
-                    moviesContainer.appendChild(await createRequestCard(req, adminView));
+                    moviesContainer.appendChild(await createRequestCard(req, false));
                 }
             }
 
@@ -804,29 +1389,7 @@
                 seriesContainer.appendChild(createPlaceholderCard());
             } else {
                 for (const req of series) {
-                    seriesContainer.appendChild(await createRequestCard(req, adminView));
-                }
-            }
-
-            // Populate approved row
-            if (approvedContainer) {
-                if (approved.length === 0) {
-                    approvedContainer.appendChild(createPlaceholderCard());
-                } else {
-                    for (const req of approved) {
-                        approvedContainer.appendChild(await createRequestCard(req, adminView));
-                    }
-                }
-            }
-
-            // Populate rejected row
-            if (rejectedContainer) {
-                if (rejected.length === 0) {
-                    rejectedContainer.appendChild(createPlaceholderCard());
-                } else {
-                    for (const req of rejected) {
-                        rejectedContainer.appendChild(await createRequestCard(req, adminView));
-                    }
+                    seriesContainer.appendChild(await createRequestCard(req, false));
                 }
             }
         } catch (err) {
@@ -850,12 +1413,15 @@
                 await saveRequest(item);
                 // Update badge immediately after saving
                 updateNotificationBadge();
-                // Reload both dropdown and page if visible
+                // Reload dropdown, user page, and admin page if visible
                 if (dropdownMenu && dropdownMenu.style.display === 'block') {
                     await loadDropdownRequests();
                 }
                 if (document.getElementById('requestsPage')?.style.display === 'block') {
                     await loadAndDisplayRequestsPage();
+                }
+                if (document.getElementById('adminRequestsPage')?.style.display === 'block') {
+                    await loadAndDisplayAdminRequestsPage();
                 }
             } catch (err) {
                 console.error('[Requests] Error saving request:', err);
@@ -878,6 +1444,9 @@
             if (document.getElementById('requestsPage')?.style.display === 'block') {
                 await loadAndDisplayRequestsPage();
             }
+            if (document.getElementById('adminRequestsPage')?.style.display === 'block') {
+                await loadAndDisplayAdminRequestsPage();
+            }
         },
         deleteRequest: async (requestId) => {
             await deleteRequest(requestId);
@@ -888,6 +1457,9 @@
             }
             if (document.getElementById('requestsPage')?.style.display === 'block') {
                 await loadAndDisplayRequestsPage();
+            }
+            if (document.getElementById('adminRequestsPage')?.style.display === 'block') {
+                await loadAndDisplayAdminRequestsPage();
             }
         }
     };
@@ -900,6 +1472,9 @@
             if (document.getElementById('requestsPage')?.style.display === 'block') {
                 await loadAndDisplayRequestsPage();
             }
+            if (document.getElementById('adminRequestsPage')?.style.display === 'block') {
+                await loadAndDisplayAdminRequestsPage();
+            }
         }
     };
 
@@ -908,7 +1483,7 @@
     // ============================================
 
     function init() {
-        
+
         // Wait for ApiClient to be ready before checking admin
         const waitForApiClient = () => {
             if (window.ApiClient) {
@@ -918,34 +1493,24 @@
             }
         };
         waitForApiClient();
-        
-        // Add header button with retry logic
+
+        // Add badge to user button and menu item with retry logic
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
-                addRequestsButton();
-                // Retry a few times in case header loads late
-                setTimeout(addRequestsButton, 500);
-                setTimeout(addRequestsButton, 1500);
-                setTimeout(addRequestsButton, 3000);
+                addBadgeToUserButton();
+                addMenuItemToUserMenu();
+                // Retry a few times in case elements load late
+                setTimeout(addBadgeToUserButton, 500);
+                setTimeout(addBadgeToUserButton, 1500);
+                setTimeout(addBadgeToUserButton, 3000);
             });
         } else {
-            addRequestsButton();
-            setTimeout(addRequestsButton, 500);
-            setTimeout(addRequestsButton, 1500);
-            setTimeout(addRequestsButton, 3000);
+            addBadgeToUserButton();
+            addMenuItemToUserMenu();
+            setTimeout(addBadgeToUserButton, 500);
+            setTimeout(addBadgeToUserButton, 1500);
+            setTimeout(addBadgeToUserButton, 3000);
         }
-        
-        // Watch for header being added dynamically
-        const headerObserver = new MutationObserver(() => {
-            if (!document.querySelector('.mui-requests-button, .headerRequestsButton')) {
-                addRequestsButton();
-            }
-        });
-        
-        headerObserver.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
     }
 
     // Start initialization
@@ -955,6 +1520,7 @@
     window.RequestsHeaderButton = {
         show: showDropdown,
         hide: hideDropdown,
-        reload: loadDropdownRequests
+        reload: loadDropdownRequests,
+        showAdmin: showAdminRequestsPage
     };
 })();
