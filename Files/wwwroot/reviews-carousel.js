@@ -236,6 +236,8 @@
         }
 
         wrapper.appendChild(dotsContainer);
+        
+        // Insert above cast/crew section (before it, so it appears higher on the page)
         castCollapsible.parentNode.insertBefore(wrapper, castCollapsible);
 
         // Carousel navigation logic

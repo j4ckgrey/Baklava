@@ -8,8 +8,7 @@
 <p align="center">
   <i>
     A next-generation <b>Jellyfin plugin</b> that transforms how your server handles media requests, caching, and playback.
-    Baklava bridges <b>Gelato</b> and <b>Jellyfin</b> with intelligent caching, adaptive remote stream probing, 
-    and a sleek, modern interface inspired by Stremio.
+    Baklava bridges <b>Gelato</b> and <b>Jellyfin</b> with intelligent caching and adaptive remote stream probing.
   </i>
 </p>
 
