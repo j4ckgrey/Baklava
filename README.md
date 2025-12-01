@@ -155,7 +155,10 @@ and intelligently routes them through its own optimized logic layer.
 
 - 🐞 **Bugs & Issues:** [GitHub Issues](https://github.com/j4ckgrey/Baklava/issues)  
 - 💡 **Discussions:** [GitHub Discussions](https://github.com/j4ckgrey/Baklava/discussions)  
-
+If you like my work and want to support development, consider buying me a coffee:
+👉 https://ko-fi.com/j4ckgrey
+Join the community and stay updated on Discord:  
+👉 https://discordapp.com/channels/1433689453158862943/1441378427239137300
 ---
 
 <p align="center">
