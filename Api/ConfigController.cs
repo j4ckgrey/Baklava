@@ -37,7 +37,6 @@ namespace Baklava.Api
                     tmdbApiKey = cfg.TmdbApiKey,
                     enableSearchFilter = cfg.EnableSearchFilter,
                     forceTVClientLocalSearch = cfg.ForceTVClientLocalSearch,
-                    disableNonAdminRequests = cfg.DisableNonAdminRequests,
                     enableAutoImport = cfg.EnableAutoImport,
                     showReviewsCarousel = cfg.ShowReviewsCarousel,
                     versionUi = cfg.VersionUi,
@@ -48,7 +47,6 @@ namespace Baklava.Api
 
             return Ok(new { 
                 defaultTmdbId = cfg.DefaultTmdbId,
-                disableNonAdminRequests = cfg.DisableNonAdminRequests,
                 enableAutoImport = cfg.EnableAutoImport,
                 showReviewsCarousel = cfg.ShowReviewsCarousel,
                 versionUi = cfg.VersionUi,
@@ -97,10 +95,6 @@ namespace Baklava.Api
             {
                 cfg.ForceTVClientLocalSearch = dto.forceTVClientLocalSearch.Value;
             }
-            if (dto.disableNonAdminRequests.HasValue)
-            {
-                cfg.DisableNonAdminRequests = dto.disableNonAdminRequests.Value;
-            }
             if (dto.enableAutoImport.HasValue)
             {
                 cfg.EnableAutoImport = dto.enableAutoImport.Value;
@@ -124,8 +118,8 @@ namespace Baklava.Api
             }
             
             Plugin.Instance.SaveConfiguration();
-            _logger.LogInformation("[ConfigController] Configuration saved - SearchFilter: {SearchFilter}, ForceTVLocal: {ForceTVLocal}, DisableNonAdminRequests: {DisableNonAdminRequests}, VersionUi: {VersionUi}, AudioUi: {AudioUi}, SubtitleUi: {SubtitleUi}, ShowReviews: {ShowReviews}", 
-                cfg.EnableSearchFilter, cfg.ForceTVClientLocalSearch, cfg.DisableNonAdminRequests, cfg.VersionUi, cfg.AudioUi, cfg.SubtitleUi, cfg.ShowReviewsCarousel);
+            _logger.LogInformation("[ConfigController] Configuration saved - SearchFilter: {SearchFilter}, ForceTVLocal: {ForceTVLocal}, EnableAutoImport: {EnableAutoImport}, VersionUi: {VersionUi}, AudioUi: {AudioUi}, SubtitleUi: {SubtitleUi}, ShowReviews: {ShowReviews}", 
+                cfg.EnableSearchFilter, cfg.ForceTVClientLocalSearch, cfg.EnableAutoImport, cfg.VersionUi, cfg.AudioUi, cfg.SubtitleUi, cfg.ShowReviewsCarousel);
             return Ok();
         }
     }
@@ -136,7 +130,6 @@ namespace Baklava.Api
         public string tmdbApiKey { get; set; }
         public bool? enableSearchFilter { get; set; }
         public bool? forceTVClientLocalSearch { get; set; }
-        public bool? disableNonAdminRequests { get; set; }
         public bool? enableAutoImport { get; set; }
         public bool? showReviewsCarousel { get; set; }
         public string versionUi { get; set; }

@@ -394,55 +394,55 @@ namespace Baklava.Api
 
     public class MediaRequest
     {
-        [JsonPropertyName("id")]
+        [JsonPropertyName("Id")]
         public string Id { get; set; }
 
-        [JsonPropertyName("username")]
+        [JsonPropertyName("Username")]
         public string Username { get; set; }
 
-        [JsonPropertyName("userId")]
+        [JsonPropertyName("UserId")]
         public string UserId { get; set; }
 
-        [JsonPropertyName("timestamp")]
+        [JsonPropertyName("Timestamp")]
         public long Timestamp { get; set; }
 
-        [JsonPropertyName("title")]
+        [JsonPropertyName("Title")]
         public string Title { get; set; }
 
-        [JsonPropertyName("year")]
+        [JsonPropertyName("Year")]
         public string Year { get; set; }
 
-        [JsonPropertyName("img")]
+        [JsonPropertyName("Img")]
         public string Img { get; set; }
 
-        [JsonPropertyName("imdbId")]
+        [JsonPropertyName("ImdbId")]
         public string ImdbId { get; set; }
 
-        [JsonPropertyName("tmdbId")]
+        [JsonPropertyName("TmdbId")]
         public string TmdbId { get; set; }
 
-        [JsonPropertyName("jellyfinId")]
+        [JsonPropertyName("JellyfinId")]
         public string JellyfinId { get; set; }
 
-        [JsonPropertyName("itemType")]
+        [JsonPropertyName("ItemType")]
         public string ItemType { get; set; }
 
-    [JsonPropertyName("tmdbMediaType")]
-    public string TmdbMediaType { get; set; }
+        [JsonPropertyName("TmdbMediaType")]
+        public string TmdbMediaType { get; set; }
 
-        [JsonPropertyName("status")]
+        [JsonPropertyName("Status")]
         public string Status { get; set; }
 
-        [JsonPropertyName("approvedBy")]
+        [JsonPropertyName("ApprovedBy")]
         public string ApprovedBy { get; set; }
     }
 
     public class UpdateRequestDto
     {
-        [JsonPropertyName("status")]
+        [JsonPropertyName("Status")]
         public string Status { get; set; }
 
-        [JsonPropertyName("approvedBy")]
+        [JsonPropertyName("ApprovedBy")]
         public string ApprovedBy { get; set; }
     }
 }
