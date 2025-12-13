@@ -36,6 +36,9 @@ namespace Baklava
         // Disable requests for non-admin users (they get "Open" button instead)
         public bool DisableNonAdminRequests { get; set; } = false;
 
+        // Allow non-admin users to directly import streams
+        public bool EnableAutoImport { get; set; } = false;
+
         // Show TMDB reviews carousel on item details pages
         public bool ShowReviewsCarousel { get; set; } = true;
         
