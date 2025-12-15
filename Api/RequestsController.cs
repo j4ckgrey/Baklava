@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Serialization;
 using System.Net.Http;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
@@ -46,7 +47,7 @@ namespace Baklava.Api
         }
 
         [HttpPost]
-        public ActionResult<MediaRequest> CreateRequest([FromBody] MediaRequest request)
+        public async Task<ActionResult<MediaRequest>> CreateRequest([FromBody] MediaRequest request)
         {
             _logger.LogInformation("[RequestsController] POST called");
             
@@ -77,9 +78,9 @@ namespace Baklava.Api
 
             // Server-side validation: if we have an IMDB id, prefer TMDB's tv_results mapping
             // This avoids saving a movie tmdbId when the IMDB maps to a TV show.
-            try
+            if (!string.IsNullOrEmpty(request.ImdbId))
             {
-                if (!string.IsNullOrEmpty(request.ImdbId))
+                try
                 {
                     var cfg = Plugin.Instance?.Configuration;
                     var apiKey = cfg?.TmdbApiKey;
@@ -88,10 +89,10 @@ namespace Baklava.Api
                         var tmdbFindUrl = $"https://api.themoviedb.org/3/find/{Uri.EscapeDataString(request.ImdbId)}?api_key={Uri.EscapeDataString(apiKey)}&external_source=imdb_id";
                         using (var http = new HttpClient())
                         {
-                            var resp = http.GetAsync(tmdbFindUrl).GetAwaiter().GetResult();
+                            var resp = await http.GetAsync(tmdbFindUrl);
                             if (resp.IsSuccessStatusCode)
                             {
-                                var content = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                                var content = await resp.Content.ReadAsStringAsync();
                                 using (var doc = System.Text.Json.JsonDocument.Parse(content))
                                 {
                                     var root = doc.RootElement;
@@ -120,10 +121,10 @@ namespace Baklava.Api
                         }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[RequestsController] TMDB find check failed for imdbId={ImdbId}", request.ImdbId);
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[RequestsController] TMDB find check failed for imdbId={ImdbId}", request.ImdbId);
+                }
             }
 
             // Set default status
