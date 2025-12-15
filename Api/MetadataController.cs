@@ -530,7 +530,6 @@ namespace Baklava.Api
             // - Protocol == Http: External HTTP sources (not File protocol which is local)
             // This respects Jellyfin's own logic and works with all plugins/sources correctly.
             if ((audioDtos.Count == 0 && subtitleDtos.Count == 0) && 
-                targetSource.SupportsProbing && 
                 targetSource.Protocol == MediaBrowser.Model.MediaInfo.MediaProtocol.Http &&
                 !string.IsNullOrEmpty(targetSource.Path))
             {
@@ -560,9 +559,9 @@ namespace Baklava.Api
                         }));
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // swallow - fallback shouldn't break endpoint
+                    _logger.LogError(ex, "[MetadataController] Error in ffprobe fallback for {Path}", targetSource.Path);
                 }
             }
 
@@ -803,12 +802,20 @@ namespace Baklava.Api
             var exited = proc.WaitForExit(8000);
             if (!exited)
             {
+                _logger.LogWarning("[MetadataController] ffprobe timed out for {Url}", url);
                 try { proc.Kill(); } catch { }
                 return null;
             }
 
             var outJson = await proc.StandardOutput.ReadToEndAsync();
-            if (string.IsNullOrEmpty(outJson)) return null;
+            var err = await proc.StandardError.ReadToEndAsync();
+            if (!string.IsNullOrEmpty(err)) _logger.LogWarning("[MetadataController] ffprobe stderr: {Err}", err);
+            
+            if (string.IsNullOrEmpty(outJson)) 
+            {
+                 _logger.LogWarning("[MetadataController] ffprobe returned empty output");
+                 return null;
+            }
 
             try
             {
@@ -848,8 +855,9 @@ namespace Baklava.Api
                 }
                 return res;
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "[MetadataController] Error parsing ffprobe output");
                 return null;
             }
         }
