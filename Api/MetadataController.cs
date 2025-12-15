@@ -71,7 +71,7 @@ namespace Baklava.Api
                     return BadRequest(new { error = "TMDB API key not configured" });
                 }
 
-                var mediaType = itemType == "series" ? "tv" : "movie";
+                var mediaType = (itemType == "series" || itemType == "tv") ? "tv" : "movie";
                 _logger.LogInformation("[MetadataController.GetTMDBMetadata] Using mediaType: {MediaType}", mediaType);
                 
                 JsonDocument? mainData = null;
@@ -102,7 +102,7 @@ namespace Baklava.Api
                         var root = findResult.RootElement;
                         JsonElement results = default;
                         
-                        if (itemType == "series" && root.TryGetProperty("tv_results", out var tvResults) && tvResults.GetArrayLength() > 0)
+                        if ((itemType == "series" || itemType == "tv") && root.TryGetProperty("tv_results", out var tvResults) && tvResults.GetArrayLength() > 0)
                         {
                             _logger.LogInformation("[MetadataController.GetTMDBMetadata] Found in tv_results");
                             results = tvResults[0];
@@ -133,7 +133,7 @@ namespace Baklava.Api
                     var searchParams = new Dictionary<string, string> { { "query", title } };
                     if (!string.IsNullOrEmpty(year))
                     {
-                        searchParams[itemType == "series" ? "first_air_date_year" : "year"] = year;
+                        searchParams[(itemType == "series" || itemType == "tv") ? "first_air_date_year" : "year"] = year;
                     }
 
                     var searchResult = await FetchTMDBAsync($"/search/{mediaType}", apiKey, searchParams);
@@ -155,7 +155,7 @@ namespace Baklava.Api
 
                     // Try alternate type if primary search failed
                     _logger.LogInformation("[MetadataController.GetTMDBMetadata] Primary search failed, trying alternate type");
-                    var altMediaType = itemType == "series" ? "movie" : "tv";
+                    var altMediaType = (itemType == "series" || itemType == "tv") ? "movie" : "tv";
                     var altSearchParams = new Dictionary<string, string> { { "query", title } };
                     if (!string.IsNullOrEmpty(year))
                     {
@@ -227,7 +227,7 @@ namespace Baklava.Api
                         {
                             // Ensure matching type if itemType provided
                             var itemTypeName = itemById.GetType().Name;
-                            if ((itemType == "series" && itemTypeName == "Series") || (itemType == "movie" && itemTypeName == "Movie") || string.IsNullOrEmpty(itemType))
+                            if (((itemType == "series" || itemType == "tv") && itemTypeName == "Series") || (itemType == "movie" && itemTypeName == "Movie") || string.IsNullOrEmpty(itemType))
                             {
                                 inLibrary = true;
                                 
@@ -265,7 +265,7 @@ namespace Baklava.Api
                         };
 
                         // Filter by type at the query level to prevent Jellyfin from trying to deserialize unknown types
-                        if (itemType == "series")
+                        if (itemType == "series" || itemType == "tv")
                         {
                             query.IncludeItemTypes = new[] { BaseItemKind.Series };
                         }
@@ -441,65 +441,38 @@ namespace Baklava.Api
                 return NotFound(new { error = "Item not found" });
             }
 
-            // Get media sources with probing and path substitution enabled so remote/streaming sources expose MediaStreams
-            var mediaSourceResult = await _mediaSourceManager.GetPlaybackMediaSources(item, null, true, true, CancellationToken.None);
+            // Get media sources without probing to avoid triggering ffprobe on newly created Gelato streams
+            // Probing will be handled by Gelato's decorator when streams are actually ready for playback
+            var mediaSourceResult = await _mediaSourceManager.GetPlaybackMediaSources(item, null, false, true, CancellationToken.None);
             var mediaSources = mediaSourceResult.ToList();
+
+            _logger.LogInformation("[MetadataController.GetMediaStreams] Found {Count} media sources for item {ItemId}", mediaSources.Count, itemId);
+            foreach (var ms in mediaSources)
+            {
+                _logger.LogInformation("[MetadataController.GetMediaStreams] MediaSource: Id={Id}, Name={Name}, Protocol={Protocol}, Path={Path}, Container={Container}, SupportsDirectStream={SupportsDirectStream}, SupportsTranscoding={SupportsTranscoding}",
+                    ms.Id, ms.Name, ms.Protocol, ms.Path ?? "null", ms.Container ?? "null", ms.SupportsDirectStream, ms.SupportsTranscoding);
+            }
 
             if (mediaSources.Count == 0)
             {
                 return NotFound(new { error = "No media sources found" });
             }
 
-            MediaBrowser.Model.Dto.MediaSourceInfo? targetSource = null;
-            if (!string.IsNullOrEmpty(mediaSourceId)) targetSource = mediaSources.FirstOrDefault(ms => ms.Id == mediaSourceId);
-            else targetSource = mediaSources.FirstOrDefault();
+            // Select the target media source (by ID or first available)
+            var targetSource = !string.IsNullOrEmpty(mediaSourceId)
+                ? mediaSources.FirstOrDefault(ms => ms.Id == mediaSourceId)
+                : mediaSources.FirstOrDefault();
 
             if (targetSource == null)
             {
                 return NotFound(new { error = "Media source not found" });
             }
 
-            // (No retry; initial call uses probing + path substitution.)
+            // Extract audio and subtitle streams
+            var streams = targetSource.MediaStreams ?? new List<MediaBrowser.Model.Entities.MediaStream>();
+            var hasStreams = streams.Any();
 
-            // Re-fetch a fresh MediaSource from Jellyfin to ensure updated stream versions
-            try
-            {
-                // Call GetStaticMediaSources which may be synchronous or return a Task depending on Jellyfin build.
-                var staticSourcesObj = _mediaSourceManager.GetStaticMediaSources(item, true);
-                IReadOnlyList<MediaBrowser.Model.Dto.MediaSourceInfo>? freshInfo = null;
-
-                if (staticSourcesObj is System.Threading.Tasks.Task task)
-                {
-                    // Await the task then try to read its Result property
-                    await task.ConfigureAwait(false);
-                    var resultProp = task.GetType().GetProperty("Result");
-                    if (resultProp != null)
-                    {
-                        freshInfo = resultProp.GetValue(task) as IReadOnlyList<MediaBrowser.Model.Dto.MediaSourceInfo>;
-                    }
-                }
-                else
-                {
-                    freshInfo = staticSourcesObj as IReadOnlyList<MediaBrowser.Model.Dto.MediaSourceInfo>;
-                }
-
-                if (freshInfo != null && freshInfo.Count > 0)
-                {
-                    var freshTarget = !string.IsNullOrEmpty(mediaSourceId)
-                        ? freshInfo.FirstOrDefault(ms => ms.Id == mediaSourceId)
-                        : freshInfo.FirstOrDefault();
-
-                    if (freshTarget != null)
-                        targetSource = freshTarget;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[MetadataController] Could not refresh media source for item {ItemId}", item.Id);
-            }
-
-            // Use DTO lists so we can merge ffprobe results without anonymous-type mismatches
-            var audioDtos = (targetSource.MediaStreams ?? new List<MediaBrowser.Model.Entities.MediaStream>())
+            var audioDtos = streams
                 .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Audio)
                 .Select(s => new AudioStreamDto
                 {
@@ -512,7 +485,7 @@ namespace Baklava.Api
                 })
                 .ToList();
 
-            var subtitleDtos = (targetSource.MediaStreams ?? new List<MediaBrowser.Model.Entities.MediaStream>())
+            var subtitleDtos = streams
                 .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle)
                 .Select(s => new SubtitleStreamDto
                 {
@@ -524,15 +497,18 @@ namespace Baklava.Api
                     IsDefault = s.IsDefault
                 })
                 .ToList();
-            // If Jellyfin didn't populate any streams, try a lightweight ffprobe fallback.
-            // Use Jellyfin's built-in properties to determine if probing is safe:
-            // - SupportsProbing: Jellyfin already knows if this source can be probed
-            // - Protocol == Http: External HTTP sources (not File protocol which is local)
-            // This respects Jellyfin's own logic and works with all plugins/sources correctly.
-            if ((audioDtos.Count == 0 && subtitleDtos.Count == 0) && 
+
+            // Lightweight ffprobe fallback ONLY if:
+            // 1. No streams were found at all
+            // 2. Source is HTTP (external, not local file)
+            // 3. Path is valid
+            // Skip for newly synced Gelato streams to avoid probe failures
+            if (!hasStreams && 
                 targetSource.Protocol == MediaBrowser.Model.MediaInfo.MediaProtocol.Http &&
-                !string.IsNullOrEmpty(targetSource.Path))
+                !string.IsNullOrEmpty(targetSource.Path) &&
+                targetSource.RunTimeTicks.HasValue && targetSource.RunTimeTicks > 0)
             {
+                _logger.LogWarning("[MetadataController.GetMediaStreams] Running ffprobe fallback for URL: {Url}", targetSource.Path);
                 try
                 {
                     var probe = await RunFfprobeAsync(targetSource.Path);
@@ -541,7 +517,7 @@ namespace Baklava.Api
                         audioDtos.AddRange(probe.Audio.Select(a => new AudioStreamDto
                         {
                             Index = a.Index,
-                            Title = a.Title ?? ($"Audio {a.Index}"),
+                            Title = a.Title ?? $"Audio {a.Index}",
                             Language = a.Language,
                             Codec = a.Codec,
                             Channels = a.Channels,
@@ -551,7 +527,7 @@ namespace Baklava.Api
                         subtitleDtos.AddRange(probe.Subtitles.Select(s => new SubtitleStreamDto
                         {
                             Index = s.Index,
-                            Title = s.Title ?? ($"Subtitle {s.Index}"),
+                            Title = s.Title ?? $"Subtitle {s.Index}",
                             Language = s.Language,
                             Codec = s.Codec,
                             IsForced = s.IsForced,
@@ -561,7 +537,7 @@ namespace Baklava.Api
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "[MetadataController] Error in ffprobe fallback for {Path}", targetSource.Path);
+                    _logger.LogDebug(ex, "[MetadataController] ffprobe fallback failed for {Path}", targetSource.Path);
                 }
             }
 
@@ -777,19 +753,17 @@ namespace Baklava.Api
 
         private async Task<FfprobeResult?> RunFfprobeAsync(string url)
         {
-            // Prefer Jellyfin-bundled ffprobe if present
+            // Find ffprobe executable (prefer Jellyfin bundle)
             var candidates = new[] { "/usr/lib/jellyfin-ffmpeg/ffprobe", "/usr/bin/ffprobe", "ffprobe" };
-            string? ffprobePath = null;
-            foreach (var c in candidates)
+            var ffprobePath = candidates.FirstOrDefault(c => 
             {
-                try { if (System.IO.File.Exists(c)) { ffprobePath = c; break; } } catch { }
-            }
-            if (ffprobePath == null) ffprobePath = "ffprobe";
+                try { return System.IO.File.Exists(c); } catch { return false; }
+            }) ?? "ffprobe";
 
             var psi = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = ffprobePath,
-                Arguments = $"-v quiet -print_format json -show_streams \"{url}\"",
+                Arguments = $"-v error -print_format json -show_streams -analyzeduration 5000000 -probesize 5000000 \"{url}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -799,22 +773,25 @@ namespace Baklava.Api
             using var proc = System.Diagnostics.Process.Start(psi);
             if (proc == null) return null;
 
-            var exited = proc.WaitForExit(8000);
-            if (!exited)
+            var timeoutMs = 10000; // 10 second timeout
+            if (!proc.WaitForExit(timeoutMs))
             {
-                _logger.LogWarning("[MetadataController] ffprobe timed out for {Url}", url);
+                _logger.LogDebug("[MetadataController] ffprobe timed out after {Timeout}ms", timeoutMs);
                 try { proc.Kill(); } catch { }
                 return null;
             }
 
             var outJson = await proc.StandardOutput.ReadToEndAsync();
             var err = await proc.StandardError.ReadToEndAsync();
-            if (!string.IsNullOrEmpty(err)) _logger.LogWarning("[MetadataController] ffprobe stderr: {Err}", err);
             
-            if (string.IsNullOrEmpty(outJson)) 
+            if (!string.IsNullOrEmpty(err))
             {
-                 _logger.LogWarning("[MetadataController] ffprobe returned empty output");
-                 return null;
+                _logger.LogDebug("[MetadataController] ffprobe stderr: {Err}", err.Substring(0, Math.Min(200, err.Length)));
+            }
+            
+            if (string.IsNullOrWhiteSpace(outJson))
+            {
+                return null;
             }
 
             try
