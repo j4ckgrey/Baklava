@@ -9,6 +9,15 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.png",
     "versions": [
       {
+        "version": "0.3.4.0",
+        "changelog": "Fixed CheckLibraryStatus endpoint to return Jellyfin ID for proper navigation from search results",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/0.3.4.0/baklava_0.3.4.0.zip",
+        "checksum": "a1f0713b7ad0dcdd095375d5425eb794",
+        "checksumType": "md5",
+        "timestamp": "2025-12-15T16:40:00Z"
+      },
+      {
         "version": "0.3.3.0",
         "changelog": "Fixed TV show metadata lookup; removed redundant probing; optimized stream fetching",
         "targetAbi": "10.11.0.0",

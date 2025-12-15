@@ -292,7 +292,9 @@ namespace Baklava.Api
                         if (foundItem != null)
                         {
                             inLibrary = true;
-                            _logger.LogInformation("[MetadataController.CheckLibraryStatus] Found item in library by TMDB/IMDB ID");
+                            // Store the Jellyfin ID so we can return it
+                            jellyfinId = foundItem.Id.ToString();
+                            _logger.LogInformation("[MetadataController.CheckLibraryStatus] Found item in library by TMDB/IMDB ID: {JellyfinId}", jellyfinId);
 
                             // Extract provider IDs from found item (may fill in missing IDs)
                             if (foundItem.ProviderIds != null)
@@ -361,12 +363,13 @@ namespace Baklava.Api
                     }
                 }
 
-                _logger.LogInformation("[MetadataController.CheckLibraryStatus] Returning: inLibrary={InLib}, hasRequest={HasReq}",
-                    inLibrary, existingRequest != null);
+                _logger.LogInformation("[MetadataController.CheckLibraryStatus] Returning: inLibrary={InLib}, hasRequest={HasReq}, jellyfinId={JfId}",
+                    inLibrary, existingRequest != null, jellyfinId ?? "null");
 
                 return Ok(new
                 {
                     inLibrary,
+                    jellyfinId,
                     existingRequest = existingRequest != null ? new
                     {
                         id = existingRequest.Id,
