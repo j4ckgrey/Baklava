@@ -41,7 +41,11 @@ namespace Baklava.Api
                     showReviewsCarousel = cfg.ShowReviewsCarousel,
                     versionUi = cfg.VersionUi,
                     audioUi = cfg.AudioUi,
-                    subtitleUi = cfg.SubtitleUi
+                    subtitleUi = cfg.SubtitleUi,
+                    enableDebridMetadata = cfg.EnableDebridMetadata,
+                    enableFallbackProbe = cfg.EnableFallbackProbe,
+                    fetchCachedMetadataPerVersion = cfg.FetchCachedMetadataPerVersion,
+                    fetchAllNonCachedMetadata = cfg.FetchAllNonCachedMetadata
                 });
             }
 
@@ -117,6 +121,33 @@ namespace Baklava.Api
                 cfg.ShowReviewsCarousel = dto.showReviewsCarousel.Value;
             }
             
+            // Debrid integration settings
+            if (!string.IsNullOrWhiteSpace(dto.debridService))
+            {
+                cfg.DebridService = dto.debridService.Trim();
+            }
+            if (dto.debridApiKey != null)
+            {
+                cfg.DebridApiKey = dto.debridApiKey.Trim();
+            }
+            if (dto.enableDebridMetadata.HasValue)
+            {
+                cfg.EnableDebridMetadata = dto.enableDebridMetadata.Value;
+            }
+            if (dto.enableFallbackProbe.HasValue)
+            {
+                cfg.EnableFallbackProbe = dto.enableFallbackProbe.Value;
+            }
+            
+            if (dto.fetchCachedMetadataPerVersion.HasValue)
+            {
+                cfg.FetchCachedMetadataPerVersion = dto.fetchCachedMetadataPerVersion.Value;
+            }
+            if (dto.fetchAllNonCachedMetadata.HasValue)
+            {
+                cfg.FetchAllNonCachedMetadata = dto.fetchAllNonCachedMetadata.Value;
+            }
+            
             Plugin.Instance.SaveConfiguration();
             _logger.LogInformation("[ConfigController] Configuration saved - SearchFilter: {SearchFilter}, ForceTVLocal: {ForceTVLocal}, EnableAutoImport: {EnableAutoImport}, VersionUi: {VersionUi}, AudioUi: {AudioUi}, SubtitleUi: {SubtitleUi}, ShowReviews: {ShowReviews}", 
                 cfg.EnableSearchFilter, cfg.ForceTVClientLocalSearch, cfg.EnableAutoImport, cfg.VersionUi, cfg.AudioUi, cfg.SubtitleUi, cfg.ShowReviewsCarousel);
@@ -135,5 +166,11 @@ namespace Baklava.Api
         public string versionUi { get; set; }
         public string audioUi { get; set; }
         public string subtitleUi { get; set; }
+        public string debridService { get; set; }
+        public string debridApiKey { get; set; }
+        public bool? enableDebridMetadata { get; set; }
+        public bool? enableFallbackProbe { get; set; }
+        public bool? fetchCachedMetadataPerVersion { get; set; }
+        public bool? fetchAllNonCachedMetadata { get; set; }
     }
 }

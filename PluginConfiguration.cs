@@ -44,5 +44,33 @@ namespace Baklava
         public string VersionUi { get; set; } = "carousel";
         public string AudioUi { get; set; } = "carousel";
         public string SubtitleUi { get; set; } = "carousel";
+
+        // Debrid API integration for stream metadata
+        // Service type: 'realdebrid', 'alldebrid', 'premiumize', etc.
+        public string DebridService { get; set; } = "realdebrid";
+        
+        // API key for the selected debrid service
+        public string DebridApiKey { get; set; } = string.Empty;
+        
+        // Enable cached stream metadata lookup (recommended)
+        // When enabled, fetches audio/subtitle info from debrid cache without triggering downloads
+        public bool EnableDebridMetadata { get; set; } = true;
+        
+        // Fallback to traditional probing if debrid metadata fails
+        // WARNING: When enabled, will download/cache the stream to your debrid account for ffprobe analysis
+        public bool EnableFallbackProbe { get; set; } = false;
+
+
+
+        // If enabled, only fetches metadata for the specific version selected by the user.
+        // Reduces initial loading time but audio/subs for other versions won't be pre-populated.
+        public bool FetchCachedMetadataPerVersion { get; set; } = false;
+
+        // If enabled, tries to fetch (and potentially download/probe) all non-cached streams.
+        // WARNING: Costly operation.
+        public bool FetchAllNonCachedMetadata { get; set; } = false;
+
+        // Enable fetching external subtitles from Stremio
+        public bool EnableSubs { get; set; } = true;
     }
 }

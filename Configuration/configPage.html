@@ -61,180 +61,578 @@
                     </div>
                 </div>
 
-                <!-- UI Settings -->
+                <!-- Debrid Integration Settings -->
                 <div
                     style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
-                    <h4 style="margin-top: 0; color: #1e90ff;">UI Settings</h4>
+                    <h4 style="margin-top: 0; color: #1e90ff;">Debrid Integration (Stream MediaInfo)</h4>
+
+                    <div
+                        style="margin-bottom: 16px; padding: 12px; background: rgba(30,144,255,0.1); border-left: 3px solid #1e90ff; border-radius: 4px;">
+                        <p style="margin: 0; font-size: 13px; color: #bbb; line-height: 1.5;">
+                            <strong style="color: #1e90ff;">📌 What is this?</strong><br>
+                            Configure your debrid service API to fetch audio and subtitle metadata for cached streams.
+                            This allows you to see codec information, audio tracks, and subtitles
+                            <strong>before</strong> playing,
+                            without triggering any downloads to your account.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label for="debridServiceSelect"
+                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Debrid Service</label>
+                        <select id="debridServiceSelect"
+                            style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                            <option value="realdebrid">Real-Debrid</option>
+                            <option value="alldebrid">AllDebrid</option>
+                            <option value="premiumize">Premiumize</option>
+                            <option value="debridlink">Debrid-Link</option>
+                        </select>
+                        <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
+                            Select your debrid service provider.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <label for="debridApiKey"
+                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Debrid API Key</label>
+                        <input id="debridApiKey" type="password" placeholder="Enter your debrid API key"
+                            style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                        <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
+                            Your API key from your debrid service account settings. This is used to query stream
+                            metadata from cached files.
+                        </p>
+                    </div>
 
                     <div style="margin-bottom: 12px;">
                         <label style="display: flex; align-items: center; cursor: pointer;">
-                            <input id="showReviewsCarousel" type="checkbox" style="margin-right: 8px;">
-                            <span style="color:#ddd;">Enable Reviews in details pages</span>
+                            <input id="enableDebridMetadata" type="checkbox" style="margin-right: 8px;" checked>
+                            <span style="color:#ddd;">Enable Cached Debrid Streams</span>
                         </label>
-                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
-                            When enabled, a carousel of user reviews will be displayed above the Cast & Crew section on
-                            movie and TV show details pages.
+                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999; line-height: 1.5;">
+                            Fetches audio/subtitle information from your debrid service's <strong>shared cache</strong>
+                            without downloading anything.
+                            The streams remain in the public cache and are <strong>NOT added to your account</strong>
+                            until you actually press play.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 12px; margin-left: 28px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input id="fetchCachedMetadataPerVersion" type="checkbox" style="margin-right: 8px;">
+                            <span style="color:#ddd;">Fetch Cached Metadata Per Version</span>
+                        </label>
+                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999; line-height: 1.5;">
+                            If active, metadata is fetched only for the selected version (faster load).<br>
+                            If disabled, all cached streams are fetched at once.
                         </p>
                     </div>
 
                     <div style="margin-bottom: 12px;">
-                        <label for="versionUiSelect"
-                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Version UI</label>
-                        <select id="versionUiSelect"
-                            style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
-                            <option value="carousel">Carousel</option>
-                            <option value="dropdown">Dropdown</option>
-                        </select>
-                        <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
-                            Choose UI for version selection.
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input id="enableFallbackProbe" type="checkbox" style="margin-right: 8px;">
+                            <span style="color:#ddd;">Enable Non-Cached Debrid Streams</span>
+                        </label>
+                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999; line-height: 1.5;">
+                            If cached metadata lookup fails, this will trigger a traditional analysis.
+                            This <strong>WILL download/cache the stream to your debrid account</strong> to extract
+                            metadata, even if you never watch it.
+                            This can clutter your account with unwatched files.
                         </p>
                     </div>
 
-                    <div style="margin-bottom: 12px;">
-                        <label for="audioUiSelect"
-                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Audio UI</label>
-                        <select id="audioUiSelect"
-                            style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
-                            <option value="carousel">Carousel</option>
-                            <option value="dropdown">Dropdown</option>
-                        </select>
-                        <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
-                            Choose UI for audio track selection.
+                    <div style="margin-bottom: 12px; margin-left: 28px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input id="fetchAllNonCachedMetadata" type="checkbox" style="margin-right: 8px;">
+                            <span style="color:#ddd;">Fetch All Non-Cached Metadata</span>
+                        </label>
+                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #d35400; line-height: 1.5;">
+                            <strong>Costly!</strong> Enforces downloading ALL non-cached streams to probe metadata.<br>
+                            If disabled (recommended), probing happens only per selected version.
                         </p>
                     </div>
 
-                    <div style="margin-bottom: 12px;">
-                        <label for="subtitleUiSelect"
-                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Subtitle UI</label>
-                        <select id="subtitleUiSelect"
-                            style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
-                            <option value="carousel">Carousel</option>
-                            <option value="dropdown">Dropdown</option>
-                        </select>
-                        <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
-                            Choose UI for subtitle selection.
-                        </p>
-                    </div>
+
                 </div>
 
-                <div>
-                    <button id="saveConfigBtn"
-                        style="padding:8px 16px;border-radius:4px;border:none;background:#1e90ff;color:#fff;cursor:pointer;font-size:14px;">Save
-                        Configuration</button>
-                    <div id="configStatus" style="margin-top:8px;color:#ccc;font-size:13px;"></div>
+            </div>
+
+            <!-- Cache Management Settings -->
+            <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                <h4 style="margin-top: 0; color: #1e90ff;">Cache Management</h4>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <p style="margin: 0; font-size: 13px; color: #bbb;">Manage metadata cached from Debrid services.</p>
+                    <button id="clearAllCacheBtn"
+                        style="padding: 6px 12px; border: none; background: #e74c3c; color: white; border-radius: 4px; cursor: pointer; font-size: 13px;">Clear
+                        All Cache</button>
                 </div>
 
-                <script>
-                    async function loadConfig() {
-                        try {
-                            if (window.ApiClient && window.ApiClient.ajax) {
-                                let response = await window.ApiClient.ajax({ type: 'GET', url: window.ApiClient.getUrl('api/baklava/config'), dataType: 'json' });
-                                if (response && response.constructor && response.constructor.name === 'Response') response = await response.json();
-                                document.getElementById('tmdbApiKey').value = response?.tmdbApiKey || '';
-                                document.getElementById('forceTVClientLocalSearch').checked = response?.forceTVClientLocalSearch === true;
-                                document.getElementById('enableAutoImport').checked = response?.enableAutoImport === true;
-                                document.getElementById('showReviewsCarousel').checked = response?.showReviewsCarousel !== false;
-                                document.getElementById('versionUiSelect').value = response?.versionUi || 'carousel';
-                                document.getElementById('audioUiSelect').value = response?.audioUi || 'carousel';
-                                document.getElementById('subtitleUiSelect').value = response?.subtitleUi || 'carousel';
-                                console.log('[Baklava][Config] Loaded config:', response);
-                                return;
-                            }
+                <div id="cacheListContainer"
+                    style="height: 300px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 4px; padding: 8px;">
+                    <div style="text-align: center; color: #888; padding: 10px;">Loading cache...</div>
+                </div>
+            </div>
 
-                            const url = (window.ApiClient && window.ApiClient.getUrl) ? window.ApiClient.getUrl('api/baklava/config') : (window.location.origin + '/api/baklava/config');
-                            const res = await fetch(url, { credentials: 'same-origin' });
-                            if (!res.ok) throw new Error('Failed to load config');
-                            const json = await res.json();
-                            document.getElementById('tmdbApiKey').value = json.tmdbApiKey || '';
-                            document.getElementById('forceTVClientLocalSearch').checked = json.forceTVClientLocalSearch === true;
-                            document.getElementById('enableAutoImport').checked = json.enableAutoImport === true;
-                            document.getElementById('showReviewsCarousel').checked = json.showReviewsCarousel !== false;
-                            document.getElementById('versionUiSelect').value = json.versionUi || 'carousel';
-                            document.getElementById('audioUiSelect').value = json.audioUi || 'carousel';
-                            document.getElementById('subtitleUiSelect').value = json.subtitleUi || 'carousel';
-                            console.log('[Baklava][Config] Loaded config:', json);
-                        } catch (e) {
-                            console.error('[Baklava][Config] Load error:', e);
+            <!-- Delete Confirmation Modal -->
+            <div id="deleteConfirmModal"
+                style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
+                <div
+                    style="background: #222; padding: 20px; border-radius: 8px; width: 400px; border: 1px solid #444; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                    <h3 style="margin-top: 0; color: #e74c3c;">Delete All Cache?</h3>
+                    <p style="color: #ddd; font-size: 14px; line-height: 1.5;">
+                        This will delete all cached stream metadata for <strong>ALL items</strong>.<br>
+                        It will also <strong>DELETE the downloaded files from your Debrid Service</strong> to clean up
+                        your account.<br><br>
+                        Baklava will need to re-fetch metadata (and potentially re-download files) next time.<br><br>
+                        Are you sure?
+                    </p>
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                        <button id="cancelDeleteBtn"
+                            style="padding: 8px 16px; background: #444; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+                        <button id="confirmDeleteBtn"
+                            style="padding: 8px 16px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">Yes,
+                            Delete All</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- UI Settings -->
+            <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                <h4 style="margin-top: 0; color: #1e90ff;">UI Settings</h4>
+
+                <div style="margin-bottom: 12px;">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input id="showReviewsCarousel" type="checkbox" style="margin-right: 8px;">
+                        <span style="color:#ddd;">Enable Reviews in details pages</span>
+                    </label>
+                    <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
+                        When enabled, a carousel of user reviews will be displayed above the Cast & Crew section on
+                        movie and TV show details pages.
+                    </p>
+                </div>
+
+                <div style="margin-bottom: 12px;">
+                    <label for="versionUiSelect"
+                        style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Version UI</label>
+                    <select id="versionUiSelect"
+                        style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                        <option value="carousel">Carousel</option>
+                        <option value="dropdown">Dropdown</option>
+                    </select>
+                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
+                        Choose UI for version selection.
+                    </p>
+                </div>
+
+                <div style="margin-bottom: 12px;">
+                    <label for="audioUiSelect" style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Audio
+                        UI</label>
+                    <select id="audioUiSelect"
+                        style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                        <option value="carousel">Carousel</option>
+                        <option value="dropdown">Dropdown</option>
+                    </select>
+                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
+                        Choose UI for audio track selection.
+                    </p>
+                </div>
+
+                <div style="margin-bottom: 12px;">
+                    <label for="subtitleUiSelect"
+                        style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Subtitle UI</label>
+                    <select id="subtitleUiSelect"
+                        style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                        <option value="carousel">Carousel</option>
+                        <option value="dropdown">Dropdown</option>
+                    </select>
+                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
+                        Choose UI for subtitle selection.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Delete Single Confirm Modal -->
+            <div id="deleteSingleModal"
+                style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:9999;justify-content:center;align-items:center;">
+                <div
+                    style="background:#202020;padding:20px;border-radius:8px;width:90%;max-width:400px;box-shadow:0 0 20px rgba(0,0,0,0.5);">
+                    <h3 style="margin-top:0;color:#e74c3c;">Delete Item Cache?</h3>
+                    <p id="deleteSingleText" style="color:#ddd;font-size:14px;line-height:1.5;">
+                        <!-- Populated by JS -->
+                    </p>
+                    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">
+                        <button id="cancelSingleDeleteBtn"
+                            style="padding:8px 16px;border:none;border-radius:4px;background:#555;color:#fff;cursor:pointer;">Cancel</button>
+                        <button id="confirmSingleDeleteBtn"
+                            style="padding:8px 16px;border:none;border-radius:4px;background:#e74c3c;color:#fff;cursor:pointer;font-weight:bold;">Delete</button>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <button id="saveConfigBtn"
+                    style="padding:8px 16px;border-radius:4px;border:none;background:#1e90ff;color:#fff;cursor:pointer;font-size:14px;">Save
+                    Configuration</button>
+                <div id="configStatus" style="margin-top:8px;color:#ccc;font-size:13px;"></div>
+            </div>
+
+            <script>
+                async function loadConfig() {
+                    try {
+                        if (window.ApiClient && window.ApiClient.ajax) {
+                            let response = await window.ApiClient.ajax({ type: 'GET', url: window.ApiClient.getUrl('api/baklava/config'), dataType: 'json' });
+                            if (response && response.constructor && response.constructor.name === 'Response') response = await response.json();
+                            document.getElementById('tmdbApiKey').value = response?.tmdbApiKey || '';
+                            document.getElementById('forceTVClientLocalSearch').checked = response?.forceTVClientLocalSearch === true;
+                            document.getElementById('enableAutoImport').checked = response?.enableAutoImport === true;
+                            document.getElementById('showReviewsCarousel').checked = response?.showReviewsCarousel !== false;
+                            document.getElementById('versionUiSelect').value = response?.versionUi || 'carousel';
+                            document.getElementById('audioUiSelect').value = response?.audioUi || 'carousel';
+                            document.getElementById('subtitleUiSelect').value = response?.subtitleUi || 'carousel';
+                            document.getElementById('debridServiceSelect').value = response?.debridService || 'realdebrid';
+                            document.getElementById('debridApiKey').value = response?.debridApiKey || '';
+                            document.getElementById('enableDebridMetadata').checked = response?.enableDebridMetadata !== false;
+                            document.getElementById('enableFallbackProbe').checked = response?.enableFallbackProbe === true;
+
+                            document.getElementById('fetchCachedMetadataPerVersion').checked = response?.fetchCachedMetadataPerVersion === true;
+                            document.getElementById('fetchAllNonCachedMetadata').checked = response?.fetchAllNonCachedMetadata === true;
+
+                            updateToggles(); // Initial state update
+
+                            console.log('[Baklava][Config] Loaded config:', response);
+                            return;
                         }
+
+                        const url = (window.ApiClient && window.ApiClient.getUrl) ? window.ApiClient.getUrl('api/baklava/config') : (window.location.origin + '/api/baklava/config');
+                        const res = await fetch(url, { credentials: 'same-origin' });
+                        if (!res.ok) throw new Error('Failed to load config');
+                        const json = await res.json();
+                        document.getElementById('tmdbApiKey').value = json.tmdbApiKey || '';
+                        document.getElementById('forceTVClientLocalSearch').checked = json.forceTVClientLocalSearch === true;
+                        document.getElementById('enableAutoImport').checked = json.enableAutoImport === true;
+                        document.getElementById('showReviewsCarousel').checked = json.showReviewsCarousel !== false;
+                        document.getElementById('versionUiSelect').value = json.versionUi || 'carousel';
+                        document.getElementById('audioUiSelect').value = json.audioUi || 'carousel';
+                        document.getElementById('subtitleUiSelect').value = json.subtitleUi || 'carousel';
+                        document.getElementById('debridServiceSelect').value = json.debridService || 'realdebrid';
+                        document.getElementById('debridApiKey').value = json.debridApiKey || '';
+                        document.getElementById('enableDebridMetadata').checked = json.enableDebridMetadata !== false;
+                        document.getElementById('enableFallbackProbe').checked = json.enableFallbackProbe === true;
+
+                        document.getElementById('fetchCachedMetadataPerVersion').checked = json.fetchCachedMetadataPerVersion === true;
+                        document.getElementById('fetchAllNonCachedMetadata').checked = json.fetchAllNonCachedMetadata === true;
+
+                        updateToggles(); // Initial state update
+
+                        console.log('[Baklava][Config] Loaded config:', json);
+                    } catch (e) {
+                        console.error('[Baklava][Config] Load error:', e);
                     }
+                }
 
-                    document.getElementById('saveConfigBtn').addEventListener('click', async () => {
-                        const key = document.getElementById('tmdbApiKey').value;
-                        const forceTVLocal = document.getElementById('forceTVClientLocalSearch').checked;
-                        const enableAutoImport = document.getElementById('enableAutoImport').checked;
-                        const showReviewsCarousel = document.getElementById('showReviewsCarousel').checked;
-                        const versionUi = document.getElementById('versionUiSelect').value || 'carousel';
-                        const audioUi = document.getElementById('audioUiSelect').value || 'carousel';
-                        const subtitleUi = document.getElementById('subtitleUiSelect').value || 'carousel';
 
-                        const configData = {
-                            tmdbApiKey: key,
-                            enableSearchFilter: false,
-                            forceTVClientLocalSearch: forceTVLocal,
-                            enableAutoImport: enableAutoImport,
-                            showReviewsCarousel: showReviewsCarousel,
-                            versionUi: versionUi,
-                            audioUi: audioUi,
-                            subtitleUi: subtitleUi
-                        };
+                function updateToggles() {
+                    const debridEnabled = document.getElementById('enableDebridMetadata').checked;
+                    const probeEnabled = document.getElementById('enableFallbackProbe').checked;
 
-                        try {
-                            // Prefer ApiClient.ajax which includes authentication and proper headers
-                            if (window.ApiClient && window.ApiClient.ajax) {
-                                const ajaxOpts = {
-                                    type: 'PUT',
-                                    url: window.ApiClient.getUrl('api/baklava/config'),
-                                    data: JSON.stringify(configData),
-                                    contentType: 'application/json'
-                                };
-                                const res = await window.ApiClient.ajax(ajaxOpts);
-                                console.log('[Baklava][Config] ApiClient.ajax PUT result:', res);
-                                // Some ApiClient implementations return Response-like objects
-                                if (res && ((res.status && res.status === 403) || (res.statusCode && res.statusCode === 403))) {
-                                    document.getElementById('configStatus').textContent = 'Forbidden: admin only';
-                                    return;
-                                }
-                                // If res is a Response-like object, check ok
-                                if (res && res.constructor && res.constructor.name === 'Response') {
-                                    if (!res.ok) {
-                                        document.getElementById('configStatus').textContent = 'Error saving configuration';
-                                        console.error('[Baklava][Config] PUT failed (Response):', res);
-                                        return;
-                                    }
-                                }
-                                // Update cached plugin config in page context so client code picks it up immediately
-                                try { if (window.MediaServerUI) window.MediaServerUI._pluginConfig = configData; } catch (e) { }
-                                document.getElementById('configStatus').textContent = 'Configuration saved successfully!';
-                                return;
-                            }
+                    const cachedToggle = document.getElementById('fetchCachedMetadataPerVersion');
+                    cachedToggle.disabled = !debridEnabled;
+                    if (!debridEnabled) cachedToggle.parentElement.style.opacity = '0.5';
+                    else cachedToggle.parentElement.style.opacity = '1';
 
-                            const url = (window.ApiClient && window.ApiClient.getUrl) ? window.ApiClient.getUrl('api/baklava/config') : (window.location.origin + '/api/baklava/config');
-                            const res = await fetch(url, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(configData),
-                                credentials: 'same-origin'
-                            });
-                            console.log('[Baklava][Config] fetch PUT result:', res);
-                            if (res.status === 403) {
+                    const nonCachedToggle = document.getElementById('fetchAllNonCachedMetadata');
+                    nonCachedToggle.disabled = !probeEnabled;
+                    if (!probeEnabled) nonCachedToggle.parentElement.style.opacity = '0.5';
+                    else nonCachedToggle.parentElement.style.opacity = '1';
+                }
+
+                document.getElementById('enableDebridMetadata').addEventListener('change', updateToggles);
+                document.getElementById('enableFallbackProbe').addEventListener('change', updateToggles);
+
+                document.getElementById('saveConfigBtn').addEventListener('click', async () => {
+                    const key = document.getElementById('tmdbApiKey').value;
+                    const forceTVLocal = document.getElementById('forceTVClientLocalSearch').checked;
+                    const enableAutoImport = document.getElementById('enableAutoImport').checked;
+                    const showReviewsCarousel = document.getElementById('showReviewsCarousel').checked;
+                    const fetchCachedMetadataPerVersion = document.getElementById('fetchCachedMetadataPerVersion').checked;
+                    const fetchAllNonCachedMetadata = document.getElementById('fetchAllNonCachedMetadata').checked;
+                    const versionUi = document.getElementById('versionUiSelect').value || 'carousel';
+                    const audioUi = document.getElementById('audioUiSelect').value || 'carousel';
+                    const subtitleUi = document.getElementById('subtitleUiSelect').value || 'carousel';
+                    const debridService = document.getElementById('debridServiceSelect').value || 'realdebrid';
+                    const debridApiKey = document.getElementById('debridApiKey').value || '';
+                    const enableDebridMetadata = document.getElementById('enableDebridMetadata').checked;
+                    const enableFallbackProbe = document.getElementById('enableFallbackProbe').checked;
+
+
+                    const configData = {
+                        tmdbApiKey: key,
+                        enableSearchFilter: false,
+                        forceTVClientLocalSearch: forceTVLocal,
+                        enableAutoImport: enableAutoImport,
+                        showReviewsCarousel: showReviewsCarousel,
+                        versionUi: versionUi,
+                        audioUi: audioUi,
+                        subtitleUi: subtitleUi,
+                        debridService: debridService,
+                        debridApiKey: debridApiKey,
+                        enableDebridMetadata: enableDebridMetadata,
+                        enableFallbackProbe: enableFallbackProbe,
+                        fetchCachedMetadataPerVersion: fetchCachedMetadataPerVersion,
+                        fetchAllNonCachedMetadata: fetchAllNonCachedMetadata
+                    };
+
+                    try {
+                        // Prefer ApiClient.ajax which includes authentication and proper headers
+                        if (window.ApiClient && window.ApiClient.ajax) {
+                            const ajaxOpts = {
+                                type: 'PUT',
+                                url: window.ApiClient.getUrl('api/baklava/config'),
+                                data: JSON.stringify(configData),
+                                contentType: 'application/json'
+                            };
+                            const res = await window.ApiClient.ajax(ajaxOpts);
+                            console.log('[Baklava][Config] ApiClient.ajax PUT result:', res);
+                            // Some ApiClient implementations return Response-like objects
+                            if (res && ((res.status && res.status === 403) || (res.statusCode && res.statusCode === 403))) {
                                 document.getElementById('configStatus').textContent = 'Forbidden: admin only';
                                 return;
                             }
-                            if (!res.ok) throw new Error('Save failed');
+                            // If res is a Response-like object, check ok
+                            if (res && res.constructor && res.constructor.name === 'Response') {
+                                if (!res.ok) {
+                                    document.getElementById('configStatus').textContent = 'Error saving configuration';
+                                    console.error('[Baklava][Config] PUT failed (Response):', res);
+                                    return;
+                                }
+                            }
+                            // Update cached plugin config in page context so client code picks it up immediately
                             try { if (window.MediaServerUI) window.MediaServerUI._pluginConfig = configData; } catch (e) { }
                             document.getElementById('configStatus').textContent = 'Configuration saved successfully!';
-                        } catch (err) {
-                            document.getElementById('configStatus').textContent = 'Error saving configuration';
-                            console.error('[Baklava][Config] Save error:', err);
+                            return;
                         }
-                    });
 
-                    loadConfig().catch(err => {
-                        console.error('[Baklava][Config] Failed to load config:', err);
-                    });
-                </script>
-            </div>
+                        const url = (window.ApiClient && window.ApiClient.getUrl) ? window.ApiClient.getUrl('api/baklava/config') : (window.location.origin + '/api/baklava/config');
+                        const res = await fetch(url, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(configData),
+                            credentials: 'same-origin'
+                        });
+                        console.log('[Baklava][Config] fetch PUT result:', res);
+                        if (res.status === 403) {
+                            document.getElementById('configStatus').textContent = 'Forbidden: admin only';
+                            return;
+                        }
+                        if (!res.ok) throw new Error('Save failed');
+                        try { if (window.MediaServerUI) window.MediaServerUI._pluginConfig = configData; } catch (e) { }
+                        document.getElementById('configStatus').textContent = 'Configuration saved successfully!';
+                    } catch (err) {
+                        document.getElementById('configStatus').textContent = 'Error saving configuration';
+                        console.error('[Baklava][Config] Save error:', err);
+                    }
+                });
+
+                loadConfig().catch(err => {
+                    console.error('[Baklava][Config] Failed to load config:', err);
+                });
+
+                // --- Cache Management Logic ---
+
+                async function loadCacheList() {
+                    const container = document.getElementById('cacheListContainer');
+                    container.innerHTML = '<div style="text-align: center; color: #888; padding: 10px;">Loading cache...</div>';
+
+                    try {
+                        const url = (window.ApiClient && window.ApiClient.getUrl) ? window.ApiClient.getUrl('api/baklava/metadata/cache') : (window.location.origin + '/api/baklava/metadata/cache');
+                        let items = [];
+
+                        if (window.ApiClient && window.ApiClient.ajax) {
+                            items = await window.ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' });
+                        } else {
+                            const res = await fetch(url);
+                            if (res.ok) items = await res.json();
+                        }
+
+                        if (!Array.isArray(items) || items.length === 0) {
+                            container.innerHTML = '<div style="text-align: center; color: #888; padding: 10px;">No cached items found.</div>';
+                            return;
+                        }
+
+                        container.innerHTML = '';
+                        items.forEach(item => {
+                            const row = document.createElement('div');
+                            row.style.display = 'flex';
+                            row.style.justifyContent = 'space-between';
+                            row.style.alignItems = 'center';
+                            row.style.padding = '8px';
+                            row.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+
+                            const info = document.createElement('div');
+                            var sizeText = (item.size / 1024).toFixed(1) + ' KB';
+                            info.innerHTML = '<strong style="color: #ddd; font-size: 14px;">' + (item.title || 'Unknown Title') + '</strong><br>' +
+                                '<span style="font-size: 11px; color: #888;">ID: ' + item.id + ' • Size: ' + sizeText + '</span>';
+
+                            const actions = document.createElement('div');
+                            actions.style.display = 'flex';
+                            actions.style.gap = '8px';
+
+                            const refreshBtn = document.createElement('button');
+                            refreshBtn.textContent = 'Refresh';
+                            refreshBtn.style.padding = '4px 8px';
+                            refreshBtn.style.background = '#1e90ff';
+                            refreshBtn.style.color = 'white';
+                            refreshBtn.style.border = 'none';
+                            refreshBtn.style.borderRadius = '3px';
+                            refreshBtn.style.cursor = 'pointer';
+                            refreshBtn.style.fontSize = '12px';
+                            refreshBtn.onclick = () => refreshCacheItem(item.id, refreshBtn);
+
+                            const deleteBtn = document.createElement('button');
+                            deleteBtn.textContent = 'Delete';
+                            deleteBtn.style.padding = '4px 8px';
+                            deleteBtn.style.background = '#e74c3c';
+                            deleteBtn.style.color = 'white';
+                            deleteBtn.style.border = 'none';
+                            deleteBtn.style.borderRadius = '3px';
+                            deleteBtn.style.cursor = 'pointer';
+                            deleteBtn.style.fontSize = '12px';
+                            deleteBtn.onclick = () => showSingleDeleteModal(item.id, item.title || 'Unknown Title');
+
+                            actions.appendChild(refreshBtn);
+                            actions.appendChild(deleteBtn);
+                            row.appendChild(info);
+                            row.appendChild(actions);
+                            container.appendChild(row);
+                        });
+
+                    } catch (e) {
+                        console.error('Failed to load cache list', e);
+                        container.innerHTML = '<div style="text-align: center; color: #e74c3c; padding: 10px;">Failed to load cache list. See console.</div>';
+                    }
+                }
+
+                async function deleteCacheItem(itemId) {
+                    try {
+                        const url = (window.ApiClient && window.ApiClient.getUrl)
+                            ? window.ApiClient.getUrl('api/baklava/metadata/cache/' + itemId)
+                            : (window.location.origin + '/api/baklava/metadata/cache/' + itemId);
+
+                        if (window.ApiClient && window.ApiClient.ajax) {
+                            await window.ApiClient.ajax({ type: 'DELETE', url: url });
+                        } else {
+                            await fetch(url, { method: 'DELETE' });
+                        }
+
+                        // Reload list
+                        loadCacheList();
+
+                    } catch (e) {
+                        console.error('Delete failed', e);
+                        // Show error details if available
+                        alert('Failed to delete item. ' + (e.message || 'Check console.'));
+                    }
+                }
+
+
+                async function refreshCacheItem(itemId, btn) {
+                    const originalText = btn.textContent;
+                    btn.textContent = '...';
+                    btn.disabled = true;
+
+                    try {
+                        const url = (window.ApiClient && window.ApiClient.getUrl)
+                            ? window.ApiClient.getUrl('api/baklava/metadata/cache/' + itemId + '/refresh')
+                            : (window.location.origin + '/api/baklava/metadata/cache/' + itemId + '/refresh');
+
+                        if (window.ApiClient && window.ApiClient.ajax) {
+                            await window.ApiClient.ajax({ type: 'POST', url: url });
+                        } else {
+                            await fetch(url, { method: 'POST' });
+                        }
+
+                        btn.textContent = 'Done!';
+                        setTimeout(() => {
+                            btn.textContent = originalText;
+                            btn.disabled = false;
+                            loadCacheList(); // Refresh metadata size/time
+                        }, 1000);
+                    } catch (e) {
+                        console.error('Refresh failed', e);
+                        btn.textContent = 'Err';
+                        btn.style.background = '#555';
+                        alert('Failed to refresh item. Check console.');
+                    }
+                }
+
+                // Modal Logic
+                const modal = document.getElementById('deleteConfirmModal');
+                const clearBtn = document.getElementById('clearAllCacheBtn');
+                const cancelBtn = document.getElementById('cancelDeleteBtn');
+                const confirmBtn = document.getElementById('confirmDeleteBtn');
+
+                clearBtn.onclick = () => { modal.style.display = 'flex'; };
+                cancelBtn.onclick = () => { modal.style.display = 'none'; };
+
+                confirmBtn.onclick = async () => {
+                    modal.style.display = 'none';
+                    confirmBtn.textContent = 'Deleting...';
+                    try {
+                        const url = (window.ApiClient && window.ApiClient.getUrl)
+                            ? window.ApiClient.getUrl(`api/baklava/metadata/cache`)
+                            : (window.location.origin + `/api/baklava/metadata/cache`);
+
+                        if (window.ApiClient && window.ApiClient.ajax) {
+                            await window.ApiClient.ajax({ type: 'DELETE', url: url });
+                        } else {
+                            await fetch(url, { method: 'DELETE' });
+                        }
+
+                        loadCacheList();
+                    } catch (e) {
+                        console.error('Delete All failed', e);
+                        alert('Failed to delete all items.');
+                    } finally {
+                        confirmBtn.textContent = 'Yes, Delete All';
+                    }
+                };
+
+                // Single Delete Modal Logic
+                const singleModal = document.getElementById('deleteSingleModal');
+                const cancelSingleBtn = document.getElementById('cancelSingleDeleteBtn');
+                const confirmSingleBtn = document.getElementById('confirmSingleDeleteBtn');
+                let currentDeleteId = null;
+
+                function showSingleDeleteModal(id, title) {
+                    currentDeleteId = id;
+                    const textEl = document.getElementById('deleteSingleText');
+                    textEl.innerHTML = 'Are you sure you want to delete cached metadata for <strong>' + (title || 'Unknown') + '</strong>?<br><br>' +
+                        'This will also attempt to delete the download from your Debrid provider.';
+                    singleModal.style.display = 'flex';
+                }
+
+                cancelSingleBtn.onclick = () => {
+                    singleModal.style.display = 'none';
+                    currentDeleteId = null;
+                };
+
+                confirmSingleBtn.onclick = async () => {
+                    if (!currentDeleteId) return;
+                    confirmSingleBtn.disabled = true;
+                    confirmSingleBtn.textContent = 'Deleting...';
+
+                    await deleteCacheItem(currentDeleteId);
+
+                    singleModal.style.display = 'none';
+                    confirmSingleBtn.disabled = false;
+                    confirmSingleBtn.textContent = 'Delete';
+                    currentDeleteId = null;
+                };
+
+                // Load cache list on startup
+                loadCacheList();
+            </script>
         </div>
+    </div>
     </div>
 
     <script type="text/javascript">

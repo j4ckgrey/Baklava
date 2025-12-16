@@ -6,14 +6,21 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Concurrent;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Querying;
+using MediaBrowser.Model.MediaInfo;
+using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Session;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using System.Security.Claims;
+using MediaBrowser.Common.Configuration;
+using Baklava.Helpers;
 
 #nullable enable
 namespace Baklava.Api
@@ -27,27 +34,39 @@ namespace Baklava.Api
         private readonly ILibraryManager _libraryManager;
         private readonly IMediaSourceManager _mediaSourceManager;
         private readonly IUserManager _userManager;
+        private readonly ISessionManager _sessionManager;
+        private readonly IApplicationPaths _appPaths;
+
+        // Concurrency Lock for Item Cache Files
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new();
+        private SemaphoreSlim GetItemLock(string itemId) => _fileLocks.GetOrAdd(itemId, _ => new SemaphoreSlim(1, 1));
+        
+        // Cache for resolved Debrid IDs to avoid spamming the /downloads endpoint
+        private static readonly ConcurrentDictionary<string, string> _idCache = new();
         private const string TMDB_BASE = "https://api.themoviedb.org/3";
         
-        // Simple in-memory cache (consider using IMemoryCache for production)
+        // Simple in-memory cache
         private static readonly Dictionary<string, (DateTime Expiry, string Data)> _cache = new();
-        private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromMinutes(1);
+        private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromMinutes(10);
 
         public MetadataController(
             ILogger<MetadataController> logger, 
             ILibraryManager libraryManager, 
             IMediaSourceManager mediaSourceManager,
-            IUserManager userManager)
+            IUserManager userManager,
+            ISessionManager sessionManager,
+            IApplicationPaths appPaths) // Added
         {
             _logger = logger;
             _libraryManager = libraryManager;
             _mediaSourceManager = mediaSourceManager;
             _userManager = userManager;
+            _sessionManager = sessionManager;
+            _appPaths = appPaths;
         }
 
-        /// <summary>
-        /// Get comprehensive TMDB metadata (replaces multiple JS calls with one endpoint)
-        /// </summary>
+        #region TMDB Metadata
+
         [HttpGet("tmdb")]
         public async Task<ActionResult> GetTMDBMetadata(
             [FromQuery] string? tmdbId,
@@ -58,125 +77,59 @@ namespace Baklava.Api
             [FromQuery] bool includeCredits = true,
             [FromQuery] bool includeReviews = true)
         {
-            _logger.LogInformation("[MetadataController.GetTMDBMetadata] Called with: tmdbId={TmdbId}, imdbId={ImdbId}, itemType={ItemType}, title={Title}, year={Year}", 
-                tmdbId ?? "null", imdbId ?? "null", itemType ?? "null", title ?? "null", year ?? "null");
-            
             try
             {
                 var cfg = Plugin.Instance?.Configuration;
                 var apiKey = cfg?.TmdbApiKey;
                 if (string.IsNullOrEmpty(apiKey))
-                {
-                    _logger.LogError("[MetadataController.GetTMDBMetadata] TMDB API key not configured");
                     return BadRequest(new { error = "TMDB API key not configured" });
-                }
 
                 var mediaType = (itemType == "series" || itemType == "tv") ? "tv" : "movie";
-                _logger.LogInformation("[MetadataController.GetTMDBMetadata] Using mediaType: {MediaType}", mediaType);
-                
                 JsonDocument? mainData = null;
 
-                // Try TMDB ID first
+                // 1. Try TMDB ID
                 if (!string.IsNullOrEmpty(tmdbId))
                 {
-                    _logger.LogInformation("[MetadataController.GetTMDBMetadata] Trying TMDB ID: {TmdbId}", tmdbId);
                     mainData = await FetchTMDBAsync($"/{mediaType}/{tmdbId}", apiKey);
-                    if (mainData != null)
-                    {
-                        _logger.LogInformation("[MetadataController.GetTMDBMetadata] Found via TMDB ID");
-                        return await BuildCompleteResponse(mainData, mediaType, apiKey, includeCredits, includeReviews);
-                    }
                 }
 
-                // Try IMDB ID via find endpoint
-                if (!string.IsNullOrEmpty(imdbId))
+                // 2. Try IMDB ID
+                if (mainData == null && !string.IsNullOrEmpty(imdbId))
                 {
-                    _logger.LogInformation("[MetadataController.GetTMDBMetadata] Trying IMDB ID: {ImdbId}", imdbId);
-                    var findResult = await FetchTMDBAsync($"/find/{imdbId}", apiKey, new Dictionary<string, string>
-                    {
-                        { "external_source", "imdb_id" }
-                    });
-
+                    var findResult = await FetchTMDBAsync($"/find/{imdbId}", apiKey, new Dictionary<string, string> { { "external_source", "imdb_id" } });
                     if (findResult != null)
                     {
                         var root = findResult.RootElement;
                         JsonElement results = default;
-                        
-                        if ((itemType == "series" || itemType == "tv") && root.TryGetProperty("tv_results", out var tvResults) && tvResults.GetArrayLength() > 0)
-                        {
-                            _logger.LogInformation("[MetadataController.GetTMDBMetadata] Found in tv_results");
+                        if (mediaType == "tv" && root.TryGetProperty("tv_results", out var tvResults) && tvResults.GetArrayLength() > 0)
                             results = tvResults[0];
-                        }
                         else if (root.TryGetProperty("movie_results", out var movieResults) && movieResults.GetArrayLength() > 0)
-                        {
-                            _logger.LogInformation("[MetadataController.GetTMDBMetadata] Found in movie_results");
                             results = movieResults[0];
-                        }
 
                         if (results.ValueKind != JsonValueKind.Undefined)
                         {
-                            var resultTmdbId = results.GetProperty("id").GetInt32().ToString();
-                            _logger.LogInformation("[MetadataController.GetTMDBMetadata] Extracted TMDB ID from IMDB lookup: {ResultTmdbId}", resultTmdbId);
-                            mainData = await FetchTMDBAsync($"/{mediaType}/{resultTmdbId}", apiKey);
-                            if (mainData != null)
-                            {
-                                return await BuildCompleteResponse(mainData, mediaType, apiKey, includeCredits, includeReviews);
-                            }
+                            var id = results.GetProperty("id").GetInt32().ToString();
+                            mainData = await FetchTMDBAsync($"/{mediaType}/{id}", apiKey);
                         }
                     }
                 }
 
-                // Fallback: Search by title
-                if (!string.IsNullOrEmpty(title))
+                // 3. Fallback: Search by title
+                if (mainData == null && !string.IsNullOrEmpty(title))
                 {
-                    _logger.LogInformation("[MetadataController.GetTMDBMetadata] Fallback to title search: {Title}", title);
-                    var searchParams = new Dictionary<string, string> { { "query", title } };
-                    if (!string.IsNullOrEmpty(year))
+                    mainData = await SearchTMDBAsync(title, year, mediaType, apiKey);
+                    // Try alternate type if failed (movie vs tv)
+                    if (mainData == null)
                     {
-                        searchParams[(itemType == "series" || itemType == "tv") ? "first_air_date_year" : "year"] = year;
+                        var altType = mediaType == "tv" ? "movie" : "tv";
+                        mainData = await SearchTMDBAsync(title, year, altType, apiKey);
+                        if (mainData != null) mediaType = altType;
                     }
+                }
 
-                    var searchResult = await FetchTMDBAsync($"/search/{mediaType}", apiKey, searchParams);
-                    if (searchResult != null)
-                    {
-                        var root = searchResult.RootElement;
-                        if (root.TryGetProperty("results", out var results) && results.GetArrayLength() > 0)
-                        {
-                            var firstResult = results[0];
-                            var resultTmdbId = firstResult.GetProperty("id").GetInt32().ToString();
-                            _logger.LogInformation("[MetadataController.GetTMDBMetadata] Found via title search, TMDB ID: {ResultTmdbId}", resultTmdbId);
-                            mainData = await FetchTMDBAsync($"/{mediaType}/{resultTmdbId}", apiKey);
-                            if (mainData != null)
-                            {
-                                return await BuildCompleteResponse(mainData, mediaType, apiKey, includeCredits, includeReviews);
-                            }
-                        }
-                    }
-
-                    // Try alternate type if primary search failed
-                    _logger.LogInformation("[MetadataController.GetTMDBMetadata] Primary search failed, trying alternate type");
-                    var altMediaType = (itemType == "series" || itemType == "tv") ? "movie" : "tv";
-                    var altSearchParams = new Dictionary<string, string> { { "query", title } };
-                    if (!string.IsNullOrEmpty(year))
-                    {
-                        altSearchParams[altMediaType == "tv" ? "first_air_date_year" : "year"] = year;
-                    }
-
-                    var altSearchResult = await FetchTMDBAsync($"/search/{altMediaType}", apiKey, altSearchParams);
-                    if (altSearchResult != null)
-                    {
-                        var root = altSearchResult.RootElement;
-                        if (root.TryGetProperty("results", out var results) && results.GetArrayLength() > 0)
-                        {
-                            var firstResult = results[0];
-                            var resultTmdbId = firstResult.GetProperty("id").GetInt32().ToString();
-                            mainData = await FetchTMDBAsync($"/{altMediaType}/{resultTmdbId}", apiKey);
-                            if (mainData != null)
-                            {
-                                return await BuildCompleteResponse(mainData, altMediaType, apiKey, includeCredits, includeReviews);
-                            }
-                        }
-                    }
+                if (mainData != null)
+                {
+                    return await BuildCompleteResponse(mainData, mediaType, apiKey, includeCredits, includeReviews);
                 }
 
                 return NotFound(new { error = "No metadata found" });
@@ -188,404 +141,1353 @@ namespace Baklava.Api
             }
         }
 
-        /// <summary>
-        /// Check if item is in library and/or requested (replaces library-status.js logic)
-        /// </summary>
+        private async Task<JsonDocument?> SearchTMDBAsync(string title, string? year, string mediaType, string apiKey)
+        {
+            var searchParams = new Dictionary<string, string> { { "query", title } };
+            if (!string.IsNullOrEmpty(year))
+                searchParams[mediaType == "tv" ? "first_air_date_year" : "year"] = year;
+
+            var searchResult = await FetchTMDBAsync($"/search/{mediaType}", apiKey, searchParams);
+            if (searchResult?.RootElement.TryGetProperty("results", out var results) == true && results.GetArrayLength() > 0)
+            {
+                var id = results[0].GetProperty("id").GetInt32().ToString();
+                return await FetchTMDBAsync($"/{mediaType}/{id}", apiKey);
+            }
+            return null;
+        }
+
+        [HttpGet("external-ids")]
+        public async Task<ActionResult> GetExternalIds([FromQuery] string tmdbId, [FromQuery] string mediaType)
+        {
+            var apiKey = Plugin.Instance?.Configuration?.TmdbApiKey;
+            if (string.IsNullOrEmpty(apiKey)) return BadRequest(new { error = "TMDB API key not configured" });
+
+            var result = await FetchTMDBAsync($"/{mediaType}/{tmdbId}/external_ids", apiKey);
+            return result != null ? Content(result.RootElement.GetRawText(), "application/json") : NotFound(new { error = "External IDs not found" });
+        }
+
+        #endregion
+
+        #region Library Status
+
         [HttpGet("library-status")]
         public ActionResult CheckLibraryStatus(
-            [FromQuery] string? imdbId,
-            [FromQuery] string? tmdbId,
-            [FromQuery] string itemType,
-            [FromQuery] string? jellyfinId)
+            [FromQuery] string? imdbId, [FromQuery] string? tmdbId,
+            [FromQuery] string itemType, [FromQuery] string? jellyfinId)
         {
-            _logger.LogInformation("[MetadataController.CheckLibraryStatus] Called with: imdbId={ImdbId}, tmdbId={TmdbId}, itemType={ItemType}, jellyfinId={JellyfinId}",
-                imdbId ?? "null", tmdbId ?? "null", itemType ?? "null", jellyfinId ?? "null");
-            
-            // Check inputs and proceed
             try
             {
-                // Allow jellyfinId alone if provided
                 if (string.IsNullOrEmpty(imdbId) && string.IsNullOrEmpty(tmdbId) && string.IsNullOrEmpty(jellyfinId))
-                {
-                    _logger.LogWarning("[MetadataController.CheckLibraryStatus] No IDs provided");
-                    return BadRequest(new { error = "Either imdbId, tmdbId, or jellyfinId is required" });
-                }
+                    return BadRequest(new { error = "One ID is required" });
 
-                // Check if in library by querying all items and checking provider IDs
-                // This is faster than JS fetching all 5000 items to the client!
-                var inLibrary = false;
-                string? foundImdbId = imdbId;
-                string? foundTmdbId = tmdbId;
+                bool inLibrary = false;
                 
-                try
+                // 1. Check by Jellyfin ID directly
+                if (!string.IsNullOrEmpty(jellyfinId) && Guid.TryParse(jellyfinId, out var guid))
                 {
-                    // If a direct Jellyfin item id is provided, prefer that fast path
-                    if (!string.IsNullOrEmpty(jellyfinId) && Guid.TryParse(jellyfinId, out var jfGuid))
+                    var item = _libraryManager.GetItemById(guid);
+                    if (item != null)
                     {
-                        var itemById = _libraryManager.GetItemById(jfGuid);
-                        if (itemById != null)
-                        {
-                            // Ensure matching type if itemType provided
-                            var itemTypeName = itemById.GetType().Name;
-                            if (((itemType == "series" || itemType == "tv") && itemTypeName == "Series") || (itemType == "movie" && itemTypeName == "Movie") || string.IsNullOrEmpty(itemType))
-                            {
-                                inLibrary = true;
-                                
-                                _logger.LogInformation("[MetadataController.CheckLibraryStatus] Found item in library by JellyfinId: {Id}, type: {Type}",
-                                    jellyfinId, itemTypeName);
-                                
-                                // Extract provider IDs for request checking
-                                if (itemById.ProviderIds != null)
-                                {
-                                    itemById.ProviderIds.TryGetValue("Imdb", out foundImdbId);
-                                    itemById.ProviderIds.TryGetValue("Tmdb", out foundTmdbId);
-                                    
-                                    _logger.LogInformation("[MetadataController.CheckLibraryStatus] Extracted provider IDs: imdb={Imdb}, tmdb={Tmdb}",
-                                        foundImdbId ?? "null", foundTmdbId ?? "null");
-                                }
-                            }
-                        }
-                        else
-                        {
-                            _logger.LogInformation("[MetadataController.CheckLibraryStatus] JellyfinId {Id} not found in library - item may have been deleted, falling back to TMDB/IMDB check",
-                                jellyfinId);
-                        }
-                    }
-
-                    // If not found by JellyfinId (or no JellyfinId provided), search by TMDB/IMDB ID
-                    if (!inLibrary && (!string.IsNullOrEmpty(imdbId) || !string.IsNullOrEmpty(tmdbId)))
-                    {
-                        _logger.LogInformation("[MetadataController.CheckLibraryStatus] Searching library by TMDB/IMDB ID: tmdb={Tmdb}, imdb={Imdb}",
-                            tmdbId ?? "null", imdbId ?? "null");
-
-                        // Build query with type filter to avoid deserialization errors with unknown types
-                        var query = new InternalItemsQuery
-                        {
-                            Recursive = true
-                        };
-
-                        // Filter by type at the query level to prevent Jellyfin from trying to deserialize unknown types
-                        if (itemType == "series" || itemType == "tv")
-                        {
-                            query.IncludeItemTypes = new[] { BaseItemKind.Series };
-                        }
-                        else if (itemType == "movie")
-                        {
-                            query.IncludeItemTypes = new[] { BaseItemKind.Movie };
-                        }
-
-                        var allItems = _libraryManager.GetItemList(query);
-
-                        var foundItem = allItems.FirstOrDefault(item =>
-                        {
-                            var providerIds = item.ProviderIds;
-                            if (providerIds == null) return false;
-
-                            if (imdbId != null && providerIds.TryGetValue("Imdb", out var itemImdb) && itemImdb == imdbId)
-                                return true;
-                            if (tmdbId != null && providerIds.TryGetValue("Tmdb", out var itemTmdb) && itemTmdb == tmdbId)
-                                return true;
-
-                            return false;
-                        });
-
-                        if (foundItem != null)
-                        {
-                            inLibrary = true;
-                            // Store the Jellyfin ID so we can return it
-                            jellyfinId = foundItem.Id.ToString();
-                            _logger.LogInformation("[MetadataController.CheckLibraryStatus] Found item in library by TMDB/IMDB ID: {JellyfinId}", jellyfinId);
-
-                            // Extract provider IDs from found item (may fill in missing IDs)
-                            if (foundItem.ProviderIds != null)
-                            {
-                                if (string.IsNullOrEmpty(foundImdbId))
-                                    foundItem.ProviderIds.TryGetValue("Imdb", out foundImdbId);
-                                if (string.IsNullOrEmpty(foundTmdbId))
-                                    foundItem.ProviderIds.TryGetValue("Tmdb", out foundTmdbId);
-
-                                _logger.LogInformation("[MetadataController.CheckLibraryStatus] Extracted provider IDs: imdb={Imdb}, tmdb={Tmdb}",
-                                    foundImdbId ?? "null", foundTmdbId ?? "null");
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[MetadataController] Error querying library items");
-                    // Fallback - just check requests
-                }
-
-                                // Check if requested using the found IDs (use foundImdbId/foundTmdbId if we extracted them from Jellyfin item)
-                var config = Plugin.Instance?.Configuration;
-                var requests = config?.Requests ?? new List<MediaRequest>();
-                
-                _logger.LogInformation("[MetadataController.CheckLibraryStatus] Checking {Count} requests with foundImdbId={FoundImdb}, foundTmdbId={FoundTmdb}, jellyfinId={JfId}, inLibrary={InLib}",
-                    requests.Count, foundImdbId ?? "null", foundTmdbId ?? "null", jellyfinId ?? "null", inLibrary);
-                
-                // Match by TMDB/IMDB ID first (more reliable), then by JellyfinId ONLY if item is still in library
-                var existingRequest = requests.FirstOrDefault(r =>
-                    r.ItemType == itemType &&
-                    (
-                        // Prefer matching by TMDB/IMDB IDs (these are stable even if item is deleted/re-added)
-                        ((foundImdbId != null && !string.IsNullOrEmpty(r.ImdbId) && r.ImdbId == foundImdbId) || 
-                         (foundTmdbId != null && !string.IsNullOrEmpty(r.TmdbId) && r.TmdbId == foundTmdbId)) ||
-                        // Only match by JellyfinId if the item is currently in the library
-                        // (prevents false matches when item was deleted but request still has old JellyfinId)
-                        (inLibrary && !string.IsNullOrEmpty(jellyfinId) && !string.IsNullOrEmpty(r.JellyfinId) && r.JellyfinId == jellyfinId)
-                    )
-                );
-                
-                if (existingRequest != null)
-                {
-                    _logger.LogInformation("[MetadataController.CheckLibraryStatus] Found existing request: id={Id}, status={Status}, imdbId={Imdb}, tmdbId={Tmdb}",
-                        existingRequest.Id, existingRequest.Status, existingRequest.ImdbId ?? "null", existingRequest.TmdbId ?? "null");
-                }
-                else
-                {
-                    _logger.LogInformation("[MetadataController.CheckLibraryStatus] No existing request found");
-                }
-
-                // Look up the actual username from userId if request exists
-                string actualUsername = null;
-                if (existingRequest != null && !string.IsNullOrEmpty(existingRequest.UserId))
-                {
-                    try
-                    {
-                        var userId = Guid.Parse(existingRequest.UserId);
-                        var user = _userManager.GetUserById(userId);
-                        actualUsername = user?.Username ?? existingRequest.Username;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "[MetadataController] Could not look up username for userId {UserId}", existingRequest.UserId);
-                        actualUsername = existingRequest.Username;
+                        inLibrary = true;
+                        imdbId ??= item.GetProviderId("Imdb");
+                        tmdbId ??= item.GetProviderId("Tmdb");
                     }
                 }
 
-                _logger.LogInformation("[MetadataController.CheckLibraryStatus] Returning: inLibrary={InLib}, hasRequest={HasReq}, jellyfinId={JfId}",
-                    inLibrary, existingRequest != null, jellyfinId ?? "null");
+                // 2. Check by Provider IDs if not found yet
+                if (!inLibrary && (!string.IsNullOrEmpty(imdbId) || !string.IsNullOrEmpty(tmdbId)))
+                {
+                    var query = new InternalItemsQuery { Recursive = true };
+                    query.IncludeItemTypes = itemType switch 
+                    { 
+                        "series" or "tv" => new[] { BaseItemKind.Series },
+                        "movie" => new[] { BaseItemKind.Movie },
+                        _ => null 
+                    };
+
+                    var items = _libraryManager.GetItemList(query);
+                    var found = items.FirstOrDefault(i => 
+                        (imdbId != null && i.GetProviderId("Imdb") == imdbId) || 
+                        (tmdbId != null && i.GetProviderId("Tmdb") == tmdbId));
+
+                    if (found != null)
+                    {
+                        inLibrary = true;
+                        jellyfinId = found.Id.ToString();
+                        imdbId ??= found.GetProviderId("Imdb");
+                        tmdbId ??= found.GetProviderId("Tmdb");
+                    }
+                }
+
+                // 3. Check Requests
+                var requests = Plugin.Instance?.Configuration?.Requests ?? new List<MediaRequest>();
+                var request = requests.FirstOrDefault(r => 
+                    r.ItemType == itemType && (
+                        (imdbId != null && r.ImdbId == imdbId) ||
+                        (tmdbId != null && r.TmdbId == tmdbId) ||
+                        (inLibrary && jellyfinId != null && r.JellyfinId == jellyfinId)
+                    ));
+
+                string? username = null;
+                if (request?.UserId != null && Guid.TryParse(request.UserId, out var uid))
+                {
+                    username = _userManager.GetUserById(uid)?.Username;
+                }
 
                 return Ok(new
                 {
                     inLibrary,
                     jellyfinId,
-                    existingRequest = existingRequest != null ? new
-                    {
-                        id = existingRequest.Id,
-                        status = existingRequest.Status,
-                        username = actualUsername ?? existingRequest.Username,
-                        title = existingRequest.Title
+                    existingRequest = request != null ? new { 
+                        id = request.Id, 
+                        status = request.Status, 
+                        username = username ?? request.Username, 
+                        title = request.Title 
                     } : null
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[MetadataController] Error checking library status");
+                _logger.LogError(ex, "Error checking library status");
                 return StatusCode(500, new { error = "Internal server error" });
             }
         }
 
-        /// <summary>
-        /// Get external IDs for a TMDB item
-        /// </summary>
-        [HttpGet("external-ids")]
-        public async Task<ActionResult> GetExternalIds(
-            [FromQuery] string tmdbId,
-            [FromQuery] string mediaType)
-        {
+        #endregion
 
-            try
-            {
-                var cfg = Plugin.Instance?.Configuration;
-                var apiKey = cfg?.TmdbApiKey;
-                if (string.IsNullOrEmpty(apiKey))
-                {
-                    return BadRequest(new { error = "TMDB API key not configured" });
-                }
+        #region Media Streams
 
-                var result = await FetchTMDBAsync($"/{mediaType}/{tmdbId}/external_ids", apiKey);
-                if (result != null)
-                {
-                    return Content(result.RootElement.GetRawText(), "application/json");
-                }
-
-                return NotFound(new { error = "External IDs not found" });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[MetadataController] Error getting external IDs");
-                return StatusCode(500, new { error = "Internal server error" });
-            }
-        }
-
-        /// <summary>
-        /// Get media streams (audio/subtitle tracks) for an item
-        /// This proxies Jellyfin's PlaybackInfo endpoint with optimizations
-        /// </summary>
         [HttpGet("streams")]
-        public async Task<ActionResult> GetMediaStreams(
-            [FromQuery] string itemId,
-            [FromQuery] string? mediaSourceId)
+        public async Task<ActionResult> GetMediaStreams([FromQuery] string itemId, [FromQuery] string? mediaSourceId)
         {
-            if (string.IsNullOrEmpty(itemId))
+            if (!Guid.TryParse(itemId, out var guid)) return BadRequest(new { error = "Invalid itemId" });
+            
+            var item = _libraryManager.GetItemById(guid);
+            if (item == null) return NotFound(new { error = "Item not found" });
+
+            // 1. Get Jellyfin Media Sources
+            _logger.LogInformation("[Baklava] GetMediaStreams called for ItemId: {ItemId}", itemId);
+            
+            var sources = _mediaSourceManager.GetStaticMediaSources(item, false); 
+            // Filter stub sources
+            var validSources = sources.Where(ms => !ms.Path?.StartsWith("gelato://stub/") ?? true).ToList();
+
+            var targetSource = (!string.IsNullOrEmpty(mediaSourceId) ? validSources.FirstOrDefault(s => s.Id == mediaSourceId) : validSources.FirstOrDefault()) 
+                               ?? validSources.FirstOrDefault();
+
+            // FALLBACK: If we only have invalid/stub sources, use the first one just to return valid JSON (empty streams)
+            // instead of 404, which might break the UI for newly imported items.
+            if (targetSource == null && sources.Count > 0)
             {
-                return BadRequest(new { error = "itemId is required" });
+                 targetSource = sources.FirstOrDefault();
+                 _logger.LogWarning("[Baklava] Only stub/invalid sources found for ItemId: {ItemId}. Using stub source to prevent 404.", itemId);
             }
 
-            if (!Guid.TryParse(itemId, out var itemGuid))
+            if (targetSource == null) 
             {
-                return BadRequest(new { error = "Invalid itemId format" });
-            }
-
-            var item = _libraryManager.GetItemById(itemGuid);
-            if (item == null)
-            {
-                return NotFound(new { error = "Item not found" });
-            }
-
-            // Get media sources without probing to avoid triggering ffprobe on newly created Gelato streams
-            // Probing will be handled by Gelato's decorator when streams are actually ready for playback
-            var mediaSourceResult = await _mediaSourceManager.GetPlaybackMediaSources(item, null, false, true, CancellationToken.None);
-            var mediaSources = mediaSourceResult.ToList();
-
-            _logger.LogInformation("[MetadataController.GetMediaStreams] Found {Count} media sources for item {ItemId}", mediaSources.Count, itemId);
-            foreach (var ms in mediaSources)
-            {
-                _logger.LogInformation("[MetadataController.GetMediaStreams] MediaSource: Id={Id}, Name={Name}, Protocol={Protocol}, Path={Path}, Container={Container}, SupportsDirectStream={SupportsDirectStream}, SupportsTranscoding={SupportsTranscoding}",
-                    ms.Id, ms.Name, ms.Protocol, ms.Path ?? "null", ms.Container ?? "null", ms.SupportsDirectStream, ms.SupportsTranscoding);
-            }
-
-            if (mediaSources.Count == 0)
-            {
+                _logger.LogWarning("[Baklava] No valid media sources found for ItemId: {ItemId}", itemId);
                 return NotFound(new { error = "No media sources found" });
             }
 
-            // Select the target media source (by ID or first available)
-            var targetSource = !string.IsNullOrEmpty(mediaSourceId)
-                ? mediaSources.FirstOrDefault(ms => ms.Id == mediaSourceId)
-                : mediaSources.FirstOrDefault();
+            _logger.LogInformation("[Baklava] Using MediaSource: {SourceId} Path: {Path}", targetSource.Id, targetSource.Path);
 
-            if (targetSource == null)
+            // 2. Extract Streams from Source
+            var audioStreams = new List<StreamDto>();
+            var subStreams = new List<StreamDto>();
+
+            if (targetSource.MediaStreams != null)
             {
-                return NotFound(new { error = "Media source not found" });
+                audioStreams.AddRange(targetSource.MediaStreams
+                    .Where(s => s.Type == MediaStreamType.Audio)
+                    .Select(MapStream));
+                    
+                subStreams.AddRange(targetSource.MediaStreams
+                    .Where(s => s.Type == MediaStreamType.Subtitle)
+                    .Select(MapSubStream));
             }
+            
+            _logger.LogInformation("[Baklava] Initial Streams - Audio: {AudioCount}, Subs: {SubCount}", audioStreams.Count, subStreams.Count);
 
-            // Extract audio and subtitle streams
-            var streams = targetSource.MediaStreams ?? new List<MediaBrowser.Model.Entities.MediaStream>();
-            var hasStreams = streams.Any();
+            // 3. Optional: Fetch Debrid Metadata (if enabled and no streams)
+            var config = Plugin.Instance?.Configuration;
+            bool isDebridEnabled = config?.EnableDebridMetadata ?? false;
+            bool isProbingEnabled = config?.EnableFallbackProbe ?? false;
+            bool isHttp = targetSource.Protocol == MediaProtocol.Http;
+            bool hasPath = !string.IsNullOrEmpty(targetSource.Path);
 
-            var audioDtos = streams
-                .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Audio)
-                .Select(s => new AudioStreamDto
-                {
-                    Index = s.Index,
-                    Title = BuildStreamTitle(s),
-                    Language = s.Language,
-                    Codec = s.Codec,
-                    Channels = s.Channels,
-                    Bitrate = s.BitRate.HasValue ? (long?)s.BitRate.Value : null
-                })
-                .ToList();
+            // Capture User ID for notification
+            Guid userId = Guid.Empty;
+            var claim = User?.FindFirst(ClaimTypes.NameIdentifier);
+            if (claim != null) Guid.TryParse(claim.Value, out userId);
 
-            var subtitleDtos = streams
-                .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle)
-                .Select(s => new SubtitleStreamDto
-                {
-                    Index = s.Index,
-                    Title = BuildStreamTitle(s),
-                    Language = s.Language,
-                    Codec = s.Codec,
-                    IsForced = s.IsForced,
-                    IsDefault = s.IsDefault
-                })
-                .ToList();
-
-            // Lightweight ffprobe fallback ONLY if:
-            // 1. No streams were found at all
-            // 2. Source is HTTP (external, not local file)
-            // 3. Path is valid
-            // Skip for newly synced Gelato streams to avoid probe failures
-            if (!hasStreams && 
-                targetSource.Protocol == MediaBrowser.Model.MediaInfo.MediaProtocol.Http &&
-                !string.IsNullOrEmpty(targetSource.Path) &&
-                targetSource.RunTimeTicks.HasValue && targetSource.RunTimeTicks > 0)
+            // BATCH PREFETCH: Fire and forget metadata fetch for all other sources to populate cache
+            if (isDebridEnabled && !config.FetchCachedMetadataPerVersion)
             {
-                _logger.LogWarning("[MetadataController.GetMediaStreams] Running ffprobe fallback for URL: {Url}", targetSource.Path);
-                try
+                _ = Task.Run(async () => 
                 {
-                    var probe = await RunFfprobeAsync(targetSource.Path);
-                    if (probe != null)
+                    var total = 0;
+                    var cached = 0;
+                    var newFetched = 0;
+                    var failed = 0;
+
+                    foreach (var s in validSources)
                     {
-                        audioDtos.AddRange(probe.Audio.Select(a => new AudioStreamDto
+                        if (s.Id == targetSource.Id) continue; // Skip current
+                        if (string.IsNullOrEmpty(s.Path)) continue;
+                
+                        total++;
+                        // Only allow magnet revival (fetching non-cached) if explicitly enabled
+                        var res = await FetchDebridMetadataAsync(item, s.Path, allowMagnetRevival: config.FetchAllNonCachedMetadata);
+                        if (res.HasValue) 
                         {
-                            Index = a.Index,
-                            Title = a.Title ?? $"Audio {a.Index}",
-                            Language = a.Language,
-                            Codec = a.Codec,
-                            Channels = a.Channels,
-                            Bitrate = a.Bitrate
-                        }));
-
-                        subtitleDtos.AddRange(probe.Subtitles.Select(s => new SubtitleStreamDto
+                            if (res.Value.IsCached) cached++; else newFetched++;
+                        }
+                        else
                         {
-                            Index = s.Index,
-                            Title = s.Title ?? $"Subtitle {s.Index}",
-                            Language = s.Language,
-                            Codec = s.Codec,
-                            IsForced = s.IsForced,
-                            IsDefault = s.IsDefault
-                        }));
+                            failed++;
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "[MetadataController] ffprobe fallback failed for {Path}", targetSource.Path);
-                }
+                    if (total > 0) 
+                    {
+                        _logger.LogInformation("[Baklava] Background Prefetch Summary for {ItemId}: Processed {Total} sources. Cached: {Cached}. New: {New}. Failed/Unresolvable: {Failed}. User: {UserId}", itemId, total, cached, newFetched, failed, userId);
+                        
+                        // Notify User via WebSocket
+                        /* Build fix: SendWebSocketMessage signature mismatch. Disabling temporarily to deploy critical fixes.
+                        if (userId != Guid.Empty)
+                        {
+                            try 
+                            {
+                                var msgData = new 
+                                { 
+                                    ItemId = itemId,
+                                    Total = total,
+                                    Cached = cached,
+                                    Fetched = newFetched,
+                                    Failed = failed,
+                                    Success = true
+                                };
+                                
+                                // Manually iterate sessions and use SendWebSocketMessage which is likely supported
+                                var sessions = _sessionManager.Sessions.Where(s => s.UserId.Equals(userId)).ToArray();
+                                if (sessions.Length > 0)
+                                {
+                                    _sessionManager.SendWebSocketMessage("BaklavaPrefetch", () => msgData, sessions, CancellationToken.None);
+                                }
+                            }
+                            catch (Exception ex) 
+                            { 
+                                _logger.LogWarning(ex, "[Baklava] Error sending BaklavaPrefetch WebSocket message to user {UserId}.", userId);
+                            }
+                        }
+                        */
+                    }
+                });
             }
 
-            return Ok(new
+            // We fetch debrid metadata if enabled and valid path
+            if (isDebridEnabled && isHttp && hasPath) 
             {
-                audio = audioDtos.Select(a => new
-                {
+                 // Only fetch if we don't have streams OR if we specifically want to augment
+                 // Current logic: if Jellyfin has streams, trust them. If not, try Debrid.
+                 if (audioStreams.Count == 0) 
+                 {
+                     _logger.LogDebug("[Baklava] Fetching Debrid metadata for: {Path}", targetSource.Path);
+                     // Selected version: Always allow revival (unless restricted logic applies, but usually selected = want it)
+                     var debridData = await FetchDebridMetadataAsync(item, targetSource.Path!, allowMagnetRevival: true);
+                     if (debridData.HasValue)
+                     {
+                         _logger.LogDebug("[Baklava] Debrid found Audio: {AC}, Subs: {SC}", debridData.Value.Audio.Count, debridData.Value.Subtitles.Count);
+                         audioStreams.AddRange(debridData.Value.Audio);
+                         subStreams.AddRange(debridData.Value.Subtitles);
+                     }
+                     else
+                     {
+                         _logger.LogDebug("[Baklava] Debrid metadata returned no results");
+                     }
+                 }
+            }
+            
+            // 4. Fallback Probe (ONLY if explicitly enabled)
+            // User explicitly requested to avoid this if possible
+            if (audioStreams.Count == 0 && isProbingEnabled && isHttp && hasPath)
+            {
+                 _logger.LogDebug("[Baklava] Audio empty, probing fallback enabled. Running ffprobe...");
+                 
+                 // Check Cache for Probe Result first!
+                 // effectively reusing the caching mechanism for probe results
+                 var probeCache = await TryGetFromCache(item, targetSource.Path!);
+                 if (probeCache != null)
+                 {
+                      _logger.LogDebug("[Baklava] Found cached probe data");
+                      audioStreams.AddRange(probeCache.Value.Audio);
+                      subStreams.AddRange(probeCache.Value.Subtitles);
+                 }
+                 else 
+                 {
+                     var probeData = await RunFfprobeAsync(targetSource.Path!);
+                     if (probeData != null)
+                     {
+                          _logger.LogDebug("[Baklava] FFprobe found Audio: {AC}, Subs: {SC}", probeData.Audio.Count, probeData.Subtitles.Count);
+                          var probeAudio = probeData.Audio.Select(MapFfprobeAudio).ToList();
+                          var probeSubs = probeData.Subtitles.Select(MapFfprobeSub).ToList();
+                          
+                          audioStreams.AddRange(probeAudio);
+                          subStreams.AddRange(probeSubs);
+                          
+                          // Cache the probe results!
+                          _logger.LogDebug("[Baklava] Probe successful. Saving discovered metadata to cache to avoid future probing.");
+                          await CacheStreamData(item, targetSource.Path!, probeAudio, probeSubs);
+                     }
+                     else
+                     {
+                          _logger.LogWarning("[Baklava] FFprobe failed or returned no streams");
+                     }
+                 }
+            }
+
+            // 5. Fetch External Subtitles from Stremio (Gelato)
+            var configData = Plugin.Instance?.Configuration;
+            if (configData?.EnableSubs == true)
+            {
+                 var externalSubs = await FetchStremioSubtitlesAsync(item, userId);
+                 if (externalSubs != null && externalSubs.Any())
+                 {
+                     _logger.LogInformation("[Baklava] Found {Count} external subtitles", externalSubs.Count);
+                     subStreams.AddRange(externalSubs);
+                 }
+            }
+
+            // Verify return structure matches client expectations (camelCase)
+            return Ok(new 
+            { 
+                audio = audioStreams.Select(a => new {
                     index = a.Index,
                     title = a.Title,
                     language = a.Language,
                     codec = a.Codec,
                     channels = a.Channels,
-                    bitrate = a.Bitrate.HasValue ? (int?)(a.Bitrate.Value > int.MaxValue ? int.MaxValue : (int)a.Bitrate.Value) : null
-                }),
-                subs = subtitleDtos.Select(s => new
-                {
+                    isExternal = a.IsExternal
+                }), 
+                subs = subStreams.Select(s => new {
                     index = s.Index,
                     title = s.Title,
                     language = s.Language,
                     codec = s.Codec,
-                    isForced = s.IsForced,
-                    isDefault = s.IsDefault
-                }),
-                mediaSourceId = targetSource.Id
+                    isForced = s.IsForced ?? false,
+                    isDefault = s.IsDefault ?? false,
+                    isExternal = s.IsExternal,
+                    externalUrl = s.ExternalUrl
+                }), 
+                mediaSourceId = targetSource.Id 
             });
         }
 
-        private string BuildStreamTitle(MediaBrowser.Model.Entities.MediaStream stream)
+        #endregion
+
+        private async Task<List<StreamDto>?> FetchStremioSubtitlesAsync(BaseItem item, Guid userId)
         {
-            var title = stream.DisplayTitle ?? stream.Title ?? $"{stream.Type} {stream.Index}";
-            
-            if (!string.IsNullOrEmpty(stream.Language))
+            try 
             {
-                title += $" ({stream.Language})";
+                var baseUrl = SubtitlesHelper.GetGelatoStremioUrl(_appPaths, userId);
+                if (string.IsNullOrEmpty(baseUrl)) return null;
+
+                // Determine Type and ID
+                string type = "movie";
+                string id = "";
+
+                var imdb = item.GetProviderId("Imdb");
+                var tmdb = item.GetProviderId("Tmdb");
+
+                if (string.IsNullOrEmpty(imdb) && string.IsNullOrEmpty(tmdb)) return null;
+
+                id = !string.IsNullOrEmpty(imdb) ? imdb : $"tmdb:{tmdb}";
+
+                if (item is Episode ep)
+                {
+                    type = "series";
+                     // Format: tt123:1:1
+                    if (!string.IsNullOrEmpty(imdb))
+                    {
+                        id = $"{imdb}:{ep.ParentIndexNumber ?? 1}:{ep.IndexNumber ?? 1}";
+                    }
+                    else
+                    {
+                         // TMDB for episodes? Stremio usually expects IMDB or specific format
+                         // Fallback might be tricky without map, but let's try standard TMDB format if supported
+                         // Or try to resolve show IMDB?
+                         // If we have show IMDB use that.
+                         var showImdb = ep.Series?.GetProviderId("Imdb");
+                         if (!string.IsNullOrEmpty(showImdb))
+                         {
+                             id = $"{showImdb}:{ep.ParentIndexNumber ?? 1}:{ep.IndexNumber ?? 1}";
+                         }
+                         else
+                         {
+                             // Fallback to TMDB id logic if addon supports it (Cinemeta does)
+                             // Warning: Might fail if addon demands IMDB
+                         }
+                    }
+                }
+                else if (item is Series)
+                {
+                    return null; // No subs for series container
+                }
+
+                var url = $"{baseUrl}/subtitles/{type}/{id}.json";
+                _logger.LogDebug("[Baklava] Fetching external subtitles from: {Url}", url);
+
+                using var client = new HttpClient();
+                var resp = await client.GetAsync(url);
+                if (!resp.IsSuccessStatusCode) 
+                {
+                    _logger.LogWarning("[Baklava] Stremio Subs Fetch Failed. Status: {Status} URL: {Url}", resp.StatusCode, url);
+                    if ((int)resp.StatusCode >= 500)
+                    {
+                         try {
+                              var content = await resp.Content.ReadAsStringAsync();
+                              _logger.LogWarning("[Baklava] Response Content: {Content}", content);
+                         } catch {}
+                    }
+                    return null;
+                }
+
+                using var stream = await resp.Content.ReadAsStreamAsync();
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var result = await JsonSerializer.DeserializeAsync<StremioSubtitleResponse>(stream, options);
+
+                if (result?.Subtitles == null) return null;
+
+                return result.Subtitles.Select((s, i) => {
+                    string langName = s.Lang ?? "Unknown";
+                    try { 
+                        if (!string.IsNullOrEmpty(s.Lang)) 
+                            langName = new System.Globalization.CultureInfo(s.Lang).DisplayName; 
+                    } catch { }
+                    
+                    return new StreamDto
+                    {
+                        Index = -1000 - i,
+                        Title = $"[EXTERNAL] {langName}" + (!string.IsNullOrEmpty(s.id) ? $" - {s.id}" : ""),
+                        Language = s.Lang ?? "und",
+                        Codec = "srt",
+                        IsExternal = true,
+                        ExternalUrl = s.Url
+                    };
+                }).ToList();
             }
-            
-            if (!string.IsNullOrEmpty(stream.Codec))
+            catch (Exception ex)
             {
-                title += $" [{stream.Codec.ToUpperInvariant()}]";
+                _logger.LogError(ex, "Error getting Stremio subtitles");
+                return null;
             }
-            
-            return title;
         }
 
-        #region Private Helpers
+        private class StremioSubtitleResponse
+        {
+            public List<StremioSubtitle> Subtitles { get; set; } = new();
+        }
+
+        private class StremioSubtitle
+        {
+            public string? Url { get; set; }
+            public string? Lang { get; set; }
+            public string? id { get; set; }
+        }
+
+        #region Helpers & Data Fetching
+
+        private StreamDto MapStream(MediaStream s) => new StreamDto 
+        { 
+            Index = s.Index, 
+            Title = s.DisplayTitle ?? s.Title, 
+            Language = s.Language, 
+            Codec = s.Codec, 
+            Channels = s.Channels, 
+            Bitrate = s.BitRate 
+        };
+
+        private StreamDto MapSubStream(MediaStream s) => new StreamDto 
+        { 
+            Index = s.Index, 
+            Title = s.DisplayTitle ?? s.Title, 
+            Language = s.Language, 
+            Codec = s.Codec, 
+            IsForced = s.IsForced, 
+            IsDefault = s.IsDefault 
+        };
+
+
+
+        #region Cache Management Endpoints
+
+        [HttpGet("cache")]
+        public async Task<ActionResult> GetCacheList()
+        {
+            if (Plugin.Instance == null) return NotFound();
+             var baseDir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Plugin.Instance.DataFolderPath, "..", "..", "cache"));
+             var cacheDir = System.IO.Path.Combine(baseDir, "Baklava");
+             if (!System.IO.Directory.Exists(cacheDir)) return Ok(new List<object>());
+
+                 var files = System.IO.Directory.GetFiles(cacheDir, "*.json", System.IO.SearchOption.AllDirectories);
+                 var result = new List<object>();
+
+                 foreach (var file in files)
+                 {
+                     var filename = System.IO.Path.GetFileNameWithoutExtension(file);
+                     // Filename is ItemId
+                     if (!Guid.TryParse(filename, out var guid)) continue;
+                     
+                     var item = _libraryManager.GetItemById(guid);
+                     var title = item?.Name;
+                     
+                     // Fallback: Try to get title from folder structure
+                     if (string.IsNullOrEmpty(title))
+                     {
+                         var parentDir = System.IO.Directory.GetParent(file);
+                         if (parentDir != null)
+                         {
+                             // Expected: Movies/{Title} ({Year}) OR Shows/{Title}/Season {S}
+                             // If Season folder, go up one more for Show name, but we want "Show - Season"
+                             if (parentDir.Name.StartsWith("Season ", StringComparison.OrdinalIgnoreCase))
+                             {
+                                 var showDir = parentDir.Parent;
+                                 var showName = showDir?.Name ?? "Unknown Show";
+                                 title = $"{showName} - {parentDir.Name}";
+                             }
+                             else
+                             {
+                                 // Movies folder or root
+                                 title = parentDir.Name;
+                                 if (title == "Baklava" || title == "Movies" || title == "Shows") 
+                                 {
+                                     // Root folder file: Try to read cached JSON for Title
+                                     try 
+                                     {
+                                         var jsonContent = System.IO.File.ReadAllText(file);
+                                         // Quick regex extraction to avoid full deserialize if possible, or just deserialize
+                                         // Since we might need full robust check, deserializing head is fine.
+                                         // But wait, the file is a Dict<string, CachedMetadata>. Title is inside values.
+                                         using var doc = JsonDocument.Parse(jsonContent);
+                                         foreach(var prop in doc.RootElement.EnumerateObject())
+                                         {
+                                              if (prop.Value.TryGetProperty("Title", out var t)) { title = t.GetString(); break; }
+                                              if (prop.Value.TryGetProperty("title", out var t2)) { title = t2.GetString(); break; } // Case sensitivity check
+                                         }
+                                     } 
+                                     catch {}
+                                     
+                                     if (title == "Baklava" || title == "Movies" || title == "Shows" || title == null) title = "Unknown Item";
+                                 }
+                             }
+                         }
+                     }
+                     
+                     if (item is Episode ep && !string.IsNullOrEmpty(ep.SeriesName))
+                     {
+                         title = $"{ep.SeriesName} - S{ep.ParentIndexNumber:00}E{ep.IndexNumber:00} - {ep.Name}";
+                     }
+                     else if (title == null) title = "Unknown Item";
+                     
+                     var info = new System.IO.FileInfo(file);
+                     result.Add(new { 
+                         id = filename,
+                         title = title,
+                         size = info.Length,
+                         lastModified = info.LastWriteTime
+                     });
+                 }
+
+             return Ok(result.OrderBy(x => ((dynamic)x).title));
+        }
+
+        [HttpDelete("cache/{itemId}")]
+        public async Task<ActionResult> DeleteCacheItem(string itemId)
+        {
+             if (Plugin.Instance == null) return NotFound();
+             var sem = GetItemLock(itemId);
+             await sem.WaitAsync();
+             try 
+             {
+                  var baseDir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Plugin.Instance.DataFolderPath, "..", "..", "cache"));
+                  var cacheDir = System.IO.Path.Combine(baseDir, "Baklava");
+                  
+                  // Recursive search for the file since it's now in subfolders
+                  var files = System.IO.Directory.GetFiles(cacheDir, $"{itemId}.json", System.IO.SearchOption.AllDirectories);
+                  if (files.Length > 0)
+                  {
+                      // 1. Debrid Cleanup: Delete torrents from RD
+                      try 
+                      {
+                          _logger.LogInformation("[Baklava] Deleting cache for item: {Id}, Path: {Path}", itemId, files[0]);
+                          var json = await System.IO.File.ReadAllTextAsync(files[0]);
+                          var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                          var dict = JsonSerializer.Deserialize<Dictionary<string, CachedMetadata>>(json, options);
+                          
+                          if (dict == null)
+                          {
+                               _logger.LogWarning("[Baklava] Failed to deserialize cache file for deletion: {Id}", itemId);
+                          }
+                          else 
+                          {
+                              var torrentIds = dict.Values
+                                  .Where(v => !string.IsNullOrEmpty(v.TorrentId))
+                                  .Select(v => v.TorrentId!)
+                                  .Distinct()
+                                  .ToList();
+                                  
+                              _logger.LogInformation("[Baklava] Found {Count} torrent IDs to delete for item {Id}", torrentIds.Count, itemId);
+
+                          if (torrentIds != null && torrentIds.Count > 0)
+                          {
+                              var config = Plugin.Instance.Configuration;
+                              if (!string.IsNullOrEmpty(config?.DebridApiKey))
+                              {
+                                  using var client = new HttpClient();
+                                  client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.DebridApiKey);
+                                  
+                                  foreach(var torrentId in torrentIds)
+                                  {
+                                      _logger.LogInformation("[Baklava] Deleting Download from Debrid: {Id}", torrentId);
+                                      // Fix: Cache stores Download IDs, so we must use the downloads/delete endpoint, not torrents/delete
+                                      var res = await client.DeleteAsync($"https://api.real-debrid.com/rest/1.0/downloads/delete/{torrentId}");
+                                      if (!res.IsSuccessStatusCode)
+                                      {
+                                          _logger.LogWarning("[Baklava] Failed to delete download {Id}: {Status}", torrentId, res.StatusCode);
+                                      }
+                                      else
+                                      {
+                                          _logger.LogInformation("[Baklava] Successfully deleted download {Id}", torrentId);
+                                      }
+                                  }
+                              }
+                          }
+                          }
+                      }
+                      catch (Exception ex)
+                      {
+                          _logger.LogError(ex, "[Baklava] Error during Debrid torrent cleanup");
+                          // Continue to delete local file anyway
+                      }
+
+                      // 2. Local Cleanup
+                      System.IO.File.Delete(files[0]);
+                      // Also delete the parent directory if it's empty
+                      var parentDir = System.IO.Path.GetDirectoryName(files[0]);
+                      if (parentDir != null && System.IO.Directory.Exists(parentDir) && !System.IO.Directory.EnumerateFileSystemEntries(parentDir).Any())
+                      {
+                          System.IO.Directory.Delete(parentDir);
+                      }
+                      return Ok();
+                  }
+                  return NotFound();
+             }
+             finally { sem.Release(); }
+        }
+
+        [HttpDelete("cache")]
+        public async Task<ActionResult> DeleteAllCache()
+        {
+             if (Plugin.Instance == null) return NotFound();
+             var config = Plugin.Instance.Configuration;
+             var baseDir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Plugin.Instance.DataFolderPath, "..", "..", "cache"));
+             var cacheDir = System.IO.Path.Combine(baseDir, "Baklava");
+             
+             if (System.IO.Directory.Exists(cacheDir))
+             {
+                 var files = System.IO.Directory.GetFiles(cacheDir, "*.json", System.IO.SearchOption.AllDirectories);
+                 
+                 // 1. Collect all Torrent IDs
+                 var torrentIdsToDelete = new HashSet<string>();
+                 foreach (var f in files)
+                 {
+                     try 
+                     {
+                         // Basic read to extract ID (avoid full deserialization overhead if possible, but safety first)
+                         var json = await System.IO.File.ReadAllTextAsync(f);
+                         if (json.Contains("TorrentId")) // Optimization check
+                         {
+                             var dict = JsonSerializer.Deserialize<Dictionary<string, CachedMetadata>>(json);
+                             if (dict != null)
+                             {
+                                 foreach(var v in dict.Values) 
+                                     if (!string.IsNullOrEmpty(v.TorrentId)) torrentIdsToDelete.Add(v.TorrentId!);
+                             }
+                         }
+                     }
+                     catch {} // Ignore read errors, we just want to collect what we can
+                 }
+
+                 // 2. Delete from Debrid
+                 if (torrentIdsToDelete.Count > 0 && !string.IsNullOrEmpty(config?.DebridApiKey))
+                 {
+                      using var client = new HttpClient();
+                      client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.DebridApiKey);
+                      // TODO: Parallelize? Real-Debrid might have rate limits. Sequential is safer.
+                      foreach(var tid in torrentIdsToDelete)
+                      {
+                          try 
+                          {
+                              _logger.LogInformation("[Baklava] Deleting Torrent from Debrid (ClearAll): {Id}", tid);
+                              var resp = await client.DeleteAsync($"https://api.real-debrid.com/rest/1.0/torrents/delete/{tid}");
+                              if (!resp.IsSuccessStatusCode && resp.StatusCode != System.Net.HttpStatusCode.NotFound)
+                                  _logger.LogWarning("[Baklava] Failed to delete torrent {Id}: {Status}", tid, resp.StatusCode);
+                          }
+                          catch (Exception ex)
+                          {
+                              _logger.LogWarning(ex, "[Baklava] Error deleting torrent {Id}", tid);
+                          }
+                      }
+                 }
+
+                 // 3. Local Cleanup (Delete files)
+                 foreach(var f in files) 
+                 {
+                     try { System.IO.File.Delete(f); } catch {}
+                 }
+                 
+                 // 4. Cleanup Empty Dirs (Recursive-ish: simply delete cacheDir content or delete recursive)
+                 // Safest is to just delete the Baklava directory and recreate it
+                 try 
+                 {
+                     System.IO.Directory.Delete(cacheDir, true);
+                     System.IO.Directory.CreateDirectory(cacheDir);
+                 }
+                 catch (Exception ex)
+                 {
+                      _logger.LogError(ex, "[Baklava] Error cleaning up cache directory");
+                      return StatusCode(500, "Error cleaning local cache");
+                 }
+             }
+             
+             return Ok();
+        }
+
+        [HttpPost("cache/{itemId}/refresh")]
+        public async Task<ActionResult> RefreshCacheItem(string itemId)
+        {
+             if (Plugin.Instance == null) return NotFound();
+             var sem = GetItemLock(itemId);
+             await sem.WaitAsync();
+             try 
+             {
+                  var baseDir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Plugin.Instance.DataFolderPath, "..", "..", "cache"));
+                  var cacheDir = System.IO.Path.Combine(baseDir, "Baklava");
+                  
+                  var files = System.IO.Directory.GetFiles(cacheDir, $"{itemId}.json", System.IO.SearchOption.AllDirectories);
+                  if (files.Length == 0) return NotFound();
+                  var file = files[0];
+
+                 var json = await System.IO.File.ReadAllTextAsync(file);
+                 var dict = JsonSerializer.Deserialize<Dictionary<string, CachedMetadata>>(json);
+                 if (dict == null) return BadRequest("Invalid cache file");
+
+                 var urlsToRefresh = dict.Values.Select(v => v.OriginalUrl).Where(u => !string.IsNullOrEmpty(u)).Distinct().ToList();
+                 
+                 // Close lock before re-fetching because FetchDebridMetadataAsync uses the lock too!
+                 sem.Release(); 
+                 
+                 // Fire and forget refresh or wait? User expects visual feedback.
+                 // We will wait for a few, but maybe strictly we should just do it.
+                 // "FetchDebridMetadataAsync" does: check cache -> if miss -> fetch.
+                 // But cache is present! So it will return HIT.
+                 // We must BYPASS cache.
+                 
+                 var freshCount = 0;
+                 foreach (var url in urlsToRefresh)
+                 {
+                      // We need a force-fetch logic
+                      await ForceFetchMetadataAsync(itemId, url!);
+                      freshCount++;
+                 }
+                 
+                 return Ok(new { refreshed = freshCount });
+             }
+             catch (Exception ex)
+             {
+                 _logger.LogError(ex, "Failed to refresh cache for {ItemId}", itemId);
+                 return StatusCode(500, ex.Message);
+             }
+             finally 
+             { 
+                 // If we released early, don't release again
+                 if (sem.CurrentCount == 0) sem.Release(); 
+             }
+        }
+        
+        // Private helper that BYPASSES cache read but DOES write cache
+        private async Task ForceFetchMetadataAsync(string itemId, string url)
+        {
+             if (!Guid.TryParse(itemId, out var guid)) return;
+             var item = _libraryManager.GetItemById(guid);
+             if (item == null) return;
+
+             await FetchDebridMetadataAsync(item, url, forceRefresh: true, allowMagnetRevival: true);
+        }
+
+        #endregion
+
+        private StreamDto MapFfprobeAudio(FfprobeAudio a) => new StreamDto
+        {
+            Index = a.Index, Title = a.Title, Language = a.Language, Codec = a.Codec, Channels = a.Channels, Bitrate = a.Bitrate
+        };
+        
+        private StreamDto MapFfprobeSub(FfprobeSubtitle s) => new StreamDto
+        {
+            Index = s.Index, Title = s.Title, Language = s.Language, Codec = s.Codec, IsForced = s.IsForced, IsDefault = s.IsDefault
+        };
+
+        private class StreamDto
+        {
+            public int Index { get; set; }
+            public string? Title { get; set; }
+            public string? Language { get; set; }
+            public string? Codec { get; set; }
+            public int? Channels { get; set; }
+            public double? Bitrate { get; set; }
+            public bool? IsForced { get; set; }
+            public bool? IsDefault { get; set; }
+            public bool? IsExternal { get; set; }
+            public string? ExternalUrl { get; set; }
+        }
+
+        private class CachedMetadata
+        {
+            public List<StreamDto> Audio { get; set; } = new();
+            public List<StreamDto> Subtitles { get; set; } = new();
+            public string? OriginalUrl { get; set; }
+            public string? TorrentId { get; set; }
+            public string? Title { get; set; }
+            public int? Year { get; set; }
+        }
+
+        // Return tuple with IsCached flag
+        private async Task<(List<StreamDto> Audio, List<StreamDto> Subtitles, bool IsCached)?> FetchDebridMetadataAsync(BaseItem item, string url, bool forceRefresh = false, bool allowMagnetRevival = true)
+        {
+            try
+            {
+                var uri = new Uri(url);
+                var config = Plugin.Instance?.Configuration;
+                _logger.LogInformation("[Baklava] FetchDebridMetadataAsync. Config: {ConfigNotNull}. Key present: {KeyPresent}", config != null, !string.IsNullOrEmpty(config?.DebridApiKey));
+                
+                // Unified cache check (skip if forced)
+                if (!forceRefresh)
+                {
+                    var cachedMetadata = await TryGetFromCache(item, url);
+                    if (cachedMetadata != null)
+                    {
+                        return (cachedMetadata.Value.Audio, cachedMetadata.Value.Subtitles, true);
+                    }
+                }
+                
+                // Currently supporting Real-Debrid
+                if (config?.DebridService != "realdebrid") return null;
+
+                // Resolve URL if needed (e.g. Torrentio /resolve/ links)
+                if (!uri.Host.Contains("real-debrid") && !uri.Host.Contains("rd-net"))
+                {
+                    try 
+                    {
+                        _logger.LogDebug("[Baklava] Resolving URL: {Url}", url);
+                        using var handler = new HttpClientHandler { AllowAutoRedirect = true };
+                        using var resClient = new HttpClient(handler); // Default timeout is usually enough
+                        using var request = new HttpRequestMessage(HttpMethod.Head, url);
+                        
+                        // We use HEAD to avoid downloading body, assuming standard 302 redirect
+                        var response = await resClient.SendAsync(request);
+                        var oldUri = uri;
+                        uri = response.RequestMessage.RequestUri; // This contains the final URL after redirects
+                        
+                        // Special check: if HEAD didn't change URI (some servers ignore HEAD for redirects), try GET with Range 0-0
+                        if (uri == oldUri && response.StatusCode != System.Net.HttpStatusCode.Found && response.StatusCode != System.Net.HttpStatusCode.MovedPermanently)
+                        {
+                             // If it didn't redirect, maybe it's not a redirect? 
+                             // Torrentio /resolve/ usually 302s.
+                             // But let's verify if the key extraction works on the new URI.
+                        }
+                        _logger.LogDebug("[Baklava] Resolved URL to: {Url}", uri);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[Baklava] Failed to resolve URL: {Url}", url);
+                        return null; 
+                    }
+                }
+
+                if (!uri.Host.Contains("real-debrid") && !uri.Host.Contains("rd-net"))
+                {
+                    _logger.LogWarning("[Baklava] Resolved URL is not a Real-Debrid URL: {Url}", uri);
+                    return null;
+                }
+
+                // Extract File ID
+                // RD URL: /d/{ID}/{Filename} -> This ID (after /d/) is the DOWNLOAD CODE, not the MediaInfo ID.
+                // We need the Resource ID. We can find this by checking the user's downloads history.
+                
+                string? validId = null;
+                var uriStr = uri.ToString();
+
+                // Check Cache first
+                if (_idCache.TryGetValue(uriStr, out var cachedId))
+                {
+                    _logger.LogDebug("[Baklava] Found ID in cache: {Id}", cachedId);
+                    validId = cachedId;
+                }
+                else
+                {
+                    using var client = new HttpClient();
+                    client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.DebridApiKey);
+
+                    // Option 1: Check Downloads History (Scan pages 1-10)
+                    try 
+                    {
+                        var targetFilename = System.IO.Path.GetFileName(uri.LocalPath);
+                        _logger.LogDebug("[Baklava] Scanning Real-Debrid file list (up to 10 pages) for: {Fn}", targetFilename);
+
+                        for (int page = 1; page <= 10; page++)
+                        {
+                            var downloadsResp = await client.GetAsync($"https://api.real-debrid.com/rest/1.0/downloads?page={page}&limit=100");
+                            if (downloadsResp.IsSuccessStatusCode)
+                            {
+                                var jsonContent = await downloadsResp.Content.ReadAsStringAsync();
+                                
+                                // RD might return 204 No Content or empty string for empty list/pages
+                                if (string.IsNullOrWhiteSpace(jsonContent))
+                                {
+                                    _logger.LogDebug("[Baklava] Page {Page} returned empty content. Stopping scan.", page);
+                                    break;
+                                }
+
+                                using var dDoc = JsonDocument.Parse(jsonContent);
+                                bool pageHasItems = false;
+                                
+                                foreach(var d in dDoc.RootElement.EnumerateArray())
+                                {
+                                    pageHasItems = true;
+                                    bool match = false;
+                                    string? historyFn = null;
+                                    if (d.TryGetProperty("filename", out var hf)) historyFn = hf.GetString();
+                                    
+                                    // 1. Try to match by download link (ID segment)
+                                    if (d.TryGetProperty("download", out var dlLink))
+                                    {
+                                        if (GetIdFromLink(dlLink.GetString()) == GetIdFromLink(uriStr))
+                                            match = true;
+                                    }
+                                    
+                                    // 2. Fallback: Match by Filename
+                                    if (!match && !string.IsNullOrEmpty(historyFn))
+                                    {
+                                        if (string.Equals(historyFn, targetFilename, StringComparison.OrdinalIgnoreCase))
+                                            match = true;
+                                    }
+
+                                    if (match)
+                                    {
+                                        validId = d.GetProperty("id").GetString();
+                                        _logger.LogDebug("[Baklava] Found matching ID in history (Page {Page}): {Id}", page, validId);
+                                        _idCache[uriStr] = validId;
+                                        break;
+                                    }
+                                }
+                                
+                                if (validId != null) break;
+                                if (!pageHasItems) break; // End of list
+                            }
+                            else
+                            {
+                                _logger.LogWarning("[Baklava] Download history fetch failed for page {Page} with status: {Status}", page, downloadsResp.StatusCode);
+                                break; 
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[Baklava] Error checking downloads history");
+                    }
+                }
+
+                if (validId == null) 
+                {
+                    // Fallback: Magnet Revival Strategy
+                    // We check the ORIGINAL 'url' because specifically Torrentio links contain the hash needed for revival.
+                    // 'uri' might be the resolved RD link which lacks the hash.
+                    if (url.Contains("/resolve/realdebrid/"))
+                    {
+                        try 
+                        {
+                            // Extract Hash from Source URL: .../resolve/realdebrid/APIKEY/HASH/...
+                            // Parse original URL safely
+                            var sourceUri = new Uri(url);
+                            var parts = sourceUri.AbsolutePath.Split('/', System.StringSplitOptions.RemoveEmptyEntries);
+                            // Expected path: /resolve/realdebrid/{apikey}/{hash}/...
+                            // parts[0]=resolve, [1]=realdebrid, [2]=apikey, [3]=HASH
+                            // parts[0]=resolve, [1]=realdebrid, [2]=apikey, [3]=HASH
+                            if (parts.Length >= 4)
+                            {
+                                if (allowMagnetRevival)
+                                {
+                                    var hash = parts[3];
+                                    _logger.LogDebug("[Baklava] History scan failed. Attempting Magnet Revival for Hash: {Hash}", hash);
+                                    validId = await ReviveAndGetIdFromMagnet(hash, config.DebridApiKey);
+                                }
+                                else
+                                {
+                                    _logger.LogDebug("[Baklava] History scan failed. Magnet Revival skipped (FetchAllNonCachedMetadata=false).");
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "[Baklava] Magnet Revival failed.");
+                        }
+                    }
+
+                    if (validId == null)
+                    {
+                        _logger.LogWarning("[Baklava] Could not find MediaInfo ID for URL: {Url}", uri);
+                        return null;
+                    }
+                }
+
+                _logger.LogDebug("[Baklava] Fetching media infos for ID: {Id}", validId);
+
+                using var infoClient = new HttpClient();
+                infoClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.DebridApiKey);
+                var resp = await infoClient.GetAsync($"https://api.real-debrid.com/rest/1.0/streaming/mediaInfos/{validId}");
+                if (!resp.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Real-Debrid mediaInfos returned {Status}", resp.StatusCode);
+                    return null;
+                }
+                
+                // Helper to extract the CODE from a /d/CODE/ link
+                string? GetIdFromLink(string? l)
+                {
+                    if (string.IsNullOrEmpty(l)) return null;
+                    try {
+                        var u = new Uri(l);
+                        var s = u.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                        for(int i=0; i<s.Length-1; i++) 
+                            if(s[i]=="d") return s[i+1];
+                        return null;
+                    } catch { return null; }
+                }
+
+                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStreamAsync());
+                var root = doc.RootElement;
+                
+                // RD API structure: root -> details -> audio/subtitles
+                JsonElement details = root;
+                if (root.TryGetProperty("details", out var det)) details = det;
+
+                // Helper to format Audio Title
+                string FormatAudioTitle(JsonElement a)
+                {
+                    var lang = a.TryGetProperty("lang", out var l) ? l.GetString() : "Unknown";
+                    var codec = a.TryGetProperty("codec", out var c) ? c.GetString() : "aac";
+                    var channels = a.TryGetProperty("channels", out var ch) ? ch.GetDouble() : 0;
+                    return $"{lang} ({codec} {channels}ch)";
+                }
+
+                // Helper to format Subtitle Title
+                string FormatSubTitle(JsonElement s)
+                {
+                    var lang = s.TryGetProperty("lang", out var l) ? l.GetString() : "Unknown";
+                    var codec = s.TryGetProperty("codec", out var c) ? c.GetString() : "srt";
+                    return $"{lang} ({codec})";
+                }
+
+                var audios = new List<StreamDto>();
+                if (details.TryGetProperty("audio", out var audioObj))
+                {
+                    if (audioObj.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var prop in audioObj.EnumerateObject())
+                            audios.Add(new StreamDto
+                            {
+                                Index = -1, 
+                                Codec = prop.Value.TryGetProperty("codec", out var c) ? c.GetString() : null,
+                                Language = prop.Value.TryGetProperty("lang", out var l) ? l.GetString() : null,
+                                Title = FormatAudioTitle(prop.Value),
+                                Channels = prop.Value.TryGetProperty("channels", out var ch) ? (int?)ch.GetDouble() : null
+                            });
+                    }
+                    else if (audioObj.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var a in audioObj.EnumerateArray())
+                            audios.Add(new StreamDto
+                            {
+                                Index = -1, 
+                                Codec = a.TryGetProperty("codec", out var c) ? c.GetString() : null,
+                                Language = a.TryGetProperty("lang", out var l) ? l.GetString() : null,
+                                Title = FormatAudioTitle(a),
+                                Channels = a.TryGetProperty("channels", out var ch) ? (int?)ch.GetDouble() : null
+                            });
+                    }
+                }
+
+                var subs = new List<StreamDto>();
+                if (details.TryGetProperty("subtitles", out var subObj))
+                {
+                     if (subObj.ValueKind == JsonValueKind.Object)
+                     {
+                        foreach (var prop in subObj.EnumerateObject())
+                             subs.Add(new StreamDto {
+                                 Language = prop.Value.TryGetProperty("lang", out var l) ? l.GetString() : null,
+                                 Codec = "srt", 
+                                 Title = FormatSubTitle(prop.Value)
+                             });
+                     }
+                     else if (subObj.ValueKind == JsonValueKind.Array)
+                     {
+                        foreach (var s in subObj.EnumerateArray())
+                             subs.Add(new StreamDto {
+                                 Language = s.TryGetProperty("lang", out var l) ? l.GetString() : null,
+                                 Codec = "srt",
+                                 Title = FormatSubTitle(s)
+                             });
+                     }
+                }
+
+                // --- CACHE SAVE START ---
+                if (Plugin.Instance != null)
+                {
+                    await CacheStreamData(item, url, audios, subs, validId);
+                }
+                // --- CACHE SAVE END ---
+
+                return (audios, subs, false); // Not cached, just fetched
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching debrid metadata");
+                return null;
+            }
+        }
+        
+        // Generate robust cache key
+        private string GetCacheKey(string url)
+        {
+            try
+            {
+                // 1. Try to extract Hash from URL (Preferred)
+                // Torrentio: .../resolve/realdebrid/{apikey}/{hash}/...
+                if (url.Contains("/resolve/realdebrid/") || url.Contains("/resolve/antigravity/"))
+                {
+                     var uri = new Uri(url);
+                     var parts = uri.AbsolutePath.Split('/', System.StringSplitOptions.RemoveEmptyEntries);
+                     // Expecting hash at index 3 for standard torrentio
+                     if (parts.Length >= 4) return parts[3];
+                }
+            } 
+            catch { }
+
+            // 2. Fallback: SHA256 of the entire URL
+            try
+            {
+                using var sha = System.Security.Cryptography.SHA256.Create();
+                var bytes = System.Text.Encoding.UTF8.GetBytes(url);
+                var hashBytes = sha.ComputeHash(bytes);
+                return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+            }
+            catch
+            {
+                 // Last resort: simple hash code
+                 return url.GetHashCode().ToString("X");
+            }
+        }
+
+        // Helper to get formatted path based on item type
+        private string GetCacheFilePath(string rootDir, BaseItem item)
+        {
+            // Sanitize
+            string Sanitize(string s) => string.Join("_", s.Split(System.IO.Path.GetInvalidFileNameChars()));
+
+            if (item is Episode ep)
+            {
+                // Shows/{SeriesName}/Season {S}/{Index} - {Name} [{Id}]/{Id}.json
+                // Actually user requested: create a folder with show name -> season folder -> each episode its own json
+                // Wait, putting json directly in Season folder is cleaner if we name it nicely.
+                // But requested: "inside that each episode its own json".
+                // Let's do: Shows/{SeriesName}/Season {S}/{Id}.json
+                // This allows deleting season folder to delete all episodes.
+                var showFolder = System.IO.Path.Combine(rootDir, "Shows", Sanitize(ep.SeriesName ?? "Unknown"));
+                var seasonFolder = System.IO.Path.Combine(showFolder, $"Season {ep.ParentIndexNumber ?? 1}");
+                if (!System.IO.Directory.Exists(seasonFolder)) System.IO.Directory.CreateDirectory(seasonFolder);
+                return System.IO.Path.Combine(seasonFolder, $"{item.Id}.json");
+            }
+            else if (item is MediaBrowser.Controller.Entities.Movies.Movie mov)
+            {
+                // Movies -> Root (as requested: "movies can just drop the json in the main cache folder")
+                return System.IO.Path.Combine(rootDir, $"{item.Id}.json");
+            }
+            
+            // Fallback
+            return System.IO.Path.Combine(rootDir, $"{item.Id}.json");
+        }
+
+        // Helper to extract hash and save cache to {ItemId}.json
+        private async Task CacheStreamData(BaseItem item, string url, List<StreamDto> audios, List<StreamDto> subs, string? torrentId = null)
+        {
+            if (Plugin.Instance == null) return;
+            string urlHash = GetCacheKey(url);
+            var itemId = item.Id.ToString("N");
+            var sem = GetItemLock(itemId); // Get lock for this item
+
+            try
+            {
+                await sem.WaitAsync();
+
+                var baseDir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Plugin.Instance.DataFolderPath, "..", "..", "cache"));
+                var cacheDir = System.IO.Path.Combine(baseDir, "Baklava");
+                
+                if (!System.IO.Directory.Exists(cacheDir)) System.IO.Directory.CreateDirectory(cacheDir);
+                
+                var cacheFile = GetCacheFilePath(cacheDir, item);
+                _logger.LogDebug("[Baklava] Accessing Cache File: {File} for URL Hash: {Hash}", cacheFile, urlHash);
+
+                // Load existing dict or create new
+                Dictionary<string, CachedMetadata> itemCache;
+                var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+
+                if (System.IO.File.Exists(cacheFile))
+                {
+                    try 
+                    {
+                        var existingJson = await System.IO.File.ReadAllTextAsync(cacheFile);
+                        itemCache = JsonSerializer.Deserialize<Dictionary<string, CachedMetadata>>(existingJson) ?? new Dictionary<string, CachedMetadata>();
+                    }
+                    catch 
+                    {
+                        // Corrupt? Overwrite.
+                        itemCache = new Dictionary<string, CachedMetadata>();
+                    }
+                }
+                else
+                {
+                    itemCache = new Dictionary<string, CachedMetadata>();
+                }
+
+                // Update/Add entry
+                itemCache[urlHash] = new CachedMetadata { 
+                    Audio = audios, 
+                    Subtitles = subs, 
+                    OriginalUrl = url, 
+                    TorrentId = torrentId,
+                    Title = item.Name,
+                    Year = item.ProductionYear
+                };
+                
+                await System.IO.File.WriteAllTextAsync(cacheFile, JsonSerializer.Serialize(itemCache, jsonOptions));
+                _logger.LogDebug("[Baklava] Item Cache Updated.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Baklava] Failed to save stream cache");
+            }
+            finally
+            {
+                sem.Release();
+            }
+        }
+
+        // Helper to read cache from {ItemId}.json
+        private async Task<(List<StreamDto> Audio, List<StreamDto> Subtitles)?> TryGetFromCache(BaseItem item, string url)
+        {
+           if (Plugin.Instance == null) return null;
+            string urlHash = GetCacheKey(url);
+            var itemId = item.Id.ToString("N");
+            var sem = GetItemLock(itemId);
+
+            try 
+            {
+                await sem.WaitAsync();
+
+                var baseDir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Plugin.Instance.DataFolderPath, "..", "..", "cache"));
+                var cacheDir = System.IO.Path.Combine(baseDir, "Baklava");
+                
+                // Construct path same way as save
+                var cacheFile = GetCacheFilePath(cacheDir, item);
+
+                _logger.LogDebug("[Baklava] Checking Item Cache: {File} for Hash: {Hash}", cacheFile, urlHash);
+                
+                if (System.IO.File.Exists(cacheFile))
+                {
+                    try 
+                    {
+                        var jsonCache = await System.IO.File.ReadAllTextAsync(cacheFile);
+                        var itemCache = JsonSerializer.Deserialize<Dictionary<string, CachedMetadata>>(jsonCache);
+                        
+                        if (itemCache != null && itemCache.TryGetValue(urlHash, out var cachedData))
+                        {
+                            _logger.LogDebug("[Baklava] Cache HIT! Returning stored metadata.");
+                            return (cachedData.Audio, cachedData.Subtitles);
+                        }
+                    }
+                    catch { }
+                }
+                
+                _logger.LogDebug("[Baklava] Cache MISS.");
+                return null;
+            }
+            finally
+            {
+                sem.Release();
+            }
+        }
+
+        private async Task<string?> ReviveAndGetIdFromMagnet(string hash, string apiKey)
+        {
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            
+            // 1. Add Magnet
+            var addContent = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("magnet", $"magnet:?xt=urn:btih:{hash}") });
+            var addResp = await client.PostAsync("https://api.real-debrid.com/rest/1.0/torrents/addMagnet", addContent);
+            if (!addResp.IsSuccessStatusCode) return null;
+            
+            var addJson = JsonDocument.Parse(await addResp.Content.ReadAsStreamAsync());
+            var torrentId = addJson.RootElement.GetProperty("id").GetString();
+            if (string.IsNullOrEmpty(torrentId)) return null;
+
+            try 
+            {
+                // 2. Select Files (All)
+                var selContent = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("files", "all") });
+                await client.PostAsync($"https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{torrentId}", selContent);
+
+                // 3. Get Info to grab the Link
+                var infoResp = await client.GetAsync($"https://api.real-debrid.com/rest/1.0/torrents/info/{torrentId}");
+                if (!infoResp.IsSuccessStatusCode) return null;
+                
+                using var infoJson = JsonDocument.Parse(await infoResp.Content.ReadAsStreamAsync());
+                if (infoJson.RootElement.TryGetProperty("links", out var links) && links.GetArrayLength() > 0)
+                {
+                    // Use first link
+                    var link = links[0].GetString();
+                    
+                    // 4. Unrestrict Link to get ID
+                    var unrContent = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("link", link) });
+                    var unrResp = await client.PostAsync("https://api.real-debrid.com/rest/1.0/unrestrict/link", unrContent);
+                    if (unrResp.IsSuccessStatusCode)
+                    {
+                        using var unrJson = JsonDocument.Parse(await unrResp.Content.ReadAsStreamAsync());
+                        if (unrJson.RootElement.TryGetProperty("id", out var idEl))
+                        {
+                            return idEl.GetString();
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                // 5. Cleanup: Delete Torrent
+                await client.DeleteAsync($"https://api.real-debrid.com/rest/1.0/torrents/delete/{torrentId}");
+                _logger.LogDebug("[Baklava] Deleted temporary torrent: {Id}", torrentId);
+            }
+            return null;
+        }
+
 
         private async Task<ActionResult> BuildCompleteResponse(
             JsonDocument mainData,
@@ -600,42 +1502,27 @@ namespace Baklava.Api
             var tasks = new List<Task<JsonDocument?>>();
             
             if (includeCredits)
-            {
                 tasks.Add(FetchTMDBAsync($"/{mediaType}/{tmdbId}/credits", apiKey));
-            }
             if (includeReviews)
-            {
                 tasks.Add(FetchTMDBAsync($"/{mediaType}/{tmdbId}/reviews", apiKey));
-            }
 
             var results = await Task.WhenAll(tasks);
 
-            // Build raw JSON strings for main, credits and reviews and return as a single JSON payload.
-            // Returning as raw JSON avoids double-deserialization that produces JsonElement wrappers
-            // with ValueKind fields when re-serialized by ASP.NET.
             var mainRaw = root.GetRawText();
-
             string creditsRaw = "null";
             string reviewsRaw = "null";
 
             if (includeCredits && results.Length > 0 && results[0] != null)
-            {
                 creditsRaw = results[0].RootElement.GetRawText();
-            }
 
             if (includeReviews)
             {
-                // If both credits and reviews were requested then reviews will be at index 1
                 var reviewsIndex = tasks.Count > 1 ? 1 : 0;
                 if (results.Length > reviewsIndex && results[reviewsIndex] != null)
-                {
                     reviewsRaw = results[reviewsIndex].RootElement.GetRawText();
-                }
             }
 
             var combined = $"{{\"main\":{mainRaw},\"credits\":{creditsRaw},\"reviews\":{reviewsRaw}}}";
-            
-            // Return raw JSON string directly to avoid JsonElement/ValueKind wrapper issues
             return Content(combined, "application/json");
         }
 
@@ -643,17 +1530,12 @@ namespace Baklava.Api
         {
             try
             {
-                // Build cache key
                 var cacheKey = $"{endpoint}?{string.Join("&", queryParams?.Select(kv => $"{kv.Key}={kv.Value}") ?? Array.Empty<string>())}";
                 
-                // Check cache
                 lock (_cache)
                 {
                     if (_cache.TryGetValue(cacheKey, out var cached) && cached.Expiry > DateTime.UtcNow)
-                    {
-                        _logger.LogDebug("[MetadataController] Cache hit: {Key}", cacheKey);
                         return JsonDocument.Parse(cached.Data);
-                    }
                 }
 
                 var builder = new StringBuilder();
@@ -663,100 +1545,44 @@ namespace Baklava.Api
                 if (queryParams != null)
                 {
                     foreach (var param in queryParams)
-                    {
                         builder.Append('&').Append(Uri.EscapeDataString(param.Key))
                                .Append('=').Append(Uri.EscapeDataString(param.Value));
-                    }
                 }
-
-                var url = builder.ToString();
-                _logger.LogDebug("[MetadataController] Fetching: {Url}", url.Replace(apiKey, "***"));
 
                 using var http = new HttpClient();
-                var response = await http.GetAsync(url);
+                var response = await http.GetAsync(builder.ToString());
+                if (!response.IsSuccessStatusCode) return null;
+
                 var content = await response.Content.ReadAsStringAsync();
 
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogWarning("[MetadataController] TMDB error {Status}: {Content}", response.StatusCode, content);
-                    return null;
-                }
-
-                // Cache the result
                 lock (_cache)
                 {
                     _cache[cacheKey] = (DateTime.UtcNow.Add(CACHE_DURATION), content);
                     
-                    // Simple cache cleanup (remove expired entries)
-                    var expiredKeys = _cache.Where(kv => kv.Value.Expiry <= DateTime.UtcNow).Select(kv => kv.Key).ToList();
-                    foreach (var key in expiredKeys)
-                    {
-                        _cache.Remove(key);
-                    }
+                    // Simple cleanup
+                    var expired = _cache.Where(k => k.Value.Expiry <= DateTime.UtcNow).Select(k => k.Key).ToList();
+                    foreach (var key in expired) _cache.Remove(key);
                 }
 
                 return JsonDocument.Parse(content);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[MetadataController] Error fetching from TMDB: {Endpoint}", endpoint);
+                _logger.LogError(ex, "Error fetching from TMDB: {Endpoint}", endpoint);
                 return null;
             }
         }
 
-        
-
         #endregion
 
-        // Minimal ffprobe helpers (used as a last-resort fallback)
-        private class AudioStreamDto
-        {
-            public int Index { get; set; }
-            public string? Title { get; set; }
-            public string? Language { get; set; }
-            public string? Codec { get; set; }
-            public int? Channels { get; set; }
-            public long? Bitrate { get; set; }
-        }
-
-        private class SubtitleStreamDto
-        {
-            public int Index { get; set; }
-            public string? Title { get; set; }
-            public string? Language { get; set; }
-            public string? Codec { get; set; }
-            public bool? IsForced { get; set; }
-            public bool? IsDefault { get; set; }
-        }
-        private class FfprobeAudio
-        {
-            public int Index { get; set; }
-            public string? Title { get; set; }
-            public string? Language { get; set; }
-            public string? Codec { get; set; }
-            public int? Channels { get; set; }
-            public long? Bitrate { get; set; }
-        }
-
-        private class FfprobeSubtitle
-        {
-            public int Index { get; set; }
-            public string? Title { get; set; }
-            public string? Language { get; set; }
-            public string? Codec { get; set; }
-            public bool IsForced { get; set; }
-            public bool IsDefault { get; set; }
-        }
-
-        private class FfprobeResult
-        {
-            public List<FfprobeAudio> Audio { get; set; } = new();
-            public List<FfprobeSubtitle> Subtitles { get; set; } = new();
-        }
+        #region FFprobe Fallback
+        
+        private class FfprobeAudio { public int Index {get;set;} public string? Title {get;set;} public string? Language {get;set;} public string? Codec {get;set;} public int? Channels {get;set;} public double? Bitrate {get;set;} }
+        private class FfprobeSubtitle { public int Index {get;set;} public string? Title {get;set;} public string? Language {get;set;} public string? Codec {get;set;} public bool IsForced {get;set;} public bool IsDefault {get;set;} }
+        private class FfprobeResult { public List<FfprobeAudio> Audio {get;set;} = new(); public List<FfprobeSubtitle> Subtitles {get;set;} = new(); }
 
         private async Task<FfprobeResult?> RunFfprobeAsync(string url)
         {
-            // Find ffprobe executable (prefer Jellyfin bundle)
             var candidates = new[] { "/usr/lib/jellyfin-ffmpeg/ffprobe", "/usr/bin/ffprobe", "ffprobe" };
             var ffprobePath = candidates.FirstOrDefault(c => 
             {
@@ -773,73 +1599,124 @@ namespace Baklava.Api
                 CreateNoWindow = true
             };
 
-            using var proc = System.Diagnostics.Process.Start(psi);
-            if (proc == null) return null;
-
-            var timeoutMs = 10000; // 10 second timeout
-            if (!proc.WaitForExit(timeoutMs))
-            {
-                _logger.LogDebug("[MetadataController] ffprobe timed out after {Timeout}ms", timeoutMs);
-                try { proc.Kill(); } catch { }
-                return null;
-            }
-
-            var outJson = await proc.StandardOutput.ReadToEndAsync();
-            var err = await proc.StandardError.ReadToEndAsync();
-            
-            if (!string.IsNullOrEmpty(err))
-            {
-                _logger.LogDebug("[MetadataController] ffprobe stderr: {Err}", err.Substring(0, Math.Min(200, err.Length)));
-            }
-            
-            if (string.IsNullOrWhiteSpace(outJson))
-            {
-                return null;
-            }
-
             try
             {
-                using var doc = JsonDocument.Parse(outJson);
-                var res = new FfprobeResult();
-                if (doc.RootElement.TryGetProperty("streams", out var streams))
-                {
-                    foreach (var s in streams.EnumerateArray())
-                    {
-                        var codecType = s.GetProperty("codec_type").GetString();
-                        var index = s.GetProperty("index").GetInt32();
-                        var codec = s.TryGetProperty("codec_name", out var cn) ? cn.GetString() : null;
-                        string? lang = null;
-                        string? title = null;
-                        if (s.TryGetProperty("tags", out var tags))
-                        {
-                            if (tags.TryGetProperty("language", out var tLang)) lang = tLang.GetString();
-                            if (tags.TryGetProperty("title", out var tTitle)) title = tTitle.GetString();
-                        }
+                using var proc = System.Diagnostics.Process.Start(psi);
+                if (proc == null) return null;
 
-                        if (codecType == "audio")
-                        {
-                            int? channels = null;
-                            if (s.TryGetProperty("channels", out var ch) && ch.ValueKind == JsonValueKind.Number) channels = ch.GetInt32();
-                            long? bitRate = null;
-                            if (s.TryGetProperty("bit_rate", out var br) && br.ValueKind == JsonValueKind.String)
-                            {
-                                if (long.TryParse(br.GetString(), out var brv)) bitRate = brv;
-                            }
-                            res.Audio.Add(new FfprobeAudio { Index = index, Title = title, Language = lang, Codec = codec, Channels = channels, Bitrate = bitRate });
-                        }
-                        else if (codecType == "subtitle")
-                        {
-                            res.Subtitles.Add(new FfprobeSubtitle { Index = index, Title = title, Language = lang, Codec = codec });
-                        }
+                if (!proc.WaitForExit(10000)) // 10s timeout
+                {
+                    try { proc.Kill(); } catch {}
+                    return null;
+                }
+
+                var json = await proc.StandardOutput.ReadToEndAsync();
+                if (string.IsNullOrWhiteSpace(json)) return null;
+
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("streams", out var streams)) return null;
+
+                var res = new FfprobeResult();
+                foreach (var s in streams.EnumerateArray())
+                {
+                    var type = s.GetProperty("codec_type").GetString();
+                    var index = s.GetProperty("index").GetInt32();
+                    var codec = s.TryGetProperty("codec_name", out var cn) ? cn.GetString() : null;
+                    
+                    string? lang = null;
+                    string? title = null;
+                    if (s.TryGetProperty("tags", out var tags))
+                    {
+                         if (tags.TryGetProperty("language", out var l)) lang = l.GetString();
+                         if (tags.TryGetProperty("title", out var t)) title = t.GetString();
+                    }
+
+                    if (type == "audio")
+                    {
+                        res.Audio.Add(new FfprobeAudio {
+                            Index = index,
+                            Codec = codec,
+                            Language = lang,
+                            Title = title,
+                            Channels = s.TryGetProperty("channels", out var ch) ? (int?)ch.GetInt32() : null,
+                            Bitrate = s.TryGetProperty("bit_rate", out var br) && long.TryParse(br.GetString(), out var b) ? (double?)b : null
+                        });
+                    }
+                    else if (type == "subtitle")
+                    {
+                        res.Subtitles.Add(new FfprobeSubtitle {
+                            Index = index,
+                            Codec = codec,
+                            Language = lang,
+                            Title = title,
+                            IsForced = false, 
+                            IsDefault = false
+                        });
                     }
                 }
                 return res;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[MetadataController] Error parsing ffprobe output");
+                _logger.LogError(ex, "FFprobe failed");
                 return null;
             }
         }
+
+        private async Task<string> TryResolveUrl(string url)
+        {
+            try
+            {
+                var request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(url);
+                request.AllowAutoRedirect = false;
+                request.Method = "HEAD";
+                request.UserAgent = "Jellyfin-Baklava-Plugin";
+
+                try 
+                {
+                    using var response = (System.Net.HttpWebResponse)await request.GetResponseAsync();
+                    if (response.StatusCode == System.Net.HttpStatusCode.Moved || 
+                        response.StatusCode == System.Net.HttpStatusCode.Redirect ||
+                        response.StatusCode == System.Net.HttpStatusCode.Found)
+                    {
+                        return response.Headers["Location"] ?? url;
+                    }
+                }
+                catch (System.Net.WebException ex) when (ex.Response is System.Net.HttpWebResponse errorResponse && errorResponse.StatusCode == System.Net.HttpStatusCode.MethodNotAllowed)
+                {
+                    _logger.LogWarning("[Baklava] HEAD method failed (405). Retrying with GET (Range: 0-0) for URL: {Url}", url);
+                    
+                    // Fallback to GET for servers (like AIOStreams) that block HEAD
+                    var getRequest = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(url);
+                    getRequest.AllowAutoRedirect = false;
+                    getRequest.Method = "GET";
+                    getRequest.UserAgent = "Jellyfin-Baklava-Plugin";
+                    // Request only the first byte to minimize data transfer
+                    getRequest.Headers.Add("Range", "bytes=0-0");
+                    
+                    using var getResponse = (System.Net.HttpWebResponse)await getRequest.GetResponseAsync();
+                    
+                    _logger.LogDebug("[Baklava] GET Retry Status: {Status}", getResponse.StatusCode);
+                    if (getResponse.Headers["Location"] != null)
+                        _logger.LogDebug("[Baklava] GET Retry Location Header: {Loc}", getResponse.Headers["Location"]);
+
+                     if (getResponse.StatusCode == System.Net.HttpStatusCode.Moved || 
+                        getResponse.StatusCode == System.Net.HttpStatusCode.Redirect ||
+                        getResponse.StatusCode == System.Net.HttpStatusCode.Found)
+                    {
+                        return getResponse.Headers["Location"] ?? url;
+                    }
+                }
+
+                return url;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("[Baklava] URL Resolution failed: {Message}. Using original URL.", ex.Message);
+                return url;
+            }
+        }
+
+        #endregion
     }
 }

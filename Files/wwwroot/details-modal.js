@@ -12,6 +12,54 @@
     // UTILITY FUNCTIONS (Inlined)
     // ============================================
 
+    // Toast Notification Helper
+    function showToast(message, duration = 3000) {
+        let toast = document.getElementById('baklava-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'baklava-toast';
+            toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-100px);background:#333;color:#fff;padding:12px 24px;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.5);z-index:99999;transition:transform 0.3s ease-out;display:flex;align-items:center;gap:10px;font-size:14px;';
+            document.body.appendChild(toast);
+        }
+        toast.innerHTML = `<div style="width:20px;height:20px;border:2px solid #555;border-top:2px solid #fff;border-radius:50%;animation:spin 1s linear infinite;display:none;" id="baklava-toast-spinner"></div><span>${message}</span>`;
+        if (message.includes('background') || message.includes('Importing')) {
+            const s = toast.querySelector('#baklava-toast-spinner');
+            if (s) s.style.display = 'block';
+        }
+
+        requestAnimationFrame(() => toast.style.transform = 'translateX(-50%) translateY(0)');
+
+        if (duration > 0) {
+            setTimeout(() => {
+                toast.style.transform = 'translateX(-50%) translateY(-100px)';
+            }, duration);
+        }
+    }
+
+    function hideToast() {
+        const toast = document.getElementById('baklava-toast');
+        if (toast) toast.style.transform = 'translateX(-50%) translateY(-100px)';
+    }
+
+    // Modal Spinner Helper
+    function toggleModalSpinner(modal, show) {
+        const loading = qs('#item-detail-loading-overlay', modal); // Use existing loading overlay?
+        // Or create a dedicated high-z-index spinner that allows closing?
+        // User wants: "spinner should keep spinning... you can safely close or click open"
+        // This implies the spinner should NOT block the close button/actions.
+        // So we need a non-blocking spinner.
+
+        let spinner = qs('#baklava-import-spinner', modal);
+        if (!spinner) {
+            spinner = document.createElement('div');
+            spinner.id = 'baklava-import-spinner';
+            spinner.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9998;pointer-events:none;display:none;flex-direction:column;align-items:center;background:rgba(0,0,0,0.7);padding:20px;border-radius:10px;';
+            spinner.innerHTML = '<div style="width:40px;height:40px;border:3px solid #555;border-top:3px solid #1e90ff;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:10px;"></div><div style="color:#fff;font-size:12px;">Importing...</div>';
+            qs('.item-detail-modal', modal).appendChild(spinner);
+        }
+        spinner.style.display = show ? 'flex' : 'none';
+    }
+
     const TMDB_GENRES = {
         28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy', 80: 'Crime',
         99: 'Documentary', 18: 'Drama', 10751: 'Family', 14: 'Fantasy', 36: 'History',
@@ -330,9 +378,71 @@
         overlay.addEventListener('click', ev => ev.target === overlay && hideModal());
         closeBtn.addEventListener('click', hideModal);
 
-        importBtn.addEventListener('click', () => {
+        importBtn.addEventListener('click', async () => {
             const id = overlay.dataset.itemId;
-            if (id) { hideModal(); window.location.hash = '#/details?id=' + encodeURIComponent(id); }
+            if (!id) return;
+
+            // UI Feedback: Start
+            toggleModalSpinner(overlay, true);
+            showToast('Importing started... Please wait.', 0); // Indefinite toast until done
+
+            importBtn.disabled = true;
+            importBtn.textContent = 'Importing...';
+            importBtn.style.background = '#888';
+
+            try {
+                const userId = window.ApiClient.getCurrentUserId();
+                console.log('[DetailsModal] Triggering import for:', id);
+
+                // 1. Trigger Item Resolution (Synchronous-ish part)
+                await window.ApiClient.getItem(userId, id);
+
+                // UI Update: Success / Ready to Open
+                importBtn.textContent = 'Imported!';
+                importBtn.style.background = '#4caf50';
+
+                // Switch to Open
+                setTimeout(() => {
+                    importBtn.disabled = false;
+                    importBtn.textContent = 'Open';
+                    importBtn.style.background = '#4caf50';
+                    toggleModalSpinner(overlay, false); // Stop spinner
+
+                    // Logic to swap visibility
+                    importBtn.style.display = 'none';
+                    if (openBtn) openBtn.style.display = 'block';
+                }, 1000);
+
+                // 2. Background Prefetch Trigger (if needed)
+                const config = await fetchConfig();
+                if (!config.FetchCachedMetadataPerVersion) { // "Fetch All" is ON
+                    showToast('Import successful! Caching versions in background... You can close or open safely.', 4000);
+
+                    // Fire-and-forget prefetch trigger
+                    // We call GetMediaStreams to kick off the background task
+                    // We don't await this fully or we ignore the result
+                    const params = new URLSearchParams({ itemId: id });
+                    const url = window.ApiClient.getUrl('api/baklava/metadata/streams') + '?' + params.toString();
+
+                    // We just want to trigger it.
+                    window.ApiClient.ajax({ type: 'GET', url: url }).catch(() => { });
+                } else {
+                    showToast('Import successful! Streams ready.', 3000);
+                }
+
+            } catch (e) {
+                console.error('[DetailsModal] Import failed:', e);
+                importBtn.textContent = 'Error';
+                importBtn.style.background = '#f44336';
+                showToast('Import failed. See console.', 3000);
+                toggleModalSpinner(overlay, false);
+
+                setTimeout(() => {
+                    // Fallback redirect
+                    hideModal();
+                    window.location.hash = '#/details?id=' + encodeURIComponent(id);
+                }, 2000);
+            }
         });
 
         requestBtn.addEventListener('click', () => {
@@ -606,6 +716,18 @@
         closeReviewBtn.addEventListener('click', () => reviewPopup.style.display = 'none');
         reviewPopup.addEventListener('click', e => e.target === reviewPopup && (reviewPopup.style.display = 'none'));
         document.addEventListener('keydown', ev => ev.key === 'Escape' && hideModal());
+
+        // WS Listener for Prefetch Completion
+        if (window.ApiClient) {
+            window.ApiClient.addEventListener('message', (e) => {
+                if (e && e.MessageType === 'BaklavaPrefetch') {
+                    console.log('[DetailsModal] Prefetch complete:', e.Data);
+                    const stats = e.Data;
+                    const msg = `Metadata caching complete! Processed: ${stats.Total}. New: ${stats.Fetched}.`;
+                    showToast(msg, 5000);
+                }
+            });
+        }
     }
 
     // Flag to ensure we only fetch config once
@@ -807,10 +929,11 @@
 
             const { credits, reviews } = await fetchTMDBCreditsAndReviews(actualType === 'series' ? 'tv' : 'movie', tmdbData.id);
             if (credits) populateCredits(modal, tmdbData, credits);
-            if (reviews.length > 0) {
+            if (reviews?.length > 0) {
                 populateReviews(modal, reviews);
-                await populateStreams(modal);
             }
+            // Fire-and-forget streams fetch to avoid blocking UI
+            populateStreams(modal);
 
             if (window.LibraryStatus?.check) {
                 const existingRequest = await window.LibraryStatus.checkRequest(imdbIdFromResponse, tmdbIdFromResponse, actualType, modal.dataset.itemId || null);

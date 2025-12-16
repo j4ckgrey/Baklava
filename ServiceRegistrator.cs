@@ -1,4 +1,6 @@
 using Baklava.Filters;
+using Baklava.Services;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -20,6 +22,9 @@ namespace Baklava
             {
                 options.Filters.AddService<SearchActionFilter>(order: 0);
             });
+
+            // Decorate MediaSourceManager to inject external subtitles
+            services.Decorate<IMediaSourceManager, BaklavaMediaSourceManagerDecorator>();
         }
     }
 }
