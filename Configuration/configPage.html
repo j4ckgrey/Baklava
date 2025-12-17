@@ -191,9 +191,14 @@
                         <p style="margin: 0; font-size: 13px; color: #bbb;">Manage cached MediaInfo and streams from
                             Debrid services.
                         </p>
-                        <button id="clearAllCacheBtn"
-                            style="padding: 6px 12px; border: none; background: #e74c3c; color: white; border-radius: 4px; cursor: pointer; font-size: 13px;">Clear
-                            All Cache</button>
+                        <div style="display: flex; gap: 8px;">
+                            <button id="probeAllCacheBtn"
+                                style="padding: 6px 12px; border: none; background: #2ecc71; color: white; border-radius: 4px; cursor: pointer; font-size: 13px;">Probe
+                                All</button>
+                            <button id="clearAllCacheBtn"
+                                style="padding: 6px 12px; border: none; background: #e74c3c; color: white; border-radius: 4px; cursor: pointer; font-size: 13px;">Clear
+                                All Cache</button>
+                        </div>
                     </div>
 
                     <div id="cacheListContainer"
@@ -223,6 +228,29 @@
                             <button id="confirmDeleteBtn"
                                 style="padding: 8px 16px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">Yes,
                                 Delete All</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Probe Confirmation Modal -->
+                <div id="probeConfirmModal"
+                    style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
+                    <div
+                        style="background: #222; padding: 20px; border-radius: 8px; width: 400px; border: 1px solid #444; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                        <h3 style="margin-top: 0; color: #1e90ff;">Probe All Cache?</h3>
+                        <p style="color: #ddd; font-size: 14px; line-height: 1.5;">
+                            This will scan all cached items, verify Debrid links, and perform <strong>FFprobe
+                                analysis</strong> on audio/subtitle streams.<br><br>
+                            This operation <strong>may take a long time</strong> depending on your cache size.<br>
+                            It runs in the background.<br><br>
+                            Are you sure?
+                        </p>
+                        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                            <button id="cancelProbeBtn"
+                                style="padding: 8px 16px; background: #444; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+                            <button id="confirmProbeBtn"
+                                style="padding: 8px 16px; background: #1e90ff; color: white; border: none; border-radius: 4px; cursor: pointer;">Yes,
+                                Probe All</button>
                         </div>
                     </div>
                 </div>
@@ -607,11 +635,18 @@
                 // Modal Logic
                 const modal = document.getElementById('deleteConfirmModal');
                 const clearBtn = document.getElementById('clearAllCacheBtn');
+                const probeBtn = document.getElementById('probeAllCacheBtn'); // New Button
                 const cancelBtn = document.getElementById('cancelDeleteBtn');
                 const confirmBtn = document.getElementById('confirmDeleteBtn');
+                const probeConfirmModal = document.getElementById('probeConfirmModal'); // New Modal
+                const cancelProbeBtn = document.getElementById('cancelProbeBtn');
+                const confirmProbeBtn = document.getElementById('confirmProbeBtn');
 
                 clearBtn.onclick = () => { modal.style.display = 'flex'; };
                 cancelBtn.onclick = () => { modal.style.display = 'none'; };
+
+                probeBtn.onclick = () => { probeConfirmModal.style.display = 'flex'; };
+                cancelProbeBtn.onclick = () => { probeConfirmModal.style.display = 'none'; };
 
                 confirmBtn.onclick = async () => {
                     modal.style.display = 'none';
@@ -633,6 +668,60 @@
                         alert('Failed to delete all items.');
                     } finally {
                         confirmBtn.textContent = 'Yes, Delete All';
+                    }
+                };
+
+                confirmProbeBtn.onclick = async () => {
+                    const originalText = confirmProbeBtn.textContent;
+                    confirmProbeBtn.textContent = 'Starting...';
+                    confirmProbeBtn.disabled = true;
+                    cancelProbeBtn.style.display = 'none';
+
+                    try {
+                        const url = (window.ApiClient && window.ApiClient.getUrl)
+                            ? window.ApiClient.getUrl(`api/baklava/metadata/cache/probe-all`)
+                            : (window.location.origin + `/api/baklava/metadata/cache/probe-all`);
+
+                        if (window.ApiClient && window.ApiClient.ajax) {
+                            await window.ApiClient.ajax({ type: 'POST', url: url });
+                        } else {
+                            await fetch(url, { method: 'POST' });
+                        }
+
+                        // Success Feedback in Modal
+                        const contentDiv = probeConfirmModal.querySelector('div');
+                        contentDiv.innerHTML = `
+                            <h3 style="margin-top: 0; color: #2ecc71;">Probe Started</h3>
+                            <p style="color: #ddd; font-size: 14px; line-height: 1.5;">
+                                The background probe process has successfully started.<br><br>
+                                Please check your <strong>Jellyfin Server Logs</strong> to monitor progress.<br><br>
+                                You can close this window.
+                            </p>
+                            <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+                                <button id="closeProbeModalBtn"
+                                    style="padding: 8px 16px; background: #444; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>
+                            </div>
+                        `;
+                        const closeBtn = document.getElementById('closeProbeModalBtn');
+                        closeBtn.onclick = () => {
+                            probeConfirmModal.style.display = 'none';
+                            // Reset modal content for next time (optional, but good practice if not reloading page)
+                            // Ideally we reload or reset, but for now simple close is fine. 
+                            window.location.reload();
+                        };
+
+                    } catch (e) {
+                        console.error('Probe All failed', e);
+                        confirmProbeBtn.textContent = 'Failed';
+                        confirmProbeBtn.style.background = '#e74c3c';
+                        alert('Failed to start probe.');
+                        setTimeout(() => {
+                            probeConfirmModal.style.display = 'none';
+                            confirmProbeBtn.textContent = originalText;
+                            confirmProbeBtn.disabled = false;
+                            confirmProbeBtn.style.background = '#1e90ff';
+                            cancelProbeBtn.style.display = 'inline-block';
+                        }, 2000);
                     }
                 };
 

@@ -1,6 +1,0 @@
-Hotfix v0.4.1.0
-
-- Fixed log spam from non-Debrid URLs.
-- Fixed Audio/Subtitle dropdowns disappearing on back navigation.
-- Added 'Loading...' placeholders for dropdowns to improve UI feedback.
-- Minor caching optimizations.

@@ -737,30 +737,16 @@ namespace Baklava.Api
                                   
                               _logger.LogInformation("[Baklava] Found {Count} torrent IDs to delete for item {Id}", torrentIds.Count, itemId);
 
-                          if (torrentIds != null && torrentIds.Count > 0)
-                          {
                               var config = Plugin.Instance.Configuration;
-                              if (!string.IsNullOrEmpty(config?.DebridApiKey))
+                              if (config != null && !string.IsNullOrEmpty(config.DebridApiKey))
                               {
                                   using var client = new HttpClient();
-                                  client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.DebridApiKey);
                                   
                                   foreach(var torrentId in torrentIds)
                                   {
-                                      _logger.LogInformation("[Baklava] Deleting Download from Debrid: {Id}", torrentId);
-                                      // Fix: Cache stores Download IDs, so we must use the downloads/delete endpoint, not torrents/delete
-                                      var res = await client.DeleteAsync($"https://api.real-debrid.com/rest/1.0/downloads/delete/{torrentId}");
-                                      if (!res.IsSuccessStatusCode)
-                                      {
-                                          _logger.LogWarning("[Baklava] Failed to delete download {Id}: {Status}", torrentId, res.StatusCode);
-                                      }
-                                      else
-                                      {
-                                          _logger.LogInformation("[Baklava] Successfully deleted download {Id}", torrentId);
-                                      }
+                                      await DeleteFromDebridAsync(client, config.DebridService, config.DebridApiKey, torrentId);
                                   }
                               }
-                          }
                           }
                       }
                       catch (Exception ex)
@@ -825,17 +811,7 @@ namespace Baklava.Api
                       // TODO: Parallelize? Real-Debrid might have rate limits. Sequential is safer.
                       foreach(var tid in torrentIdsToDelete)
                       {
-                          try 
-                          {
-                              _logger.LogInformation("[Baklava] Deleting Torrent from Debrid (ClearAll): {Id}", tid);
-                              var resp = await client.DeleteAsync($"https://api.real-debrid.com/rest/1.0/torrents/delete/{tid}");
-                              if (!resp.IsSuccessStatusCode && resp.StatusCode != System.Net.HttpStatusCode.NotFound)
-                                  _logger.LogWarning("[Baklava] Failed to delete torrent {Id}: {Status}", tid, resp.StatusCode);
-                          }
-                          catch (Exception ex)
-                          {
-                              _logger.LogWarning(ex, "[Baklava] Error deleting torrent {Id}", tid);
-                          }
+                          await DeleteFromDebridAsync(client, config.DebridService, config.DebridApiKey, tid);
                       }
                  }
 
@@ -925,6 +901,78 @@ namespace Baklava.Api
         }
 
         #endregion
+
+        private async Task DeleteFromDebridAsync(HttpClient client, string service, string apiKey, string id)
+        {
+            try 
+            {
+                _logger.LogInformation("[Baklava] Deleting from {Service}: {Id}", service, id);
+                HttpResponseMessage? res = null;
+
+                switch (service?.ToLower())
+                {
+                    case "alldebrid":
+                        // Agent is required. 
+                        res = await client.GetAsync($"https://api.alldebrid.com/v4/magnet/delete?agent=baklava&apikey={apiKey}&id={id}");
+                        break;
+                        
+                    case "premiumize":
+                         // POST form-data
+                         var content = new FormUrlEncodedContent(new[] 
+                         {
+                             new KeyValuePair<string, string>("apikey", apiKey),
+                             new KeyValuePair<string, string>("id", id)
+                         });
+                         res = await client.PostAsync("https://www.premiumize.me/api/transfer/delete", content);
+                         break;
+                         
+                    case "debridlink":
+                    case "debrid-link":
+                        // Bearer auth required
+                        var reqDL = new HttpRequestMessage(HttpMethod.Delete, $"https://debrid-link.com/api/v2/seedbox/torrents/{id}");
+                        reqDL.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+                        res = await client.SendAsync(reqDL);
+                        break;
+                        
+                    case "torbox":
+                         // Bearer auth + JSON body
+                         var reqTB = new HttpRequestMessage(HttpMethod.Post, "https://torbox.app/v1/api/torrents/controltorrent");
+                         reqTB.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+                         // Manual JSON string to avoid System.Text.Json import issues or overhead? 
+                         // We are using System.Text.Json at top level
+                         var jsonBody = JsonSerializer.Serialize(new { torrent_id = id, operation = "delete" });
+                         reqTB.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                         res = await client.SendAsync(reqTB);
+                         break;
+
+                    case "realdebrid":
+                    default:
+                        // Real-Debrid: Use downloads/delete (Download ID stored in cache)
+                        // Requires Bearer
+                        var reqRD = new HttpRequestMessage(HttpMethod.Delete, $"https://api.real-debrid.com/rest/1.0/downloads/delete/{id}");
+                        reqRD.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+                        res = await client.SendAsync(reqRD);
+                        break;
+                }
+
+                if (res != null)
+                {
+                    if (!res.IsSuccessStatusCode && res.StatusCode != System.Net.HttpStatusCode.NotFound)
+                    {
+                        var body = await res.Content.ReadAsStringAsync();
+                        _logger.LogWarning("[Baklava] Failed to delete from {Service} ({Id}). Status: {Status}. Body: {Body}", service, id, res.StatusCode, body);
+                    }
+                    else
+                    {
+                         _logger.LogInformation("[Baklava] Successfully deleted from {Service}: {Id}", service, id);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Baklava] Error executing Debrid deletion for {Service}", service);
+            }
+        }
 
         private StreamDto MapFfprobeAudio(FfprobeAudio a) => new StreamDto
         {
@@ -1495,6 +1543,156 @@ namespace Baklava.Api
             return null;
         }
 
+        [HttpPost("cache/probe-all")]
+        public async Task<ActionResult> ProbeAllCache()
+        {
+             if (Plugin.Instance == null) return NotFound();
+             var config = Plugin.Instance.Configuration;
+             if (string.IsNullOrEmpty(config?.DebridApiKey)) return BadRequest("Debrid API Key not set");
+
+             _logger.LogInformation("[Baklava] Starting PROBE ALL CACHE operation...");
+             
+             // 1. Get all cache files
+             var baseDir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Plugin.Instance.DataFolderPath, "..", "..", "cache"));
+             var cacheDir = System.IO.Path.Combine(baseDir, "Baklava");
+             if (!System.IO.Directory.Exists(cacheDir)) return Ok(new { count = 0, message = "Cache empty" });
+
+             var files = System.IO.Directory.GetFiles(cacheDir, "*.json", System.IO.SearchOption.AllDirectories);
+             var updatedCount = 0;
+
+             _ = Task.Run(async () => 
+             {
+                 try 
+                 {
+                     using var client = new HttpClient();
+                     foreach (var file in files)
+                     {
+                         try 
+                         {
+                             // Extract ItemId from filename
+                             var filename = System.IO.Path.GetFileNameWithoutExtension(file);
+                             if (!Guid.TryParse(filename, out var guid)) continue;
+                             
+                             var item = _libraryManager.GetItemById(guid);
+                             if (item == null) continue;
+
+                             // Read Cache
+                             var json = await System.IO.File.ReadAllTextAsync(file);
+                             var dict = JsonSerializer.Deserialize<Dictionary<string, CachedMetadata>>(json);
+                             if (dict == null) continue;
+                             
+                             var keys = dict.Keys.ToList(); // Snapshot keys
+                             foreach (var key in keys)
+                             {
+                                 var entry = dict[key];
+                                 if (string.IsNullOrEmpty(entry.OriginalUrl)) continue;
+
+                                 _logger.LogInformation("[Baklava] Probing: {Title} ({Url})", entry.Title ?? item.Name, entry.OriginalUrl);
+
+                                 // 1. Get Playable URL
+                                 var playableUrl = await GetPlayableDebridUrl(client, config.DebridService, config.DebridApiKey, entry.OriginalUrl);
+                                 if (string.IsNullOrEmpty(playableUrl)) 
+                                 {
+                                     _logger.LogWarning("[Baklava] Could not get playable URL for probing: {Url}", entry.OriginalUrl);
+                                     continue;
+                                 }
+
+                                 // 2. FFprobe
+                                 var probeResult = await RunFfprobeAsync(playableUrl);
+                                 if (probeResult != null)
+                                 {
+                                     _logger.LogInformation("[Baklava] Probe Success! Audio: {AC}, Subs: {SC}", probeResult.Audio.Count, probeResult.Subtitles.Count);
+                                     
+                                     // 3. Update Cache
+                                     // Map results
+                                     var audios = probeResult.Audio.Select(MapFfprobeAudio).ToList();
+                                     var subs = probeResult.Subtitles.Select(MapFfprobeSub).ToList();
+                                     
+                                     await CacheStreamData(item, entry.OriginalUrl, audios, subs, entry.TorrentId);
+                                     updatedCount++;
+                                 }
+                             }
+                         }
+                         catch (Exception ex)
+                         {
+                             _logger.LogError(ex, "[Baklava] Error probing cache file: {File}", file);
+                         }
+                     }
+                     _logger.LogInformation("[Baklava] Probe All Cache Completed. Updated {Count} items.", updatedCount);
+                 }
+                 catch (Exception ex)
+                 {
+                     _logger.LogError(ex, "[Baklava] Critical error in Probe All Cache task");
+                 }
+             });
+
+             return Accepted(new { message = "Probe All Cache started in background. Check logs for progress." });
+        }
+
+        private async Task<string?> GetPlayableDebridUrl(HttpClient client, string service, string apiKey, string originalUrl)
+        {
+            // Support Real-Debrid for now as per revival logic reuse
+            if (service?.ToLower() != "realdebrid") return null; 
+
+            try 
+            {
+                 string? hash = null;
+                 if (originalUrl.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
+                 {
+                      var match = System.Text.RegularExpressions.Regex.Match(originalUrl, "xt=urn:btih:([a-zA-Z0-9]+)");
+                      if (match.Success) hash = match.Groups[1].Value;
+                 }
+                 else 
+                 {
+                      if (originalUrl.Contains("/resolve/realdebrid/") || originalUrl.Contains("/resolve/antigravity/"))
+                      {
+                           var uri = new Uri(originalUrl);
+                           var parts = uri.AbsolutePath.Split('/', System.StringSplitOptions.RemoveEmptyEntries);
+                           if (parts.Length >= 4) hash = parts[3];
+                      }
+                 }
+
+                 if (!string.IsNullOrEmpty(hash))
+                 {
+                      // Use Revive Logic (returns Download ID)
+                      var id = await ReviveAndGetIdFromMagnet(hash, apiKey);
+                      if (!string.IsNullOrEmpty(id))
+                      {
+                          // Get Download Link from Download ID
+                          client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+                          var infoResp = await client.GetAsync($"https://api.real-debrid.com/rest/1.0/downloads/info/{id}");
+                          if (infoResp.IsSuccessStatusCode)
+                          {
+                               using var infoJson = JsonDocument.Parse(await infoResp.Content.ReadAsStreamAsync());
+                               JsonElement root = infoJson.RootElement;
+                               
+                               // Handle API returning Array instead of Object
+                               if (root.ValueKind == JsonValueKind.Array)
+                               {
+                                   if (root.GetArrayLength() > 0) root = root[0];
+                                   else return null;
+                               }
+
+                               if (root.TryGetProperty("download", out var dlEl))
+                               {
+                                   return dlEl.GetString();
+                               }
+                          }
+                      }
+                 }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Baklava] Failed to get playable URL for {Url}", originalUrl);
+            }
+
+            // Fallback: If we couldn't revive it (e.g. MediaFusion, or already direct link), return originalUrl if it looks like Http
+            if (!string.IsNullOrEmpty(originalUrl) && originalUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                return originalUrl;
+
+            return null;
+        }
+
 
         private async Task<ActionResult> BuildCompleteResponse(
             JsonDocument mainData,
@@ -1599,7 +1797,7 @@ namespace Baklava.Api
             var psi = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = ffprobePath,
-                Arguments = $"-v error -print_format json -show_streams -analyzeduration 5000000 -probesize 5000000 \"{url}\"",
+                Arguments = $"-v quiet -print_format json -show_streams \"{url}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -1660,7 +1858,14 @@ namespace Baklava.Api
                             IsDefault = false
                         });
                     }
+                    }
+
+                
+                if (res.Audio.Count == 0 && res.Subtitles.Count == 0)
+                {
+                     _logger.LogWarning("[Baklava] FFprobe returned 0 Audio/Subs. Raw JSON: {Json}", json);
                 }
+
                 return res;
             }
             catch (Exception ex)
