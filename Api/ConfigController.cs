@@ -42,8 +42,11 @@ namespace Baklava.Api
                     versionUi = cfg.VersionUi,
                     audioUi = cfg.AudioUi,
                     subtitleUi = cfg.SubtitleUi,
+                    debridService = cfg.DebridService,
+                    debridApiKey = isAdmin ? cfg.DebridApiKey : (string.IsNullOrEmpty(cfg.DebridApiKey) ? "" : "********"),
                     enableDebridMetadata = cfg.EnableDebridMetadata,
                     enableFallbackProbe = cfg.EnableFallbackProbe,
+                    enableExternalSubtitles = cfg.EnableExternalSubtitles,
                     fetchCachedMetadataPerVersion = cfg.FetchCachedMetadataPerVersion,
                     fetchAllNonCachedMetadata = cfg.FetchAllNonCachedMetadata
                 });
@@ -139,6 +142,11 @@ namespace Baklava.Api
                 cfg.EnableFallbackProbe = dto.enableFallbackProbe.Value;
             }
             
+
+            if (dto.enableExternalSubtitles.HasValue)
+            {
+                cfg.EnableExternalSubtitles = dto.enableExternalSubtitles.Value;
+            }
             if (dto.fetchCachedMetadataPerVersion.HasValue)
             {
                 cfg.FetchCachedMetadataPerVersion = dto.fetchCachedMetadataPerVersion.Value;
@@ -170,6 +178,7 @@ namespace Baklava.Api
         public string debridApiKey { get; set; }
         public bool? enableDebridMetadata { get; set; }
         public bool? enableFallbackProbe { get; set; }
+        public bool? enableExternalSubtitles { get; set; }
         public bool? fetchCachedMetadataPerVersion { get; set; }
         public bool? fetchAllNonCachedMetadata { get; set; }
     }

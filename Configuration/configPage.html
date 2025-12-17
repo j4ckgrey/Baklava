@@ -19,12 +19,30 @@
                 <h2 style="text-align: center;">Baklava - Media Request Manager</h2>
                 <h3 style="text-align: center;">Plugin Settings</h3>
 
-                <!-- TMDB API Key -->
-                <div style="margin-bottom: 20px;">
-                    <label for="tmdbApiKey" style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">TMDB API
-                        Key (required for title search)</label>
-                    <input id="tmdbApiKey" type="text" placeholder="Enter TMDB API Key"
-                        style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+
+
+                <!-- API Keys -->
+                <div
+                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    <h4 style="margin-top: 0; color: #1e90ff;">API Keys</h4>
+
+                    <div style="margin-bottom: 16px;">
+                        <label for="tmdbApiKey" style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">TMDB
+                            API Key (required for Modals Metadata)</label>
+                        <input id="tmdbApiKey" type="text" placeholder="Enter TMDB API Key"
+                            style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label for="debridApiKey"
+                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Debrid API Key</label>
+                        <input id="debridApiKey" type="text" placeholder="Enter your debrid API key"
+                            style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                        <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
+                            Your API key from your debrid service account settings. This is used to query stream
+                            metadata from cached files.
+                        </p>
+                    </div>
                 </div>
 
                 <!-- Search Filter Settings -->
@@ -86,22 +104,14 @@
                             <option value="alldebrid">AllDebrid</option>
                             <option value="premiumize">Premiumize</option>
                             <option value="debridlink">Debrid-Link</option>
+                            <option value="torbox">TorBox</option>
                         </select>
                         <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
                             Select your debrid service provider.
                         </p>
                     </div>
 
-                    <div style="margin-bottom: 16px;">
-                        <label for="debridApiKey"
-                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Debrid API Key</label>
-                        <input id="debridApiKey" type="password" placeholder="Enter your debrid API key"
-                            style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
-                        <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
-                            Your API key from your debrid service account settings. This is used to query stream
-                            metadata from cached files.
-                        </p>
-                    </div>
+
 
                     <div style="margin-bottom: 12px;">
                         <label style="display: flex; align-items: center; cursor: pointer;">
@@ -154,100 +164,124 @@
 
                 </div>
 
-            </div>
-
-            <!-- Cache Management Settings -->
-            <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
-                <h4 style="margin-top: 0; color: #1e90ff;">Cache Management</h4>
-
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <p style="margin: 0; font-size: 13px; color: #bbb;">Manage metadata cached from Debrid services.</p>
-                    <button id="clearAllCacheBtn"
-                        style="padding: 6px 12px; border: none; background: #e74c3c; color: white; border-radius: 4px; cursor: pointer; font-size: 13px;">Clear
-                        All Cache</button>
-                </div>
-
-                <div id="cacheListContainer"
-                    style="height: 300px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 4px; padding: 8px;">
-                    <div style="text-align: center; color: #888; padding: 10px;">Loading cache...</div>
-                </div>
-            </div>
-
-            <!-- Delete Confirmation Modal -->
-            <div id="deleteConfirmModal"
-                style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
+                <!-- External Subtitles Settings -->
                 <div
-                    style="background: #222; padding: 20px; border-radius: 8px; width: 400px; border: 1px solid #444; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
-                    <h3 style="margin-top: 0; color: #e74c3c;">Delete All Cache?</h3>
-                    <p style="color: #ddd; font-size: 14px; line-height: 1.5;">
-                        This will delete all cached stream metadata for <strong>ALL items</strong>.<br>
-                        It will also <strong>DELETE the downloaded files from your Debrid Service</strong> to clean up
-                        your account.<br><br>
-                        Baklava will need to re-fetch metadata (and potentially re-download files) next time.<br><br>
-                        Are you sure?
-                    </p>
-                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
-                        <button id="cancelDeleteBtn"
-                            style="padding: 8px 16px; background: #444; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
-                        <button id="confirmDeleteBtn"
-                            style="padding: 8px 16px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">Yes,
-                            Delete All</button>
+                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    <h4 style="margin-top: 0; color: #1e90ff;">External Subtitles</h4>
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: flex; align-items: center; cursor: not-allowed; opacity: 0.6;">
+                            <input id="enableExternalSubtitles" type="checkbox" style="margin-right: 8px;" disabled>
+                            <span style="color:#ddd;">Enable External Subtitles (Disabled)</span>
+                        </label>
+                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
+                            This feature is currently disabled for stability.
+                        </p>
                     </div>
                 </div>
-            </div>
 
-            <!-- UI Settings -->
-            <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
-                <h4 style="margin-top: 0; color: #1e90ff;">UI Settings</h4>
 
-                <div style="margin-bottom: 12px;">
-                    <label style="display: flex; align-items: center; cursor: pointer;">
-                        <input id="showReviewsCarousel" type="checkbox" style="margin-right: 8px;">
-                        <span style="color:#ddd;">Enable Reviews in details pages</span>
-                    </label>
-                    <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
-                        When enabled, a carousel of user reviews will be displayed above the Cast & Crew section on
-                        movie and TV show details pages.
-                    </p>
+
+                <!-- Cache Management Settings -->
+                <div
+                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    <h4 style="margin-top: 0; color: #1e90ff;">Cache Management</h4>
+
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <p style="margin: 0; font-size: 13px; color: #bbb;">Manage cached MediaInfo and streams from
+                            Debrid services.
+                        </p>
+                        <button id="clearAllCacheBtn"
+                            style="padding: 6px 12px; border: none; background: #e74c3c; color: white; border-radius: 4px; cursor: pointer; font-size: 13px;">Clear
+                            All Cache</button>
+                    </div>
+
+                    <div id="cacheListContainer"
+                        style="height: 300px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 4px; padding: 8px;">
+                        <div style="text-align: center; color: #888; padding: 10px;">Loading cache...</div>
+                    </div>
                 </div>
 
-                <div style="margin-bottom: 12px;">
-                    <label for="versionUiSelect"
-                        style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Version UI</label>
-                    <select id="versionUiSelect"
-                        style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
-                        <option value="carousel">Carousel</option>
-                        <option value="dropdown">Dropdown</option>
-                    </select>
-                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
-                        Choose UI for version selection.
-                    </p>
+                <!-- Delete Confirmation Modal -->
+                <div id="deleteConfirmModal"
+                    style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
+                    <div
+                        style="background: #222; padding: 20px; border-radius: 8px; width: 400px; border: 1px solid #444; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                        <h3 style="margin-top: 0; color: #e74c3c;">Delete All Cache?</h3>
+                        <p style="color: #ddd; font-size: 14px; line-height: 1.5;">
+                            This will delete all cached stream metadata for <strong>ALL items</strong>.<br>
+                            It will also <strong>DELETE the downloaded files from your Debrid Service</strong> to clean
+                            up
+                            your account.<br><br>
+                            Baklava will need to re-fetch metadata (and potentially re-download files) next
+                            time.<br><br>
+                            Are you sure?
+                        </p>
+                        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                            <button id="cancelDeleteBtn"
+                                style="padding: 8px 16px; background: #444; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+                            <button id="confirmDeleteBtn"
+                                style="padding: 8px 16px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">Yes,
+                                Delete All</button>
+                        </div>
+                    </div>
                 </div>
 
-                <div style="margin-bottom: 12px;">
-                    <label for="audioUiSelect" style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Audio
-                        UI</label>
-                    <select id="audioUiSelect"
-                        style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
-                        <option value="carousel">Carousel</option>
-                        <option value="dropdown">Dropdown</option>
-                    </select>
-                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
-                        Choose UI for audio track selection.
-                    </p>
-                </div>
+                <!-- UI Settings -->
+                <div
+                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    <h4 style="margin-top: 0; color: #1e90ff;">UI Settings</h4>
 
-                <div style="margin-bottom: 12px;">
-                    <label for="subtitleUiSelect"
-                        style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Subtitle UI</label>
-                    <select id="subtitleUiSelect"
-                        style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
-                        <option value="carousel">Carousel</option>
-                        <option value="dropdown">Dropdown</option>
-                    </select>
-                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
-                        Choose UI for subtitle selection.
-                    </p>
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input id="showReviewsCarousel" type="checkbox" style="margin-right: 8px;">
+                            <span style="color:#ddd;">Enable Reviews in details pages</span>
+                        </label>
+                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
+                            When enabled, a carousel of user reviews will be displayed above the Cast & Crew section on
+                            movie and TV show details pages.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label for="versionUiSelect"
+                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Version UI</label>
+                        <select id="versionUiSelect"
+                            style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                            <option value="carousel">Carousel</option>
+                            <option value="dropdown">Dropdown</option>
+                        </select>
+                        <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
+                            Choose UI for version selection.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label for="audioUiSelect"
+                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Audio
+                            UI</label>
+                        <select id="audioUiSelect"
+                            style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                            <option value="carousel">Carousel</option>
+                            <option value="dropdown">Dropdown</option>
+                        </select>
+                        <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
+                            Choose UI for audio track selection.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label for="subtitleUiSelect"
+                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Subtitle UI</label>
+                        <select id="subtitleUiSelect"
+                            style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                            <option value="carousel">Carousel</option>
+                            <option value="dropdown">Dropdown</option>
+                        </select>
+                        <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
+                            Choose UI for subtitle selection.
+                        </p>
+                    </div>
                 </div>
             </div>
 
@@ -268,7 +302,7 @@
                     </div>
                 </div>
             </div>
-            <div>
+            <div style="text-align: center; margin-top: 20px; padding-bottom: 60px;">
                 <button id="saveConfigBtn"
                     style="padding:8px 16px;border-radius:4px;border:none;background:#1e90ff;color:#fff;cursor:pointer;font-size:14px;">Save
                     Configuration</button>
@@ -296,6 +330,8 @@
                             document.getElementById('fetchCachedMetadataPerVersion').checked = response?.fetchCachedMetadataPerVersion === true;
                             document.getElementById('fetchAllNonCachedMetadata').checked = response?.fetchAllNonCachedMetadata === true;
 
+                            document.getElementById('enableExternalSubtitles').checked = response?.enableExternalSubtitles === true;
+
                             updateToggles(); // Initial state update
 
                             console.log('[Baklava][Config] Loaded config:', response);
@@ -320,6 +356,8 @@
 
                         document.getElementById('fetchCachedMetadataPerVersion').checked = json.fetchCachedMetadataPerVersion === true;
                         document.getElementById('fetchAllNonCachedMetadata').checked = json.fetchAllNonCachedMetadata === true;
+
+                        document.getElementById('enableExternalSubtitles').checked = json.enableExternalSubtitles === true;
 
                         updateToggles(); // Initial state update
 
@@ -362,6 +400,7 @@
                     const debridApiKey = document.getElementById('debridApiKey').value || '';
                     const enableDebridMetadata = document.getElementById('enableDebridMetadata').checked;
                     const enableFallbackProbe = document.getElementById('enableFallbackProbe').checked;
+                    const enableExternalSubtitles = document.getElementById('enableExternalSubtitles').checked;
 
 
                     const configData = {
@@ -378,7 +417,9 @@
                         enableDebridMetadata: enableDebridMetadata,
                         enableFallbackProbe: enableFallbackProbe,
                         fetchCachedMetadataPerVersion: fetchCachedMetadataPerVersion,
-                        fetchAllNonCachedMetadata: fetchAllNonCachedMetadata
+                        fetchCachedMetadataPerVersion: fetchCachedMetadataPerVersion,
+                        fetchAllNonCachedMetadata: fetchAllNonCachedMetadata,
+                        enableExternalSubtitles: enableExternalSubtitles
                     };
 
                     try {

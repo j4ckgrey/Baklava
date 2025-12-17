@@ -447,7 +447,7 @@ namespace Baklava.Api
 
             // 5. Fetch External Subtitles from Stremio (Gelato)
             var configData = Plugin.Instance?.Configuration;
-            if (configData?.EnableSubs == true)
+            if (configData?.EnableExternalSubtitles == true)
             {
                  var externalSubs = await FetchStremioSubtitlesAsync(item, userId);
                  if (externalSubs != null && externalSubs.Any())
@@ -967,7 +967,7 @@ namespace Baklava.Api
             {
                 var uri = new Uri(url);
                 var config = Plugin.Instance?.Configuration;
-                _logger.LogInformation("[Baklava] FetchDebridMetadataAsync. Config: {ConfigNotNull}. Key present: {KeyPresent}", config != null, !string.IsNullOrEmpty(config?.DebridApiKey));
+                _logger.LogDebug("[Baklava] FetchDebridMetadataAsync. Checking configuration for service: {Service}", config?.DebridService);
                 
                 // Unified cache check (skip if forced)
                 if (!forceRefresh)
@@ -979,6 +979,13 @@ namespace Baklava.Api
                     }
                 }
                 
+                
+                // Route to appropriate service
+                if (config?.DebridService == "torbox")
+                {
+                    return await FetchTorBoxMetadataAsync(item, url, forceRefresh, allowMagnetRevival);
+                }
+
                 // Currently supporting Real-Debrid
                 if (config?.DebridService != "realdebrid") return null;
 
@@ -1718,5 +1725,199 @@ namespace Baklava.Api
         }
 
         #endregion
+
+        // --- TORBOX IMPLEMENTATION ---
+
+        private async Task<(List<StreamDto> Audio, List<StreamDto> Subtitles, bool IsCached)?> FetchTorBoxMetadataAsync(BaseItem item, string url, bool forceRefresh, bool allowMagnetRevival)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null || string.IsNullOrEmpty(config.DebridApiKey)) return null;
+
+            string? hash = ExtractHash(url);
+            if (string.IsNullOrEmpty(hash))
+            {
+                _logger.LogWarning("[Baklava] Could not extract hash from URL for TorBox: {Url}", url);
+                return null;
+            }
+
+            try 
+            {
+                // 1. Check Cache
+                var files = await CheckTorBoxCache(hash, config.DebridApiKey);
+                
+                // 2. Fallback Probe (if enabled and not cached)
+                if (files == null && allowMagnetRevival)
+                {
+                     _logger.LogDebug("[Baklava] TorBox CheckCached miss. Attempting Probe (Add Magnet) for hash: {Hash}", hash);
+                     files = await ProbeTorBoxStream(hash, config.DebridApiKey);
+                }
+
+                if (files != null)
+                {
+                    var audio = new List<StreamDto>();
+                    var subs = new List<StreamDto>();
+
+                    foreach (var f in files)
+                    {
+                        var ext = System.IO.Path.GetExtension(f.Name)?.ToLowerInvariant();
+                        if (string.IsNullOrEmpty(ext)) continue;
+
+                        if (IsAudio(ext))
+                        {
+                            audio.Add(new StreamDto 
+                            { 
+                                Codec = ext.TrimStart('.'), 
+                                Language = "und", // TorBox doesn't provide lang metadata easily
+                                Title = f.Name,
+                                IsExternal = true 
+                            });
+                        }
+                        else if (IsSubtitle(ext))
+                        {
+                            subs.Add(new StreamDto 
+                            { 
+                                Codec = ext.TrimStart('.'), 
+                                Language = ExtractLanguageFromFilename(f.Name), 
+                                Title = f.Name,
+                                IsExternal = true
+                            });
+                        }
+                    }
+                    _logger.LogInformation("[Baklava] TorBox Metadata found. Audio: {AC}, Subs: {SC}", audio.Count, subs.Count);
+                    return (audio, subs, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Baklava] TorBox Metadata fetch failed.");
+            }
+
+            return null;
+        }
+
+        private async Task<List<TorBoxFile>?> CheckTorBoxCache(string hash, string apiKey)
+        {
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            
+            // GET /v1/api/torrents/checkcached?hash={hash}&format=object&list_files=true
+            var uri = $"https://api.torbox.app/v1/api/torrents/checkcached?hash={hash}&format=object&list_files=true";
+            var resp = await client.GetAsync(uri);
+            
+            if (!resp.IsSuccessStatusCode) return null;
+
+            var json = JsonDocument.Parse(await resp.Content.ReadAsStreamAsync());
+            // Response structure: { "data": { "HASH": { "name": "...", "files": [ ... ] } } }
+            // OR if not cached: { "data": { "HASH": null } } or similar (need to be careful)
+            
+            if (json.RootElement.TryGetProperty("data", out var data) && 
+                data.TryGetProperty(hash, out var hashData) && 
+                hashData.ValueKind != JsonValueKind.Null &&
+                hashData.TryGetProperty("files", out var filesElement) &&
+                filesElement.ValueKind == JsonValueKind.Array)
+            {
+                var list = new List<TorBoxFile>();
+                foreach (var f in filesElement.EnumerateArray())
+                {
+                    if (f.TryGetProperty("name", out var name) && f.TryGetProperty("size", out var size))
+                    {
+                        list.Add(new TorBoxFile { Name = name.GetString() ?? "", Size = size.GetInt64() });
+                    }
+                }
+                return list;
+            }
+
+            return null;
+        }
+
+        private async Task<List<TorBoxFile>?> ProbeTorBoxStream(string hash, string apiKey)
+        {
+             // Fallback: Add Magnet -> Get Info
+             using var client = new HttpClient();
+             client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+
+             var content = new FormUrlEncodedContent(new[] 
+             { 
+                 new KeyValuePair<string, string>("magnet", $"magnet:?xt=urn:btih:{hash}"),
+                 new KeyValuePair<string, string>("seed", "1"),
+                 new KeyValuePair<string, string>("allow_zip", "false")
+             });
+
+             var resp = await client.PostAsync("https://api.torbox.app/v1/api/torrents/createtorrent", content);
+             if (!resp.IsSuccessStatusCode) return null;
+
+             var json = JsonDocument.Parse(await resp.Content.ReadAsStreamAsync());
+             // Response: { "data": { "torrent_id": 12345, ... } }
+             
+             if (json.RootElement.TryGetProperty("data", out var data) && 
+                 data.TryGetProperty("torrent_id", out var idEl))
+             {
+                 var torrentId = idEl.ToString(); // Could be number or string
+                 
+                 // Get Info
+                 var infoResp = await client.GetAsync($"https://api.torbox.app/v1/api/torrents/mylist?id={torrentId}");
+                 if (infoResp.IsSuccessStatusCode)
+                 {
+                     var infoJson = JsonDocument.Parse(await infoResp.Content.ReadAsStreamAsync());
+                     // Parse 'files' from info
+                     if (infoJson.RootElement.TryGetProperty("data", out var infoData) && 
+                         infoData.TryGetProperty("files", out var filesEl))
+                     {
+                         // Map files
+                         var list = new List<TorBoxFile>();
+                         foreach (var f in filesEl.EnumerateArray())
+                         {
+                              // Need to check specific structure of 'mylist' files
+                              // Usually: { "name": "...", "size": ... }
+                             if (f.TryGetProperty("name", out var name))
+                             {
+                                 list.Add(new TorBoxFile { Name = name.GetString() ?? "" });
+                             }
+                         }
+                         
+                         // Cleanup? TorBox autoscrubs, but maybe good to delete?
+                         // DELETE /v1/api/torrents/controltorrent Payload: { "torrent_id": ID, "operation": "delete" }
+                         // Keeping it simple for now, skipping delete to avoid deleting user's actual content if it matched.
+                         
+                         return list;
+                     }
+                 }
+             }
+             return null;
+        }
+
+        private string? ExtractHash(string url)
+        {
+            // 1. Check for Magnet
+            if (url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(url, "xt=urn:btih:([a-fA-F0-9]{40})");
+                if (match.Success) return match.Groups[1].Value;
+            }
+            
+            // 2. Check for Regex in URL (generic)
+            var hashMatch = System.Text.RegularExpressions.Regex.Match(url, "([a-fA-F0-9]{40})");
+            if (hashMatch.Success) return hashMatch.Groups[1].Value;
+
+            return null;
+        }
+        
+        private bool IsAudio(string ext) => new[] { ".mp3", ".aac", ".ac3", ".eac3", ".dts", ".flac", ".wav" }.Contains(ext);
+        private bool IsSubtitle(string ext) => new[] { ".srt", ".vtt", ".sub", ".ass" }.Contains(ext);
+        
+        private string ExtractLanguageFromFilename(string filename)
+        {
+            // Simple heuristic
+            if (filename.Contains("eng", StringComparison.OrdinalIgnoreCase)) return "eng";
+            if (filename.Contains("jpn", StringComparison.OrdinalIgnoreCase)) return "jpn";
+            // ... add more if needed
+            return "und";
+        }
+
+        private class TorBoxFile
+        {
+            public string Name { get; set; } = "";
+            public long Size { get; set; }
+        }
     }
 }

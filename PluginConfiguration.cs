@@ -71,6 +71,9 @@ namespace Baklava
         public bool FetchAllNonCachedMetadata { get; set; } = false;
 
         // Enable fetching external subtitles from Stremio
-        public bool EnableSubs { get; set; } = true;
+        // [DISABLED BY DEFAULT per user request]
+        public bool EnableExternalSubtitles { get; set; } = false;
+
+
     }
 }

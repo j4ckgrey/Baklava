@@ -9,6 +9,15 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.png",
     "versions": [
       {
+        "version": "0.4.0.0",
+        "changelog": "This update addresses the need for efficient media handling without unnecessary downloads. \n\nChanges:\n- Embedded MediaInfo (audios and subtitles) is now saved locally.\n- No more repeated API calls. No more repeated probing.\n- MediaInfo is fetched once per stream and reused.\n- Opening a title in Kebap went from ~10 seconds to ~3 seconds.\n- Embedded MediaInfo now loads instantly.\n\nAdded toggles so users can control what they are signing up for:\n- Enable or disable probing.\n- Enable probing per version.\n- Pre-cache embedded MediaInfo for all versions in advance.\n\nFull control over cached data:\n- Delete embedded MediaInfo locally.\n- Delete streams from the debrid account.\n\nStream handling is now Debrid ID–based.\n- As long as the stream list stays the same, nothing is re-probed.\n- If only 1 or 2 streams change, only those are probed.\n- Baklava no longer opens a stream just to extract embedded MediaInfo.\n- Uses the embedded MediaInfo available in the file.\n- Much faster than before.\n\nTrade-off:\n- Some embedded MediaInfo does not include subtitles by default.\n- Once a stream is played, Baklava captures missing audios and subtitles and updates the local JSON.\n- Next opens (for any user) will have the updated info.\n\nLogging has been improved.\n- Clear, plain-language messages.\n\nBaklava still relies on Aiostreams and Gelato.\nEmbedded MediaInfo is compared with the local JSON and updated only when needed.\n\nExternal subtitles are in progress (~80% done). Not released yet.\nSoon, Kebap will share the exact same settings page as Baklava.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.4.0.0/baklava_0.4.0.0.zip",
+        "checksum": "23693f6c4234ea81b2124fea2c524f62",
+        "checksumType": "md5",
+        "timestamp": "2025-12-17T11:51:00Z"
+      },
+      {
         "version": "0.3.4.0",
         "changelog": "Fixed CheckLibraryStatus endpoint to return Jellyfin ID for proper navigation from search results",
         "targetAbi": "10.11.0.0",
