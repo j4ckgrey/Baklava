@@ -1022,7 +1022,7 @@ namespace Baklava.Api
 
                 if (!uri.Host.Contains("real-debrid") && !uri.Host.Contains("rd-net"))
                 {
-                    _logger.LogWarning("[Baklava] Resolved URL is not a Real-Debrid URL: {Url}", uri);
+                    _logger.LogDebug("[Baklava] Resolved URL is not a Real-Debrid URL: {Url}", uri);
                     return null;
                 }
 
