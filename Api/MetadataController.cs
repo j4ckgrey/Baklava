@@ -1786,6 +1786,7 @@ namespace Baklava.Api
         private class FfprobeSubtitle { public int Index {get;set;} public string? Title {get;set;} public string? Language {get;set;} public string? Codec {get;set;} public bool IsForced {get;set;} public bool IsDefault {get;set;} }
         private class FfprobeResult { public List<FfprobeAudio> Audio {get;set;} = new(); public List<FfprobeSubtitle> Subtitles {get;set;} = new(); }
 
+
         private async Task<FfprobeResult?> RunFfprobeAsync(string url)
         {
             var candidates = new[] { "/usr/lib/jellyfin-ffmpeg/ffprobe", "/usr/bin/ffprobe", "ffprobe" };
@@ -1797,29 +1798,40 @@ namespace Baklava.Api
             var psi = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = ffprobePath,
-                Arguments = $"-v quiet -print_format json -show_streams \"{url}\"",
+                Arguments = $"-v quiet -print_format json -show_streams -analyzeduration 15000000 -probesize 15000000 -seekable 0 \"{url}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            
+            _logger.LogInformation("[Baklava] Running FFprobe on URL: {Url}", url);
 
             try
             {
                 using var proc = System.Diagnostics.Process.Start(psi);
                 if (proc == null) return null;
 
-                if (!proc.WaitForExit(10000)) // 10s timeout
+                if (!proc.WaitForExit(60000)) // Increased to 60s timeout
                 {
                     try { proc.Kill(); } catch {}
+                    _logger.LogWarning("[Baklava] FFprobe timed out after 60s for URL: {Url}", url);
                     return null;
                 }
 
                 var json = await proc.StandardOutput.ReadToEndAsync();
-                if (string.IsNullOrWhiteSpace(json)) return null;
+                if (string.IsNullOrWhiteSpace(json)) 
+                {
+                    _logger.LogWarning("[Baklava] FFprobe returned empty output for URL: {Url}", url);
+                    return null;
+                }
 
                 using var doc = JsonDocument.Parse(json);
-                if (!doc.RootElement.TryGetProperty("streams", out var streams)) return null;
+                if (!doc.RootElement.TryGetProperty("streams", out var streams)) 
+                {
+                    _logger.LogWarning("[Baklava] FFprobe JSON missing 'streams' property. Raw: {Json}", json);
+                    return null;
+                }
 
                 var res = new FfprobeResult();
                 foreach (var s in streams.EnumerateArray())
@@ -1838,13 +1850,22 @@ namespace Baklava.Api
 
                     if (type == "audio")
                     {
+                        int? channels = null;
+                        if (s.TryGetProperty("channels", out var ch) && ch.ValueKind == JsonValueKind.Number) channels = ch.GetInt32();
+                        
+                        long? bitRate = null;
+                        if (s.TryGetProperty("bit_rate", out var br) && br.ValueKind == JsonValueKind.String)
+                        {
+                            if (long.TryParse(br.GetString(), out var brv)) bitRate = brv;
+                        }
+
                         res.Audio.Add(new FfprobeAudio {
                             Index = index,
                             Codec = codec,
                             Language = lang,
                             Title = title,
-                            Channels = s.TryGetProperty("channels", out var ch) ? (int?)ch.GetInt32() : null,
-                            Bitrate = s.TryGetProperty("bit_rate", out var br) && long.TryParse(br.GetString(), out var b) ? (double?)b : null
+                            Channels = channels,
+                            Bitrate = (double?)bitRate
                         });
                     }
                     else if (type == "subtitle")
@@ -1858,8 +1879,7 @@ namespace Baklava.Api
                             IsDefault = false
                         });
                     }
-                    }
-
+                }
                 
                 if (res.Audio.Count == 0 && res.Subtitles.Count == 0)
                 {
@@ -1874,7 +1894,6 @@ namespace Baklava.Api
                 return null;
             }
         }
-
         private async Task<string> TryResolveUrl(string url)
         {
             try
