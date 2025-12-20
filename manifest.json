@@ -9,7 +9,34 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.png",
     "versions": [
       {
-        "version": "0.3.0.0",
+        "version": "0.5.0.0",
+        "changelog": "0.5.0.0 - reverted to ffprobe and reduced size to 2mb instead of 100mb. disabled experimental non tested debrid services",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.5.0.0/baklava_0.5.0.0.zip",
+        "checksum": "867582396e2541126dea41e3bb4cb75c",
+        "checksumType": "md5",
+        "timestamp": "2025-12-20T13:59:00Z"
+      },
+      {
+        "version": "0.4.7.1",
+        "changelog": "0.4.7.1 - Improve cache stability with Path-based keys",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.4.7.1/baklava_0.4.7.1.zip",
+        "checksum": "a468e7592efff0969955df1c1d9932cd",
+        "checksumType": "md5",
+        "timestamp": "2025-12-19T17:00:00Z"
+      },
+      {
+        "version": "0.4.7.0",
+        "changelog": "0.4.7.0 - Instant Metadata Loading (Preloads all versions)",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.4.7.0/baklava_0.4.7.0.zip",
+        "checksum": "a468e7592efff0969955df1c1d9932cd",
+        "checksumType": "md5",
+        "timestamp": "2025-12-19T16:50:00Z"
+      },
+      {
+        "version": "0.4.6.0",
         "changelog": "Added Enable Auto Import option for non-admin users",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.3.0.0/baklava_0.3.0.0.zip",

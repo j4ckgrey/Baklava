@@ -3,19 +3,19 @@
  * Combines: request-manager.js, requests-menu.js, requests-header-button.js
  * Manages user media requests with header button, dropdown menu, and full page views
  */
-(function() {
+(function () {
     'use strict';
-    
+
 
     // ============================================
     // SHARED STATE & CONFIGURATION
     // ============================================
-    
+
     const API_BASE = 'api/baklava/requests';
     let isAdmin = false;
     let currentUsername = '';
     let isLoadingRequests = false;
-    
+
     // UI References
     let dropdownMenu = null;
     let backdrop = null;
@@ -29,7 +29,7 @@
             console.warn('[Requests] ApiClient not available yet');
             return false;
         }
-        
+
         try {
             const userId = window.ApiClient.getCurrentUserId();
             const user = await window.ApiClient.getUser(userId);
@@ -56,7 +56,7 @@
             console.warn('[Requests.getCurrentUsername] ApiClient not available yet');
             return 'Unknown';
         }
-        
+
         try {
             const userId = window.ApiClient.getCurrentUserId();
             const user = await window.ApiClient.getUser(userId);
@@ -80,6 +80,24 @@
     // API FUNCTIONS
     // ============================================
 
+    function normalizeRequest(r) {
+        return {
+            Id: r.Id || r.id || r.requestId || '',
+            Username: r.Username || r.username || '',
+            UserId: r.UserId || r.userId || '',
+            Title: r.Title || r.title || '',
+            Year: r.Year || r.year || '',
+            Img: r.Img || r.img || '',
+            ImdbId: r.ImdbId || r.imdbId || '',
+            TmdbId: r.TmdbId || r.tmdbId || '',
+            ItemType: r.ItemType || r.itemType || r.itemtype || '',
+            JellyfinId: r.JellyfinId || r.jellyfinId || '',
+            Status: r.Status || r.status || 'pending',
+            ApprovedBy: r.ApprovedBy || r.approvedBy || '',
+            Timestamp: r.Timestamp || r.timestamp || r.requestedAt || 0
+        };
+    }
+
     async function fetchAllRequests() {
         try {
             const response = await window.ApiClient.ajax({
@@ -87,9 +105,8 @@
                 url: window.ApiClient.getUrl(API_BASE),
                 dataType: 'json'
             });
-            if (response[0]) {
-            }
-            return Array.isArray(response) ? response : [];
+            const list = Array.isArray(response) ? response : [];
+            return list.map(normalizeRequest);
         } catch (err) {
             console.error('[Requests.fetchAllRequests] Error:', err);
             return [];
@@ -99,19 +116,19 @@
     async function saveRequest(item) {
         const username = await getCurrentUsername();
         const userId = window.ApiClient.getCurrentUserId();
-        
+
         const request = {
-            title: item.title,
-            year: item.year,
-            img: item.img,
-            imdbId: item.imdbId,
-            tmdbId: item.tmdbId,
-            itemType: item.itemType,
-            jellyfinId: item.jellyfinId,
-            status: 'pending',
-            username: username,
-            userId: userId,
-            requestedAt: new Date().toISOString()
+            Title: item.title,
+            Year: item.year,
+            Img: item.img,
+            ImdbId: item.imdbId,
+            TmdbId: item.tmdbId,
+            ItemType: item.itemType,
+            JellyfinId: item.jellyfinId,
+            Status: 'pending',
+            Username: username,
+            UserId: userId,
+            Timestamp: Date.now()
         };
 
         await window.ApiClient.ajax({
@@ -124,8 +141,8 @@
     }
 
     async function updateRequestStatus(requestId, status, approvedBy) {
-        const payload = { status };
-        if (approvedBy) payload.approvedBy = approvedBy;
+        const payload = { Status: status };
+        if (approvedBy) payload.ApprovedBy = approvedBy;
 
         await window.ApiClient.ajax({
             type: 'PUT',
@@ -332,7 +349,7 @@
     function openRequestModal(request, adminView) {
         const currentUserName = currentUsername;
         const isOwnRequest = request.Username === currentUserName;
-        
+
         document.dispatchEvent(new CustomEvent('openDetailsModal', {
             detail: {
                 item: {
@@ -359,7 +376,7 @@
 
     function createBackdrop() {
         if (backdrop) return backdrop;
-        
+
         backdrop = document.createElement('div');
         backdrop.className = 'requests-backdrop';
         backdrop.style.cssText = `
@@ -372,18 +389,18 @@
             z-index: 9999;
             display: none;
         `;
-        
+
         backdrop.addEventListener('click', () => {
             hideDropdown();
         });
-        
+
         document.body.appendChild(backdrop);
         return backdrop;
     }
 
     function createDropdown() {
         if (dropdownMenu) return dropdownMenu;
-        
+
         dropdownMenu = document.createElement('div');
         dropdownMenu.className = 'requests-dropdown';
         dropdownMenu.style.cssText = `
@@ -404,7 +421,7 @@
             padding: 20px;
             max-height: 80vh;
         `;
-        
+
         dropdownMenu.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px;">
                 <h2 style="margin: 0; color: #fff;">Media Requests</h2>
@@ -437,11 +454,11 @@
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(dropdownMenu);
-        
+
         dropdownMenu.querySelector('.close-dropdown').addEventListener('click', hideDropdown);
-        
+
         return dropdownMenu;
     }
 
@@ -457,37 +474,50 @@
         seriesContainer.innerHTML = '<div style="color: #999; padding: 20px;">Loading...</div>';
 
         try {
+            console.log('[Requests] Fetching requests...');
             const requests = await fetchAllRequests();
-            
             const adminView = await checkAdmin();
-            
+
+            console.log('[Requests] Current User:', currentUsername, 'IsAdmin:', adminView);
+            console.log('[Requests] Total Requests Fetched:', requests.length);
+            if (requests.length > 0) {
+                console.log('[Requests] Sample Request:', requests[0]);
+            }
+
+            // Normalize username for comparison
+            const normUser = (currentUsername || '').toLowerCase();
+
+            // Helper to safely access properties (handles PascalCase vs camelCase checks)
+            const getStatus = (r) => r.Status || r.status;
+            const getItemType = (r) => r.ItemType || r.itemType || r.itemtype; // just in case
+            const getUsername = (r) => r.Username || r.username;
+
+            // Generic filtering helper
+            const isOwner = (r) => (getUsername(r) || '').toLowerCase() === normUser;
+
             // For admins: show all non-approved requests (pending) in movies/series lists,
-            // but show only admin-owned approved copies in the Approved row. This
-            // prevents admins from seeing the original user's approved record alongside
-            // their own admin copy.
+            // but show only admin-owned approved copies in the Approved row.
             let filteredRequests;
             if (adminView) {
                 // non-approved (pending/rejected/etc.) for lists
-                filteredRequests = requests.filter(r => r.Status !== 'approved');
+                filteredRequests = requests.filter(r => getStatus(r) !== 'approved');
             } else {
-                filteredRequests = requests.filter(r => {
-                    return r.Username === currentUsername;
-                });
+                filteredRequests = requests.filter(r => isOwner(r));
             }
 
-            // Approved requests are shown in their own row. Admins only see their own approved copies.
-            const approved = adminView
-                ? requests.filter(r => r.Status === 'approved' && r.Username === currentUsername)
-                : filteredRequests.filter(r => r.Status === 'approved');
+            console.log('[Requests] Filtered Requests (pre-split):', filteredRequests.length);
 
-            // Rejected requests - admins only see their own rejected copies (like approved)
-            const rejected = adminView
-                ? requests.filter(r => r.Status === 'rejected' && r.Username === currentUsername)
-                : filteredRequests.filter(r => r.Status === 'rejected');
+            // Approved requests: Admins see ALL approved requests (to verify they worked/debug).
+            const approved = requests.filter(r => getStatus(r) === 'approved');
 
-            const movies = filteredRequests.filter(r => r.ItemType === 'movie' && r.Status !== 'approved' && r.Status !== 'rejected');
-            const series = filteredRequests.filter(r => r.ItemType === 'series' && r.Status !== 'approved' && r.Status !== 'rejected');
-            
+            // Rejected requests: Admins see ALL rejected requests.
+            const rejected = requests.filter(r => getStatus(r) === 'rejected');
+
+            const movies = filteredRequests.filter(r => getItemType(r) === 'movie' && getStatus(r) !== 'approved' && getStatus(r) !== 'rejected');
+            const series = filteredRequests.filter(r => (getItemType(r) === 'series' || getItemType(r) === 'tv') && getStatus(r) !== 'approved' && getStatus(r) !== 'rejected');
+
+            console.log('[Requests] Counts -> Movies:', movies.length, 'Series:', series.length, 'Approved:', approved.length, 'Rejected:', rejected.length);
+
 
             moviesContainer.innerHTML = '';
             seriesContainer.innerHTML = '';
@@ -535,7 +565,7 @@
                     rejectedContainer.appendChild(createPlaceholderCard());
                 }
             }
-            
+
             // Update notification badge after loading requests
             updateNotificationBadge();
         } catch (err) {
@@ -575,36 +605,41 @@
     // ============================================
     // HEADER BUTTON
     // ============================================
-    
+
     async function updateNotificationBadge() {
         const badge = document.querySelector('.requests-notification-badge');
         if (!badge) return;
-        
+
         // Check if ApiClient is ready
         if (!window.ApiClient) {
             console.warn('[Requests.updateNotificationBadge] ApiClient not ready yet');
             return;
         }
-        
+
         try {
             const requests = await fetchAllRequests();
             const username = await getCurrentUsername();
             const adminView = await checkAdmin();
-            
-            console.log('[Requests.updateNotificationBadge] Fetched', requests.length, 'total requests');
-            
+
+            console.log('[Requests.updateNotificationBadge] Fetched', requests.length, 'total requests. Current User:', username);
+
             let pendingCount = 0;
-            
+
             if (adminView) {
                 // For admins: count all pending requests (from any user)
                 pendingCount = requests.filter(r => r.Status === 'pending').length;
             } else {
                 // For regular users: count only their own pending requests
-                pendingCount = requests.filter(r => r.Status === 'pending' && r.Username === username).length;
+                // Use case-insensitive check here too
+                const normUser = (username || '').toLowerCase();
+                const getStatus = (r) => r.Status || r.status;
+                const getUsername = (r) => r.Username || r.username;
+                const isOwner = (r) => (getUsername(r) || '').toLowerCase() === normUser;
+                pendingCount = requests.filter(r => getStatus(r) === 'pending' && isOwner(r)).length;
             }
-            
+
             console.log('[Requests.updateNotificationBadge] Pending count:', pendingCount, '(admin:', adminView, ')');
-            
+
             // Always show the badge with the count (including 0)
             badge.textContent = pendingCount > 99 ? '99+' : pendingCount.toString();
             badge.style.display = 'flex';
@@ -619,7 +654,7 @@
         if (document.querySelector('.headerRequestsButton')) {
             return;
         }
-        
+
         // Use legacy header only
         const headerRight = document.querySelector('.headerRight');
         if (!headerRight) {
@@ -627,9 +662,9 @@
             setTimeout(addRequestsButton, 500);
             return;
         }
-        
+
         console.log('[Requests] Adding button to legacy header');
-        
+
         const btn = document.createElement('button');
         btn.setAttribute('is', 'paper-icon-button-light');
         btn.setAttribute('data-role', 'requests-button');
@@ -637,7 +672,7 @@
         btn.title = 'Media Requests';
         btn.style.position = 'relative'; // Needed for badge positioning
         btn.innerHTML = '<span class="material-icons list_alt" aria-hidden="true"></span>';
-        
+
         // Add notification badge element
         const badge = document.createElement('span');
         badge.className = 'requests-notification-badge';
@@ -660,21 +695,21 @@
             z-index: 10;
         `;
         btn.appendChild(badge);
-        
+
         const userButton = headerRight.querySelector('.headerUserButton');
         if (userButton) {
             headerRight.insertBefore(btn, userButton);
         } else {
             headerRight.appendChild(btn);
         }
-        
+
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             toggleDropdown(btn);
         });
-        
+
         console.log('[Requests] Button added successfully');
-        
+
         // Update badge immediately and then periodically
         // Wait a bit for ApiClient to be fully ready
         setTimeout(() => {
@@ -695,7 +730,7 @@
         requestsPage.className = 'page type-interior';
         requestsPage.setAttribute('data-role', 'page');
         requestsPage.style.cssText = 'display:none;';
-        
+
         requestsPage.innerHTML = `
             <div class="skinHeader focuscontainer-x padded-top padded-left padded-right padded-bottom-page">
                 <div class="flex align-items-center flex-grow headerTop">
@@ -731,7 +766,7 @@
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(requestsPage);
     }
 
@@ -741,13 +776,13 @@
                 p.style.display = 'none';
             }
         });
-        
+
         let requestsPage = document.getElementById('requestsPage');
         if (!requestsPage) {
             createRequestsPage();
             requestsPage = document.getElementById('requestsPage');
         }
-        
+
         requestsPage.style.display = 'block';
         loadAndDisplayRequestsPage();
     }
@@ -765,25 +800,29 @@
         try {
             const requests = await fetchAllRequests();
             const adminView = await checkAdmin();
-            
+
+            // Normalize username
+            const normUser = (currentUsername || '').toLowerCase();
+
+            // Helper accessors
+            const getStatus = (r) => r.Status || r.status;
+            const getItemType = (r) => r.ItemType || r.itemType || r.itemtype;
+            const getUsername = (r) => r.Username || r.username;
+            const isOwner = (r) => (getUsername(r) || '').toLowerCase() === normUser;
+
             // Admins: show all non-approved/non-rejected requests in lists, but only their own approved/rejected copies
             let filteredRequests;
             if (adminView) {
-                filteredRequests = requests.filter(r => r.Status !== 'approved' && r.Status !== 'rejected');
+                filteredRequests = requests.filter(r => getStatus(r) !== 'approved' && getStatus(r) !== 'rejected');
             } else {
-                filteredRequests = requests.filter(r => r.Username === currentUsername);
+                filteredRequests = requests.filter(r => isOwner(r));
             }
 
-            const approved = adminView
-                ? requests.filter(r => r.Status === 'approved' && r.Username === currentUsername)
-                : filteredRequests.filter(r => r.Status === 'approved');
+            const approved = requests.filter(r => getStatus(r) === 'approved');
+            const rejected = requests.filter(r => getStatus(r) === 'rejected');
 
-            const rejected = adminView
-                ? requests.filter(r => r.Status === 'rejected' && r.Username === currentUsername)
-                : filteredRequests.filter(r => r.Status === 'rejected');
-
-            const movies = filteredRequests.filter(r => r.ItemType === 'movie' && r.Status !== 'approved' && r.Status !== 'rejected');
-            const series = filteredRequests.filter(r => r.ItemType === 'series' && r.Status !== 'approved' && r.Status !== 'rejected');
+            const movies = filteredRequests.filter(r => getItemType(r) === 'movie' && getStatus(r) !== 'approved' && getStatus(r) !== 'rejected');
+            const series = filteredRequests.filter(r => (getItemType(r) === 'series' || getItemType(r) === 'tv') && getStatus(r) !== 'approved' && getStatus(r) !== 'rejected');
 
             moviesContainer.innerHTML = '';
             seriesContainer.innerHTML = '';
@@ -843,7 +882,7 @@
     // Use a flag to prevent duplicate event listeners
     if (!window._baklavaRequestsInitialized) {
         window._baklavaRequestsInitialized = true;
-        
+
         document.addEventListener('mediaRequest', async (e) => {
             const item = e.detail;
             try {
@@ -908,7 +947,7 @@
     // ============================================
 
     function init() {
-        
+
         // Wait for ApiClient to be ready before checking admin
         const waitForApiClient = () => {
             if (window.ApiClient) {
@@ -918,7 +957,7 @@
             }
         };
         waitForApiClient();
-        
+
         // Add header button with retry logic
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
@@ -934,14 +973,14 @@
             setTimeout(addRequestsButton, 1500);
             setTimeout(addRequestsButton, 3000);
         }
-        
+
         // Watch for header being added dynamically
         const headerObserver = new MutationObserver(() => {
             if (!document.querySelector('.mui-requests-button, .headerRequestsButton')) {
                 addRequestsButton();
             }
         });
-        
+
         headerObserver.observe(document.body, {
             childList: true,
             subtree: true
@@ -950,7 +989,7 @@
 
     // Start initialization
     init();
-    
+
     // Expose global interface for external access
     window.RequestsHeaderButton = {
         show: showDropdown,

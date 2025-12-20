@@ -17,6 +17,25 @@ namespace Baklava
         // TMDB API key for metadata lookups
         public string TmdbApiKey { get; set; } = string.Empty;
 
+        // Debrid Configuration
+        public string DebridService { get; set; } = "realdebrid";
+        public string DebridApiKey { get; set; } = string.Empty;  // RealDebrid API Key (legacy, kept for compatibility)
+        
+        // Multi-Debrid API Keys
+        public string RealDebridApiKey { get; set; } = string.Empty;
+        public string TorBoxApiKey { get; set; } = string.Empty;
+        public string AllDebridApiKey { get; set; } = string.Empty;
+        public string PremiumizeApiKey { get; set; } = string.Empty;
+
+        // Advanced Debrid Metadata Settings
+        public bool EnableDebridMetadata { get; set; } = true;
+        public bool EnableFallbackProbe { get; set; } = false;
+        public bool FetchCachedMetadataPerVersion { get; set; } = false;
+        public bool FetchAllNonCachedMetadata { get; set; } = false;
+
+        // External Subtitles
+        public bool EnableExternalSubtitles { get; set; } = false;
+
         // Gelato integration settings (server-side proxy)
         // Set GelatoBaseUrl to the base URL where Gelato is reachable from the Jellyfin server
         // e.g. http://localhost:8096

@@ -3,14 +3,56 @@
  * Shows TMDB metadata modal when clicking on search results
  * All utilities inlined - no dependencies on shared-utils.js
  */
-(function() {
+(function () {
     'use strict';
-    
+
     console.log('[DetailsModal] Loading standalone version...');
 
     // ============================================
     // UTILITY FUNCTIONS (Inlined)
     // ============================================
+
+    // Toast Notification Helper
+    function showToast(message, duration = 3000) {
+        let toast = document.getElementById('baklava-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'baklava-toast';
+            toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-100px);background:#333;color:#fff;padding:12px 24px;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.5);z-index:99999;transition:transform 0.3s ease-out;display:flex;align-items:center;gap:10px;font-size:14px;';
+            document.body.appendChild(toast);
+        }
+        toast.innerHTML = `<div style="width:20px;height:20px;border:2px solid #555;border-top:2px solid #fff;border-radius:50%;animation:spin 1s linear infinite;display:none;" id="baklava-toast-spinner"></div><span>${message}</span>`;
+        if (message.includes('background') || message.includes('Importing')) {
+            const s = toast.querySelector('#baklava-toast-spinner');
+            if (s) s.style.display = 'block';
+        }
+
+        requestAnimationFrame(() => toast.style.transform = 'translateX(-50%) translateY(0)');
+
+        if (duration > 0) {
+            setTimeout(() => {
+                toast.style.transform = 'translateX(-50%) translateY(-100px)';
+            }, duration);
+        }
+    }
+
+    function hideToast() {
+        const toast = document.getElementById('baklava-toast');
+        if (toast) toast.style.transform = 'translateX(-50%) translateY(-100px)';
+    }
+
+    // Modal Spinner Helper
+    function toggleModalSpinner(modal, show) {
+        let spinner = qs('#baklava-import-spinner', modal);
+        if (!spinner) {
+            spinner = document.createElement('div');
+            spinner.id = 'baklava-import-spinner';
+            spinner.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9998;pointer-events:none;display:none;flex-direction:column;align-items:center;background:rgba(0,0,0,0.7);padding:20px;border-radius:10px;';
+            spinner.innerHTML = '<div style="width:40px;height:40px;border:3px solid #555;border-top:3px solid #1e90ff;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:10px;"></div><div style="color:#fff;font-size:12px;">Importing...</div>';
+            qs('.item-detail-modal', modal).appendChild(spinner);
+        }
+        spinner.style.display = show ? 'flex' : 'none';
+    }
 
     const TMDB_GENRES = {
         28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy', 80: 'Crime',
@@ -39,30 +81,30 @@
 
     function getBackgroundImage(element) {
         if (!element) return '';
-        
+
         const inline = element.style?.backgroundImage;
         if (inline && inline !== 'none') {
             return inline.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
         }
-        
+
         const dataAttrs = ['data-src', 'data-image', 'src'];
         for (const attr of dataAttrs) {
             const value = element.getAttribute(attr);
             if (value) return value;
         }
-        
+
         const styleStr = element.getAttribute('style') || '';
         const match = styleStr.match(/background-image:\s*url\(([^)]+)\)/i);
         if (match) {
             return match[1].replace(/^["']|["']$/g, '');
         }
-        
+
         return '';
     }
 
     function setBackgroundImage(element, url, minHeight = '240px') {
         if (!element) return;
-        
+
         if (url) {
             element.style.backgroundImage = `url('${url}')`;
             element.style.minHeight = minHeight;
@@ -82,11 +124,11 @@
         if (!jellyfinId) return result;
 
         if (cardElement) {
-            result.tmdbId = cardElement.dataset.tmdbid || cardElement.dataset.tmdb || 
-                           cardElement.getAttribute('data-tmdbid') || cardElement.getAttribute('data-tmdb');
-            result.imdbId = cardElement.dataset.imdbid || cardElement.dataset.imdb || 
-                           cardElement.getAttribute('data-imdbid') || cardElement.getAttribute('data-imdb');
-            
+            result.tmdbId = cardElement.dataset.tmdbid || cardElement.dataset.tmdb ||
+                cardElement.getAttribute('data-tmdbid') || cardElement.getAttribute('data-tmdb');
+            result.imdbId = cardElement.dataset.imdbid || cardElement.dataset.imdb ||
+                cardElement.getAttribute('data-imdbid') || cardElement.getAttribute('data-imdb');
+
             const cardType = cardElement.dataset.type || cardElement.getAttribute('data-type') || '';
             const cardClass = cardElement.className || '';
             if (cardType.toLowerCase().includes('series') || cardClass.includes('Series') || cardClass.includes('series')) {
@@ -174,10 +216,10 @@
 
             // Get the first media source ID from the item to fetch streams
             const mediaSourceId = modal.dataset.mediaSourceId || null;
-            
+
             const params = new URLSearchParams({ itemId });
             if (mediaSourceId) params.append('mediaSourceId', mediaSourceId);
-            
+
             const url = window.ApiClient.getUrl('api/baklava/metadata/streams') + '?' + params.toString();
             const resp = await window.ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' });
             if (!resp) return;
@@ -251,63 +293,63 @@
     }
 
     function escapeHtml(s) {
-        return String(s || '').replace(/[&<>"']/g, function(c) {
-            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+        return String(s || '').replace(/[&<>"']/g, function (c) {
+            return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
         });
     }
 
     // ============================================
     // MODAL FUNCTIONS
     // ============================================
-    
+
     function createModal() {
         const overlay = document.createElement('div');
         overlay.className = 'item-detail-modal-overlay';
         overlay.id = 'item-detail-modal-overlay';
         overlay.innerHTML = '<div class="item-detail-modal" role="dialog" aria-modal="true" aria-labelledby="item-detail-title" style="position:relative;">'
             + '<div id="item-detail-loading-overlay" style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.95);display:flex;align-items:center;justify-content:center;z-index:9999;border-radius:8px;">'
-                + '<div style="text-align:center;">'
-                    + '<div style="width:40px;height:40px;border:3px solid #555;border-top:3px solid #1e90ff;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 10px;"></div>'
-                    + '<div style="color:#aaa;font-size:14px;">Loading…</div>'
-                + '</div>'
+            + '<div style="text-align:center;">'
+            + '<div style="width:40px;height:40px;border:3px solid #555;border-top:3px solid #1e90ff;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 10px;"></div>'
+            + '<div style="color:#aaa;font-size:14px;">Loading…</div>'
+            + '</div>'
             + '</div>'
             + '<div class="left" id="item-detail-image" aria-hidden="true" style="position:relative;">'
-                + '<div id="item-detail-requester" style="display:none;position:absolute;top:20px;left:50%;transform:translateX(-50%);background:rgba(30,144,255,0.95);color:#fff;padding:6px 12px;border-radius:4px;font-size:12px;font-weight:600;white-space:nowrap;"></div>'
+            + '<div id="item-detail-requester" style="display:none;position:absolute;top:20px;left:50%;transform:translateX(-50%);background:rgba(30,144,255,0.95);color:#fff;padding:6px 12px;border-radius:4px;font-size:12px;font-weight:600;white-space:nowrap;"></div>'
             + '</div>'
             + '<div class="right" style="min-width:0;max-height:calc(100vh - 80px);">'
-                + '<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:15px;border-bottom:2px solid #333;margin-bottom:15px;">'
-                    + '<h2 id="item-detail-title" style="margin:0;">Loading…</h2>'
-                    + '<div style="display:flex;gap:10px;">'
-                        + '<button id="item-detail-approve" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#4caf50;color:#fff;cursor:pointer;display:none;font-size:13px;">Approve</button>'
-                        + '<button id="item-detail-reject" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#ff5722;color:#fff;cursor:pointer;display:none;font-size:13px;">Reject</button>'
-                        + '<button id="item-detail-import" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#1e90ff;color:#fff;cursor:pointer;display:none;font-size:13px;">Import</button>'
-                        + '<button id="item-detail-request" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#ff9800;color:#fff;cursor:pointer;display:none;font-size:13px;">Request</button>'
-                        + '<button id="item-detail-view-requests" style="width:120px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#9c27b0;color:#fff;cursor:pointer;display:none;font-size:13px;">View Requests</button>'
-                        + '<button id="item-detail-remove" title="Remove" style="width:36px;height:36px;padding:0;border:none;border-radius:4px;background:#f44336;color:#fff;cursor:pointer;display:none;font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;">'
-                            + '<span class="material-icons" aria-hidden="true" style="font-size:18px;line-height:1;">delete</span>'
-                        + '</button>'
-                        + '<button id="item-detail-open" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#4caf50;color:#fff;cursor:pointer;display:none;font-size:13px;">Open</button>'
-                        + '<button id="item-detail-close" style="width:32px;height:32px;padding:0;border:none;border-radius:4px;background:#555;color:#fff;cursor:pointer;font-size:18px;line-height:1;">✕</button>'
-                    + '</div>'
-                + '</div>'
-                + '<div class="modal-body" style="overflow:auto;min-width:0;max-height:calc(100vh - 160px);">'
-                    + '<div id="item-detail-meta"></div>'
-                    + '<div id="item-detail-overview" style="margin-top:12px;line-height:1.6;"></div>'
-                    + '<div id="item-detail-info" style="margin-top:20px;"></div>'
-                + '</div>'
-                + '<div id="item-detail-reviews" style="margin-top:30px;"></div>'
+            + '<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:15px;border-bottom:2px solid #333;margin-bottom:15px;">'
+            + '<h2 id="item-detail-title" style="margin:0;">Loading…</h2>'
+            + '<div style="display:flex;gap:10px;">'
+            + '<button id="item-detail-approve" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#4caf50;color:#fff;cursor:pointer;display:none;font-size:13px;">Approve</button>'
+            + '<button id="item-detail-reject" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#ff5722;color:#fff;cursor:pointer;display:none;font-size:13px;">Reject</button>'
+            + '<button id="item-detail-import" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#1e90ff;color:#fff;cursor:pointer;display:none;font-size:13px;">Import</button>'
+            + '<button id="item-detail-request" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#ff9800;color:#fff;cursor:pointer;display:none;font-size:13px;">Request</button>'
+            + '<button id="item-detail-view-requests" style="width:120px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#9c27b0;color:#fff;cursor:pointer;display:none;font-size:13px;">View Requests</button>'
+            + '<button id="item-detail-remove" title="Remove" style="width:36px;height:36px;padding:0;border:none;border-radius:4px;background:#f44336;color:#fff;cursor:pointer;display:none;font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;">'
+            + '<span class="material-icons" aria-hidden="true" style="font-size:18px;line-height:1;">delete</span>'
+            + '</button>'
+            + '<button id="item-detail-open" style="width:100px;height:32px;padding:6px 12px;border:none;border-radius:4px;background:#4caf50;color:#fff;cursor:pointer;display:none;font-size:13px;">Open</button>'
+            + '<button id="item-detail-close" style="width:32px;height:32px;padding:0;border:none;border-radius:4px;background:#555;color:#fff;cursor:pointer;font-size:18px;line-height:1;">✕</button>'
+            + '</div>'
+            + '</div>'
+            + '<div class="modal-body" style="overflow:auto;min-width:0;max-height:calc(100vh - 160px);">'
+            + '<div id="item-detail-meta"></div>'
+            + '<div id="item-detail-overview" style="margin-top:12px;line-height:1.6;"></div>'
+            + '<div id="item-detail-info" style="margin-top:20px;"></div>'
+            + '</div>'
+            + '<div id="item-detail-reviews" style="margin-top:30px;"></div>'
             + '</div>'
             + '<style>@keyframes spin { to { transform: rotate(360deg); } }</style>'
             + '<div id="review-popup" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:10000;">'
-                + '<div style="max-width:800px;max-height:80vh;margin:10vh auto;background:#1a1a1a;border-radius:8px;display:flex;flex-direction:column;">'
-                    + '<div style="padding:20px 30px;border-bottom:2px solid #333;display:flex;justify-content:space-between;">'
-                                + '<h3 style="margin:0;color:#fff;">Review</h3>'
-                                + '<button id="close-review-popup" title="Close" style="background:#555;border:none;color:#fff;padding:8px 12px;cursor:pointer;border-radius:4px;font-size:16px;">'
-                                    + '<span class="material-icons" aria-hidden="true" style="vertical-align:middle;">close</span>'
-                                + '</button>'
-                    + '</div>'
-                    + '<div id="review-popup-content" style="flex:1;overflow-y:auto;padding:30px;color:#ccc;"></div>'
-                + '</div>'
+            + '<div style="max-width:800px;max-height:80vh;margin:10vh auto;background:#1a1a1a;border-radius:8px;display:flex;flex-direction:column;">'
+            + '<div style="padding:20px 30px;border-bottom:2px solid #333;display:flex;justify-content:space-between;">'
+            + '<h3 style="margin:0;color:#fff;">Review</h3>'
+            + '<button id="close-review-popup" title="Close" style="background:#555;border:none;color:#fff;padding:8px 12px;cursor:pointer;border-radius:4px;font-size:16px;">'
+            + '<span class="material-icons" aria-hidden="true" style="vertical-align:middle;">close</span>'
+            + '</button>'
+            + '</div>'
+            + '<div id="review-popup-content" style="flex:1;overflow-y:auto;padding:30px;color:#ccc;"></div>'
+            + '</div>'
             + '</div>'
             + '</div>';
         document.body.appendChild(overlay);
@@ -329,12 +371,74 @@
 
         overlay.addEventListener('click', ev => ev.target === overlay && hideModal());
         closeBtn.addEventListener('click', hideModal);
-        
-        importBtn.addEventListener('click', () => {
+
+        importBtn.addEventListener('click', async () => {
             const id = overlay.dataset.itemId;
-            if (id) { hideModal(); window.location.hash = '#/details?id=' + encodeURIComponent(id); }
+            if (!id) return;
+
+            // UI Feedback: Start
+            toggleModalSpinner(overlay, true);
+            showToast('Importing started... Please wait.', 0); // Indefinite toast until done
+
+            importBtn.disabled = true;
+            importBtn.textContent = 'Importing...';
+            importBtn.style.background = '#888';
+
+            try {
+                const userId = window.ApiClient.getCurrentUserId();
+                console.log('[DetailsModal] Triggering import for:', id);
+
+                // 1. Trigger Item Resolution (Synchronous-ish part)
+                await window.ApiClient.getItem(userId, id);
+
+                // UI Update: Success / Ready to Open
+                importBtn.textContent = 'Imported!';
+                importBtn.style.background = '#4caf50';
+
+                // Switch to Open
+                setTimeout(() => {
+                    importBtn.disabled = false;
+                    importBtn.textContent = 'Open';
+                    importBtn.style.background = '#4caf50';
+                    toggleModalSpinner(overlay, false); // Stop spinner
+
+                    // Logic to swap visibility
+                    importBtn.style.display = 'none';
+                    if (openBtn) openBtn.style.display = 'block';
+                }, 1000);
+
+                // 2. Background Prefetch Trigger (if needed)
+                const config = await fetchConfig();
+                if (!config.FetchCachedMetadataPerVersion) { // "Fetch All" is ON
+                    showToast('Import successful! Background processing started... You can close or open safely.', 4000);
+
+                    // Fire-and-forget prefetch trigger
+                    // We call GetMediaStreams to kick off the background task
+                    // We don't await this fully or we ignore the result
+                    const params = new URLSearchParams({ itemId: id });
+                    const url = window.ApiClient.getUrl('api/baklava/metadata/streams') + '?' + params.toString();
+
+                    // We just want to trigger it.
+                    window.ApiClient.ajax({ type: 'GET', url: url }).catch(() => { });
+                } else {
+                    showToast('Import successful! Streams ready.', 3000);
+                }
+
+            } catch (e) {
+                console.error('[DetailsModal] Import failed:', e);
+                importBtn.textContent = 'Error';
+                importBtn.style.background = '#f44336';
+                showToast('Import failed. See console.', 3000);
+                toggleModalSpinner(overlay, false);
+
+                setTimeout(() => {
+                    // Fallback redirect
+                    hideModal();
+                    window.location.hash = '#/details?id=' + encodeURIComponent(id);
+                }, 2000);
+            }
         });
-        
+
         requestBtn.addEventListener('click', () => {
             console.log('[DetailsModal] Request button clicked');
             // Immediately mark requested and disable. Keep UI simple and non-flashy.
@@ -356,7 +460,7 @@
             console.log('[DetailsModal] Dispatching mediaRequest event:', item);
             document.dispatchEvent(new CustomEvent('mediaRequest', { detail: item }));
         });
-        
+
         openBtn.addEventListener('click', () => {
             const id = overlay.dataset.itemId;
             if (id) { hideModal(); window.location.hash = '#/details?id=' + encodeURIComponent(id); }
@@ -373,7 +477,7 @@
             }
         });
 
-    approveBtn.addEventListener('click', async () => {
+        approveBtn.addEventListener('click', async () => {
             // Make UI response immediate and fire a single Gelato API call (fire-and-forget),
             // then disable the button and close the modal.
             const requestId = overlay.dataset.requestId;
@@ -399,7 +503,7 @@
 
                     // Fire-and-forget: POST to the server proxy which will call Gelato using configured auth.
                     try {
-                        window.ApiClient.ajax({ type: 'POST', url: proxyUrl }).catch(() => {});
+                        window.ApiClient.ajax({ type: 'POST', url: proxyUrl }).catch(() => { });
                     } catch (e) {
                         console.warn('[DetailsModal] gelato proxy call failed', e);
                     }
@@ -467,7 +571,7 @@
                     try { const current = await window.ApiClient.getCurrentUser(); approver = current?.Name || null; } catch (err) {
                         try { const user = await window.ApiClient.getUser(window.ApiClient.getCurrentUserId()); approver = user?.Name || null; } catch { approver = null; }
                     }
-                    window.RequestManager.updateStatus(requestId, 'approved', approver).catch(() => {});
+                    window.RequestManager.updateStatus(requestId, 'approved', approver).catch(() => { });
                 } catch (e) { console.warn('[DetailsModal] Failed to update request status:', e); }
             }
             // Close the modal and navigate to the details page for this item so admins
@@ -549,10 +653,10 @@
 
             // Close modal and dropdown
             try { hideModal(); } catch (e) { }
-            try { 
-                const dd = document.querySelector('.requests-dropdown'); 
-                if (dd) dd.style.display = 'none'; 
-                const back = document.querySelector('.requests-backdrop'); 
+            try {
+                const dd = document.querySelector('.requests-dropdown');
+                if (dd) dd.style.display = 'none';
+                const back = document.querySelector('.requests-backdrop');
                 if (back) back.style.display = 'none';
             } catch (e) { }
 
@@ -560,18 +664,18 @@
             if (requestId && window.RequestManager && typeof window.RequestManager.updateStatus === 'function') {
                 try {
                     let rejecter = null;
-                    try { 
-                        const current = await window.ApiClient.getCurrentUser(); 
-                        rejecter = current?.Name || null; 
+                    try {
+                        const current = await window.ApiClient.getCurrentUser();
+                        rejecter = current?.Name || null;
                     } catch (err) {
-                        try { 
-                            const user = await window.ApiClient.getUser(window.ApiClient.getCurrentUserId()); 
-                            rejecter = user?.Name || null; 
+                        try {
+                            const user = await window.ApiClient.getUser(window.ApiClient.getCurrentUserId());
+                            rejecter = user?.Name || null;
                         } catch { rejecter = null; }
                     }
-                    window.RequestManager.updateStatus(requestId, 'rejected', rejecter).catch(() => {});
-                } catch (e) { 
-                    console.warn('[DetailsModal] Failed to update request status:', e); 
+                    window.RequestManager.updateStatus(requestId, 'rejected', rejecter).catch(() => { });
+                } catch (e) {
+                    console.warn('[DetailsModal] Failed to update request status:', e);
                 }
             }
         });
@@ -606,20 +710,81 @@
         closeReviewBtn.addEventListener('click', () => reviewPopup.style.display = 'none');
         reviewPopup.addEventListener('click', e => e.target === reviewPopup && (reviewPopup.style.display = 'none'));
         document.addEventListener('keydown', ev => ev.key === 'Escape' && hideModal());
+
+        // WS Listener for Prefetch Completion
+        if (window.ApiClient) {
+            window.ApiClient.addEventListener('message', (e) => {
+                if (e && e.MessageType === 'BaklavaPrefetch') {
+                    console.log('[DetailsModal] Prefetch complete:', e.Data);
+                    const stats = e.Data;
+                    const msg = `Metadata caching complete! Processed: ${stats.Total}. New: ${stats.Fetched}.`;
+                    showToast(msg, 5000);
+                }
+            });
+        }
     }
-    
+
+    // Flag to ensure we only fetch config once
+    let _baklavaConfig = null;
+    let _configFetching = null;
+
+    async function fetchConfig() {
+        if (_baklavaConfig) return _baklavaConfig;
+        if (_configFetching) return _configFetching;
+
+        _configFetching = (async () => {
+            try {
+                const url = window.ApiClient.getUrl('api/baklava/config');
+                console.log('[DetailsModal] Fetching config from:', url);
+                const conf = await window.ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' });
+                console.log('[DetailsModal] Config received:', conf);
+                _baklavaConfig = conf || {};
+                return _baklavaConfig;
+            } catch (e) {
+                console.warn('[DetailsModal] Failed to fetch config:', e);
+                return {};
+            }
+        })();
+        return _configFetching;
+    }
+
     async function switchButton(importBtn, requestBtn, openBtn, inLibrary) {
         const userId = window.ApiClient.getCurrentUserId();
         const user = await window.ApiClient.getUser(userId);
-        const isAdmin = user?.Policy?.IsAdministrator;
-        
+        const isAdmin = user?.Policy?.IsAdministrator || false;
+
+        // Ensure we have config for auto-import check
+        const config = await fetchConfig();
+
+        // Handle potential casing issues
+        const autoImport = (config.enableAutoImport === true || config.EnableAutoImport === true || config.enableAutoImport === 'true');
+
+        console.log('[DetailsModal] switchButton logic:', {
+            isAdmin,
+            autoImport,
+            inLibrary,
+            configKeys: Object.keys(config),
+            rawAutoImport: config.enableAutoImport
+        });
+
+        // RESET BUTTON STATE (Fix for persistent state across items)
+        if (importBtn) {
+            importBtn.textContent = 'Import';
+            importBtn.style.background = '#1e90ff';
+            importBtn.disabled = false;
+        }
+
         if (inLibrary) {
             importBtn.style.display = 'none';
             requestBtn.style.display = 'none';
             openBtn.style.display = 'block';
         } else {
             openBtn.style.display = 'none';
-            if (isAdmin) {
+
+            // If admin OR auto-import enabled, show Import button.
+            // When auto-import is on, requests are effectively skipped/auto-approved,
+            // so we show the Import button to allow direct import.
+            if (isAdmin || autoImport) {
                 importBtn.style.display = 'block';
                 requestBtn.style.display = 'none';
             } else {
@@ -631,14 +796,14 @@
 
     function getModal() { return qs('#item-detail-modal-overlay') || createModal(); }
     function showModal(modal) { modal.classList.add('open'); document.body.style.overflow = 'hidden'; }
-    function hideLoading(modal) { 
+    function hideLoading(modal) {
         const overlay = qs('#item-detail-loading-overlay', modal);
         if (overlay) overlay.style.display = 'none';
     }
-    function hideModal() { 
-        const m = qs('#item-detail-modal-overlay'); 
-        if (m) { 
-            m.classList.remove('open'); 
+    function hideModal() {
+        const m = qs('#item-detail-modal-overlay');
+        if (m) {
+            m.classList.remove('open');
             document.body.style.overflow = '';
             qs('#item-detail-title', m).textContent = 'Loading…';
             qs('#item-detail-meta', m).textContent = '';
@@ -655,7 +820,7 @@
             qs('#item-detail-open', m).style.display = 'none';
             const loadingOverlay = qs('#item-detail-loading-overlay', m);
             if (loadingOverlay) loadingOverlay.style.display = 'flex';
-        } 
+        }
     }
 
     function populateFromCard(anchor, id, modal) {
@@ -691,16 +856,16 @@
 
     async function fetchMetadata(jellyfinId, card, modal, title, year, forceSeries) {
         console.log('[DetailsModal.fetchMetadata] Starting with:', { jellyfinId, title, year, forceSeries });
-        
+
         try {
             let { tmdbId, imdbId, itemType } = parseJellyfinId(jellyfinId, card);
             console.log('[DetailsModal.fetchMetadata] Parsed Jellyfin ID:', { tmdbId, imdbId, itemType });
-            
+
             if (forceSeries && itemType === 'movie') {
                 console.log('[DetailsModal.fetchMetadata] Forcing series type');
                 itemType = 'series';
             }
-            
+
             console.log('[DetailsModal.fetchMetadata] Calling getTMDBData with:', { tmdbId, imdbId, itemType, title, year });
             const tmdbData = await getTMDBData(tmdbId, imdbId, itemType, title, year);
 
@@ -724,17 +889,17 @@
             if (tmdbData.poster_path) setBackgroundImage(qs('#item-detail-image', modal), 'https://image.tmdb.org/t/p/w500' + tmdbData.poster_path);
 
             // Detect type from response (name=TV, title=movie)
-            const actualType = (tmdbData.name && !tmdbData.title) ? 'series' : 
-                              (tmdbData.title && !tmdbData.name) ? 'movie' :
-                              (tmdbData.number_of_seasons) ? 'series' : 'movie';
-            
+            const actualType = (tmdbData.name && !tmdbData.title) ? 'series' :
+                (tmdbData.title && !tmdbData.name) ? 'movie' :
+                    (tmdbData.number_of_seasons) ? 'series' : 'movie';
+
             console.log('[DetailsModal.fetchMetadata] Detected actual type:', actualType);
-            
+
             const tmdbIdFromResponse = tmdbData.id;
             let imdbIdFromResponse = imdbId || tmdbData.imdb_id;
-            
+
             console.log('[DetailsModal] TMDB IDs before external fetch - tmdbId:', tmdbIdFromResponse, 'imdbId:', imdbIdFromResponse);
-            
+
             // Fetch external IDs if needed
             if (!imdbIdFromResponse && tmdbIdFromResponse) {
                 console.log('[DetailsModal.fetchMetadata] Fetching external IDs for TMDB ID:', tmdbIdFromResponse);
@@ -742,12 +907,12 @@
                     const params = new URLSearchParams();
                     params.append('tmdbId', tmdbIdFromResponse);
                     params.append('mediaType', actualType === 'series' ? 'tv' : 'movie');
-                    
+
                     const url = window.ApiClient.getUrl('api/baklava/metadata/external-ids') + '?' + params.toString();
                     const externalData = await window.ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' });
-                    
+
                     console.log('[DetailsModal.fetchMetadata] External IDs response:', externalData);
-                    
+
                     if (externalData?.imdb_id) {
                         imdbIdFromResponse = externalData.imdb_id;
                         console.log('[DetailsModal.fetchMetadata] Found IMDB ID from external IDs:', imdbIdFromResponse);
@@ -756,26 +921,26 @@
                     console.warn('[DetailsModal] Could not fetch external IDs:', err);
                 }
             }
-            
+
             console.log('[DetailsModal] FINAL IDs - Setting modal.dataset - tmdbId:', tmdbIdFromResponse, 'imdbId:', imdbIdFromResponse, 'itemType:', actualType);
-            
+
             modal.dataset.imdbId = imdbIdFromResponse || '';
             modal.dataset.tmdbId = tmdbIdFromResponse || '';
             modal.dataset.itemType = actualType;
-            
+
             const { credits, reviews } = await fetchTMDBCreditsAndReviews(actualType === 'series' ? 'tv' : 'movie', tmdbData.id);
             if (credits) populateCredits(modal, tmdbData, credits);
             if (reviews.length > 0) {
                 populateReviews(modal, reviews);
                 await populateStreams(modal);
             }
-            
+
             if (window.LibraryStatus?.check) {
                 const existingRequest = await window.LibraryStatus.checkRequest(imdbIdFromResponse, tmdbIdFromResponse, actualType, modal.dataset.itemId || null);
-                
+
                 if (existingRequest) {
                     console.log('[DetailsModal] Item found in requests');
-                    
+
                     let currentUsername = 'Unknown';
                     let isAdmin = false;
                     try {
@@ -793,18 +958,18 @@
                             console.error('[DetailsModal] Fallback error:', fallbackErr);
                         }
                     }
-                    
+
                     const isOwnRequest = existingRequest.username === currentUsername;
-                    
+
                     modal.dataset.requestId = existingRequest.id;
                     modal.dataset.isRequestMode = 'true';
-                    
+
                     const requesterEl = qs('#item-detail-requester', modal);
                     if (requesterEl) {
                         requesterEl.textContent = 'Requested by: ' + existingRequest.username;
                         requesterEl.style.display = 'block';
                     }
-                    
+
                     const importBtn = qs('#item-detail-import', modal);
                     const requestBtn = qs('#item-detail-request', modal);
                     const openBtn = qs('#item-detail-open', modal);
@@ -812,7 +977,7 @@
                     const rejectBtn = qs('#item-detail-reject', modal);
                     const removeBtn = qs('#item-detail-remove', modal);
                     const viewRequestsBtn = qs('#item-detail-view-requests', modal);
-                    
+
                     // Hide all buttons initially
                     if (importBtn) importBtn.style.display = 'none';
                     if (requestBtn) requestBtn.style.display = 'none';
@@ -821,16 +986,16 @@
                     if (rejectBtn) rejectBtn.style.display = 'none';
                     if (removeBtn) removeBtn.style.display = 'none';
                     if (viewRequestsBtn) viewRequestsBtn.style.display = 'none';
-                    
+
                     // Clear any previous status messages
                     const existingMsg = qs('.request-status-msg', modal);
                     if (existingMsg) existingMsg.remove();
-                    
+
                     console.log('[DetailsModal] Request status:', existingRequest.status, 'isAdmin:', isAdmin, 'isOwn:', isOwnRequest);
-                    
+
                     // Check if item is in library
                     const inLibrary = await window.LibraryStatus.check(imdbIdFromResponse, tmdbIdFromResponse, actualType, modal.dataset.itemId || null);
-                    
+
                     if (inLibrary) {
                         // Item is in library - just show Open button
                         if (openBtn) openBtn.style.display = 'block';
@@ -888,7 +1053,7 @@
                             statusMsg.className = 'request-status-msg';
                             const modalRight = qs('.right', modal);
                             if (modalRight) modalRight.insertBefore(statusMsg, modalRight.firstChild.nextSibling);
-                            
+
                             if (isOwnRequest && removeBtn) {
                                 removeBtn.style.display = 'block';
                                 removeBtn.title = 'Cancel Request';
@@ -901,24 +1066,24 @@
                             statusMsg.className = 'request-status-msg';
                             const modalRight = qs('.right', modal);
                             if (modalRight) modalRight.insertBefore(statusMsg, modalRight.firstChild.nextSibling);
-                            
+
                             if (isOwnRequest && removeBtn) {
                                 removeBtn.style.display = 'block';
                                 removeBtn.title = 'Delete';
                             }
                         }
                     }
-                    
+
                     hideLoading(modal);
                     return;
                 }
-                
+
                 // No existing request - check library status
                 const inLibrary = await window.LibraryStatus.check(imdbIdFromResponse, tmdbIdFromResponse, actualType, modal.dataset.itemId || null);
                 const importBtn = qs('#item-detail-import', modal);
                 const requestBtn = qs('#item-detail-request', modal);
                 const openBtn = qs('#item-detail-open', modal);
-                
+
                 const approveBtn = qs('#item-detail-approve', modal);
                 const rejectBtn = qs('#item-detail-reject', modal);
                 const removeBtn = qs('#item-detail-remove', modal);
@@ -927,10 +1092,10 @@
                 if (rejectBtn) rejectBtn.style.display = 'none';
                 if (removeBtn) removeBtn.style.display = 'none';
                 if (requesterEl) requesterEl.style.display = 'none';
-                
+
                 await switchButton(importBtn, requestBtn, openBtn, inLibrary);
             }
-            
+
             hideLoading(modal);
 
         } catch (err) {
@@ -1028,23 +1193,23 @@
             const hash = window.location.hash;
             const isSearchPage = hash.includes('#/search');
             if (!isSearchPage) return;
-            
+
             const anchor = ev.target.closest('a[href*="#/details"]');
             if (!anchor) return;
-            
+
             if (ev.button !== 0 || ev.ctrlKey) return;
-            
+
             let id = anchor.dataset.id;
             if (!id && anchor.href) {
                 const hashPart = anchor.href.split('#')[1] || '';
                 if (hashPart.includes('?')) {
-                    try { 
+                    try {
                         const params = new URLSearchParams(hashPart.split('?')[1]);
                         id = params.get('id');
-                    } catch (e) {}
+                    } catch (e) { }
                 }
             }
-            
+
             if (!id) return;
 
             // Check if search toggle is set to LOCAL mode
@@ -1073,16 +1238,16 @@
         try {
             const { item, isRequestMode, requestId, requestUsername, isAdmin } = ev.detail || {};
             if (!item) return;
-            
-            
+
+
             const modal = getModal();
             const loadingEl = qs('#item-detail-loading-overlay', modal);
             if (loadingEl) loadingEl.style.display = 'flex';
-            
+
             qs('#item-detail-title', modal).textContent = item.Name || 'Loading...';
             qs('#item-detail-meta', modal).textContent = item.ProductionYear || '';
             qs('#item-detail-overview', modal).textContent = '';
-            
+
             modal.dataset.itemId = item.jellyfinId || item.tmdbId || item.imdbId;
             modal.dataset.tmdbId = item.tmdbId;
             modal.dataset.imdbId = item.imdbId;
@@ -1090,13 +1255,13 @@
             modal.dataset.itemType = item.itemType;
             modal.dataset.requestId = requestId;
             modal.dataset.isRequestMode = isRequestMode;
-            
+
             const tmdbData = await getTMDBData(item.tmdbId, item.imdbId, item.itemType, item.Name, item.ProductionYear);
-            
+
             if (tmdbData) {
                 const displayTitle = tmdbData.title || tmdbData.name;
                 if (displayTitle) qs('#item-detail-title', modal).textContent = displayTitle;
-                
+
                 const requesterEl = qs('#item-detail-requester', modal);
                 if (requestUsername && requesterEl) {
                     requesterEl.textContent = requestUsername;
@@ -1104,10 +1269,10 @@
                 } else if (requesterEl) {
                     requesterEl.style.display = 'none';
                 }
-                
+
                 if (tmdbData.overview) qs('#item-detail-overview', modal).textContent = tmdbData.overview;
                 if (tmdbData.poster_path) setBackgroundImage(qs('#item-detail-image', modal), 'https://image.tmdb.org/t/p/w500' + tmdbData.poster_path);
-                
+
                 const { credits, reviews } = await fetchTMDBCreditsAndReviews(item.itemType === 'series' ? 'tv' : 'movie', tmdbData.id);
                 if (credits) populateCredits(modal, tmdbData, credits);
                 if (reviews?.length > 0) {
@@ -1115,20 +1280,20 @@
                     await populateStreams(modal);
                 }
             }
-            
+
             const importBtn = qs('#item-detail-import', modal);
             const requestBtn = qs('#item-detail-request', modal);
             const openBtn = qs('#item-detail-open', modal);
             const approveBtn = qs('#item-detail-approve', modal);
             const rejectBtn = qs('#item-detail-reject', modal);
             const removeBtn = qs('#item-detail-remove', modal);
-            
+
             if (isRequestMode) {
                 const { requestStatus, isOwnRequest } = ev.detail || {};
-                
+
                 if (importBtn) importBtn.style.display = 'none';
                 if (requestBtn) requestBtn.style.display = 'none';
-                
+
                 if (isAdmin) {
                     if (requestStatus === 'pending') {
                         // Pending - show approve + reject
@@ -1191,10 +1356,10 @@
                     }
                 }
             }
-            
+
             if (loadingEl) loadingEl.style.display = 'none';
             showModal(modal);
-        } catch (e) { 
+        } catch (e) {
             console.error('[DetailsModal] Error opening request modal:', e);
             const loadingEl = qs('#item-detail-loading-overlay', getModal());
             if (loadingEl) loadingEl.style.display = 'none';
