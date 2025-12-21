@@ -774,6 +774,26 @@
             importBtn.disabled = false;
         }
 
+        if (requestBtn) {
+            requestBtn.textContent = 'Request';
+            requestBtn.style.background = '#ff9800';
+            requestBtn.disabled = false;
+        }
+
+        const approveBtn = document.getElementById('item-detail-approve');
+        if (approveBtn) {
+            approveBtn.textContent = 'Approve';
+            approveBtn.style.background = '#4caf50';
+            approveBtn.disabled = false;
+        }
+
+        const rejectBtn = document.getElementById('item-detail-reject');
+        if (rejectBtn) {
+            rejectBtn.textContent = 'Reject';
+            rejectBtn.style.background = '#ff5722';
+            rejectBtn.disabled = false;
+        }
+
         if (inLibrary) {
             importBtn.style.display = 'none';
             requestBtn.style.display = 'none';
