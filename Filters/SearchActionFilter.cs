@@ -35,6 +35,13 @@ namespace Baklava.Filters
                 return;
             }
 
+            // check if the modal is disabled, if so we should not intercept
+            if (Plugin.Instance?.Configuration?.DisableModal == true)
+            {
+                await next();
+                return;
+            }
+
             // Check if this is a search action
             if (!IsSearchAction(ctx))
             {
