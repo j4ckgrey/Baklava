@@ -478,113 +478,76 @@
         });
 
         approveBtn.addEventListener('click', async () => {
-            // Make UI response immediate and fire a single Gelato API call (fire-and-forget),
-            // then disable the button and close the modal.
             const requestId = overlay.dataset.requestId;
-            const tmdbId = overlay.dataset.tmdbId;
             const imdbId = overlay.dataset.imdbId;
+            const tmdbId = overlay.dataset.tmdbId;
+            const jellyfinId = overlay.dataset.itemId;
             const itemType = overlay.dataset.itemType || 'movie';
 
             if (!requestId) {
-                // Nothing to do: clear and close quickly
                 approveBtn.textContent = 'No-op';
                 approveBtn.style.background = '#888';
                 setTimeout(() => hideModal(), 400);
                 return;
             }
 
-            // Fire server-side proxy to call Gelato (non-blocking), then update UI.
+            // UI Feedback: Start
+            // Match the "Import" button style feedback
+            toggleModalSpinner(overlay, true);
+            showToast('Approving & Importing... Please wait.', 0);
+
+            approveBtn.disabled = true;
+            approveBtn.textContent = 'Approving...';
+            approveBtn.style.background = '#888';
+
+            // 1. Fire Gelato Proxy (Fire-and-forget)
             if (imdbId) {
                 try {
                     const isSeries = itemType && itemType.toLowerCase().includes('series');
-                    // MetadataController exposes a server-side proxy at /api/gelato/movie/{id} and /api/gelato/tv/{id}
                     const proxyPath = isSeries ? `api/gelato/tv/${encodeURIComponent(imdbId)}` : `api/gelato/movie/${encodeURIComponent(imdbId)}`;
                     const proxyUrl = window.ApiClient.getUrl(proxyPath);
-
-                    // Fire-and-forget: POST to the server proxy which will call Gelato using configured auth.
-                    try {
-                        window.ApiClient.ajax({ type: 'POST', url: proxyUrl }).catch(() => { });
-                    } catch (e) {
-                        console.warn('[DetailsModal] gelato proxy call failed', e);
-                    }
+                    window.ApiClient.ajax({ type: 'POST', url: proxyUrl }).catch(() => { });
                 } catch (e) {
-                    console.error('[DetailsModal] Error preparing gelato proxy call:', e);
+                    console.warn('[DetailsModal] gelato proxy call failed', e);
                 }
             }
 
-            // Immediate UI feedback regardless of network outcome
-            approveBtn.disabled = true;
-            approveBtn.textContent = 'Approved';
-            approveBtn.style.background = '#888';
-
-            // Move the card live into the Approved carousel(s) so admins see it immediately.
-            try {
-                (function moveCardToApproved(id) {
-                    if (!id) return;
-
-                    // Find the existing card in the DOM (could be in movies/series list)
-                    const selector = `.request-card[data-request-id="${id}"]`;
-                    const orig = document.querySelector(selector);
-
-                    // Append to dropdown approved container
-                    const approvedDropdown = document.querySelector('.dropdown-approved-container');
-                    if (approvedDropdown) {
-                        try {
-                            if (orig && orig.parentElement) {
-                                // Clone original for dropdown view (so other view can remain intact)
-                                const clone = orig.cloneNode(true);
-                                // Ensure badge shows Approved
-                                const maybeBadge = clone.querySelector('div');
-                                // Append clone (event handlers will be refreshed when full reload occurs)
-                                approvedDropdown.appendChild(clone);
-                            }
-                        } catch (e) { /* ignore DOM errors */ }
-                    }
-
-                    // Append to requests page approved panel
-                    const approvedPage = document.querySelector('.requests-approved-panel .itemsContainer');
-                    if (approvedPage) {
-                        try {
-                            if (orig && orig.parentElement) {
-                                const clone2 = orig.cloneNode(true);
-                                approvedPage.appendChild(clone2);
-                            }
-                        } catch (e) { /* ignore */ }
-                    }
-
-                    // Remove original from its current parent so it visually moves
-                    try { if (orig && orig.parentElement) orig.parentElement.removeChild(orig); } catch (e) { }
-                })(requestId);
-            } catch (e) {
-                console.warn('[DetailsModal] moveCardToApproved failed', e);
-            }
-
-            // Also close the dropdown and requests page so admin is returned to main UI
-            try { hideModal(); } catch (e) { /* ignore */ }
-            try { if (window.RequestsHeaderButton) { const dd = document.querySelector('.requests-dropdown'); if (dd) dd.style.display = 'none'; const back = document.querySelector('.requests-backdrop'); if (back) back.style.display = 'none'; } } catch (e) { }
-            try { const rp = document.getElementById('requestsPage'); if (rp) rp.style.display = 'none'; } catch (e) { }
-
-            // Fire-and-forget server update (record ApprovedBy and trigger Gelato)
-            if (requestId && window.RequestManager && typeof window.RequestManager.updateStatus === 'function') {
+            // 2. Update Request Status (Server)
+            if (window.RequestManager && typeof window.RequestManager.updateStatus === 'function') {
                 try {
                     let approver = null;
                     try { const current = await window.ApiClient.getCurrentUser(); approver = current?.Name || null; } catch (err) {
                         try { const user = await window.ApiClient.getUser(window.ApiClient.getCurrentUserId()); approver = user?.Name || null; } catch { approver = null; }
                     }
-                    window.RequestManager.updateStatus(requestId, 'approved', approver).catch(() => { });
-                } catch (e) { console.warn('[DetailsModal] Failed to update request status:', e); }
-            }
-            // Close the modal and navigate to the details page for this item so admins
-            // can immediately inspect the imported title. Use the itemId stored on
-            // the modal (prefers Jellyfin item id when available).
-            setTimeout(() => {
-                try { hideModal(); } catch (e) { /* ignore */ }
-                const targetId = overlay?.dataset?.itemId || overlay?.dataset?.jellyfinId || overlay?.dataset?.tmdbId || overlay?.dataset?.imdbId;
-                if (targetId) {
-                    // Navigate to Jellyfin details route
-                    window.location.hash = '#/details?id=' + encodeURIComponent(targetId);
+                    await window.RequestManager.updateStatus(requestId, 'approved', approver);
+                } catch (e) {
+                    console.warn('[DetailsModal] Failed to update request status:', e);
                 }
-            }, 250);
+            }
+
+            // 3. Try Background Prefetch (Match Import Logic)
+            try {
+                // If it's in the library or we can resolve it, this trigger's background streams fetch
+                if (jellyfinId) {
+                    const params = new URLSearchParams({ itemId: jellyfinId });
+                    const url = window.ApiClient.getUrl('api/baklava/metadata/streams') + '?' + params.toString();
+                    window.ApiClient.ajax({ type: 'GET', url: url }).catch(() => { });
+                }
+            } catch (e) { }
+
+            // UI Update: Success (Stay on modal, don't navigate)
+            toggleModalSpinner(overlay, false);
+            showToast('Approved! Background processing started.', 4000);
+
+            approveBtn.textContent = 'Approved';
+            approveBtn.style.background = '#4caf50';
+
+            // Hide other buttons to reflect status
+            const rejectBtn = qs('#item-detail-reject', overlay);
+            if (rejectBtn) rejectBtn.style.display = 'none';
+
+            // Update external UI (dropdowns) if present
+            try { if (window.RequestsHeaderButton) { window.RequestsHeaderButton.reload(); } } catch (e) { }
         });
 
         rejectBtn.addEventListener('click', async () => {
@@ -602,54 +565,6 @@
             rejectBtn.textContent = 'Rejected';
             rejectBtn.style.background = '#888';
 
-            // Move card to rejected carousel
-            try {
-                const selector = `.request-card[data-request-id="${requestId}"]`;
-                const orig = document.querySelector(selector);
-
-                // Append to dropdown rejected container
-                const rejectedDropdown = document.querySelector('.dropdown-rejected-container');
-                if (rejectedDropdown) {
-                    try {
-                        if (orig && orig.parentElement) {
-                            const clone = orig.cloneNode(true);
-                            // Update the status badge to show "Rejected"
-                            const badges = clone.querySelectorAll('div');
-                            for (const badge of badges) {
-                                if (badge.textContent === 'Pending') {
-                                    badge.textContent = 'Rejected';
-                                    badge.style.background = 'rgba(244, 67, 54, 0.95)';
-                                }
-                            }
-                            rejectedDropdown.appendChild(clone);
-                        }
-                    } catch (e) { /* ignore */ }
-                }
-
-                // Append to requests page rejected panel
-                const rejectedPage = document.querySelector('.requests-rejected-panel .itemsContainer');
-                if (rejectedPage) {
-                    try {
-                        if (orig && orig.parentElement) {
-                            const clone2 = orig.cloneNode(true);
-                            // Update the status badge to show "Rejected"
-                            const badges = clone2.querySelectorAll('div');
-                            for (const badge of badges) {
-                                if (badge.textContent === 'Pending') {
-                                    badge.textContent = 'Rejected';
-                                    badge.style.background = 'rgba(244, 67, 54, 0.95)';
-                                }
-                            }
-                            rejectedPage.appendChild(clone2);
-                        }
-                    } catch (e) { /* ignore */ }
-                }
-
-                // Remove original from its current parent
-                try { if (orig && orig.parentElement) orig.parentElement.removeChild(orig); } catch (e) { }
-            } catch (e) {
-                console.warn('[DetailsModal] moveCardToRejected failed', e);
-            }
 
             // Close modal and dropdown
             try { hideModal(); } catch (e) { }
@@ -1243,13 +1158,25 @@
                 return;
             }
 
-            console.log('[DetailsModal] Global search mode: opening modal');
+            // Global search mode logic
             ev.preventDefault();
             ev.stopPropagation();
 
-            const modal = getModal();
-            populateFromCard(anchor, id, modal);
-            showModal(modal);
+            (async () => {
+                const config = await fetchConfig();
+                const autoImport = (config.enableAutoImport === true || config.EnableAutoImport === true || config.enableAutoImport === 'true');
+                const disableModal = (config.disableModal === true || config.DisableModal === true);
+
+                if (autoImport && disableModal) {
+                    console.log('[DetailsModal] Auto Import + Disable Modal active: navigating directly');
+                    window.location.hash = '#/details?id=' + encodeURIComponent(id);
+                    return;
+                }
+
+                const modal = getModal();
+                populateFromCard(anchor, id, modal);
+                showModal(modal);
+            })();
         } catch (e) { console.error('[DetailsModal] Error:', e); }
     }, true);
 

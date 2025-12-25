@@ -57,6 +57,7 @@ namespace Baklava
 
         // Allow non-admin users to directly import streams
         public bool EnableAutoImport { get; set; } = false;
+        public bool DisableModal { get; set; } = false;
 
         // Show TMDB reviews carousel on item details pages
         public bool ShowReviewsCarousel { get; set; } = true;

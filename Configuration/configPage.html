@@ -102,6 +102,16 @@
                             items in the library.
                         </p>
                     </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input id="disableModal" type="checkbox" style="margin-right: 8px;">
+                            <span style="color:#ddd;">Disable Modal</span>
+                        </label>
+                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
+                            Directly open items on click when Auto Import is enabled (bypasses details modal).
+                        </p>
+                    </div>
                 </div>
 
                 <!-- Debrid Integration Settings -->
@@ -362,6 +372,7 @@
                             document.getElementById('tmdbApiKey').value = response?.tmdbApiKey || '';
                             document.getElementById('forceTVClientLocalSearch').checked = response?.forceTVClientLocalSearch === true;
                             document.getElementById('enableAutoImport').checked = response?.enableAutoImport === true;
+                            document.getElementById('disableModal').checked = response?.disableModal === true;
                             document.getElementById('showReviewsCarousel').checked = response?.showReviewsCarousel !== false;
                             document.getElementById('versionUiSelect').value = response?.versionUi || 'carousel';
                             document.getElementById('audioUiSelect').value = response?.audioUi || 'carousel';
@@ -395,6 +406,7 @@
                         document.getElementById('tmdbApiKey').value = json.tmdbApiKey || '';
                         document.getElementById('forceTVClientLocalSearch').checked = json.forceTVClientLocalSearch === true;
                         document.getElementById('enableAutoImport').checked = json.enableAutoImport === true;
+                        document.getElementById('disableModal').checked = json.disableModal === true;
                         document.getElementById('showReviewsCarousel').checked = json.showReviewsCarousel !== false;
                         document.getElementById('versionUiSelect').value = json.versionUi || 'carousel';
                         document.getElementById('audioUiSelect').value = json.audioUi || 'carousel';
@@ -446,6 +458,7 @@
                     const key = document.getElementById('tmdbApiKey').value;
                     const forceTVLocal = document.getElementById('forceTVClientLocalSearch').checked;
                     const enableAutoImport = document.getElementById('enableAutoImport').checked;
+                    const disableModal = document.getElementById('disableModal').checked;
                     const showReviewsCarousel = document.getElementById('showReviewsCarousel').checked;
                     const fetchCachedMetadataPerVersion = document.getElementById('fetchCachedMetadataPerVersion').checked;
                     const fetchAllNonCachedMetadata = document.getElementById('fetchAllNonCachedMetadata').checked;
@@ -468,6 +481,7 @@
                         enableSearchFilter: false,
                         forceTVClientLocalSearch: forceTVLocal,
                         enableAutoImport: enableAutoImport,
+                        disableModal: disableModal,
                         showReviewsCarousel: showReviewsCarousel,
                         versionUi: versionUi,
                         audioUi: audioUi,
