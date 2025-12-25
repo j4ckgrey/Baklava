@@ -9,6 +9,15 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.png",
     "versions": [
       {
+        "version": "0.5.5.1",
+        "changelog": "0.5.5.1 (Hotfix) - Fixed build artifact conflict causing plugin load failure. Contains same Smart Retry logic as 0.5.5.0.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.5.5.1/baklava_0.5.5.1.zip",
+        "checksum": "32a3eaaa50d1ac7b38edc5d9fcd428f4",
+        "checksumType": "md5",
+        "timestamp": "2025-12-25T14:45:00Z"
+      },
+      {
         "version": "0.5.5.0",
         "changelog": "0.5.5.0 - Introduced Smart Retry for media probing: conditionally increases probe size/duration up to 50MB/10s when subtitle codec parameters are missing. Added configurable probe limits.",
         "targetAbi": "10.11.0.0",
