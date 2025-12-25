@@ -1029,6 +1029,14 @@ namespace Baklava.Api
 
         private async Task<FfprobeResult?> RunFfprobeAsync(string url)
         {
+            // Config defaults
+            var config = Plugin.Instance?.Configuration;
+            int standardProbeSize = (config?.ProbeSize > 0) ? config.ProbeSize : 5000000;
+            int standardAnalyzeDuration = (config?.AnalyzeDuration > 0) ? config.AnalyzeDuration : 5000000;
+            
+            int maxProbeSize = (config?.MaxProbeSize > 0) ? config.MaxProbeSize : 50000000;
+            int maxAnalyzeDuration = (config?.MaxAnalyzeDuration > 0) ? config.MaxAnalyzeDuration : 10000000;
+
             // Prefer Jellyfin-bundled ffprobe if present
             var candidates = new[] { "/usr/lib/jellyfin-ffmpeg/ffprobe", "/usr/bin/ffprobe", "ffprobe" };
             string? ffprobePath = null;
@@ -1038,42 +1046,70 @@ namespace Baklava.Api
             }
             if (ffprobePath == null) ffprobePath = "ffprobe";
 
-            // Optimized args for SPEED:
-            // - analyzeduration 2M (2 seconds) - container headers are at the start
-            // - probesize 2M bytes - only need to read the file header for stream info
-            // - fflags +nobuffer+fastseek - reduces latency and enables fast seeking
-            // - rw_timeout 5M (5 seconds) - network read/write timeout in microseconds
-            var psi = new System.Diagnostics.ProcessStartInfo
+            // Helper to execute probe
+            async Task<(string? json, string? error)> ExecuteProbe(int probeSize, int analyzeDuration)
             {
-                FileName = ffprobePath,
-                Arguments = $"-v error -print_format json -show_streams -analyzeduration 2000000 -probesize 2000000 -fflags +nobuffer+fastseek -rw_timeout 5000000 -user_agent \"Baklava/1.0\" \"{url}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = ffprobePath,
+                    Arguments = $"-v error -print_format json -show_streams -analyzeduration {analyzeDuration} -probesize {probeSize} -fflags +nobuffer+fastseek -rw_timeout 5000000 -user_agent \"Baklava/1.0\" \"{url}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
 
-            using var proc = System.Diagnostics.Process.Start(psi);
-            if (proc == null) return null;
+                using var proc = System.Diagnostics.Process.Start(psi);
+                if (proc == null) return (null, null);
 
-            // Avoid deadlock by reading streams async
-            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-            var stderrTask = proc.StandardError.ReadToEndAsync();
+                var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+                var stderrTask = proc.StandardError.ReadToEndAsync();
 
-            var exited = proc.WaitForExit(6000); // 6s timeout (faster fail)
-            if (!exited)
-            {
-                try { proc.Kill(); } catch { }
-                _logger.LogWarning("[Baklava] FFprobe timed out for {Url}", url);
-                return null;
+                // Increase timeout for deeper probes
+                var exited = proc.WaitForExit(20000); 
+                if (!exited)
+                {
+                    try { proc.Kill(); } catch { }
+                    _logger.LogWarning("[Baklava] FFprobe timed out for {Url}", url);
+                    return (null, "timeout");
+                }
+
+                return (await stdoutTask, await stderrTask);
             }
 
-            var outJson = await stdoutTask;
-            var errText = await stderrTask;
+            // 1. Initial Standard Probe
+            var (outJson, errText) = await ExecuteProbe(standardProbeSize, standardAnalyzeDuration);
+
+            // 2. Smart Retry (STRICT MODE for Subtitles Only)
+            // Only retry if we see the specific failure for SUBTITLES. 
+            // This prevents retrying for video/audio weirdness that might cause "fake" versions or other issues.
+            if (!string.IsNullOrEmpty(errText))
+            {
+                bool isSubtitleFailure = errText.IndexOf("Subtitle", StringComparison.OrdinalIgnoreCase) >= 0;
+                bool isMissingParams = errText.IndexOf("Could not find codec parameters", StringComparison.OrdinalIgnoreCase) >= 0 
+                                      || errText.IndexOf("unspecified size", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (isSubtitleFailure && isMissingParams)
+                {
+                    _logger.LogWarning("[Baklava] Standard probe failed to detect SUBTITLE parameters. Retrying with Deep Probe (Size={Size}, Duration={Duration})...", maxProbeSize, maxAnalyzeDuration);
+                    
+                    var (retryJson, retryErr) = await ExecuteProbe(maxProbeSize, maxAnalyzeDuration);
+                    
+                    if (!string.IsNullOrEmpty(retryJson))
+                    {
+                        outJson = retryJson;
+                        errText = retryErr;
+                        _logger.LogInformation("[Baklava] Deep Probe completed.");
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[Baklava] Deep Probe failed. Falling back to original result.");
+                    }
+                }
+            }
 
             if (!string.IsNullOrEmpty(errText))
             {
-                // Only log if it's significant or if we fail to get JSON
                 if (errText.Contains("403 Forbidden") || errText.Contains("404 Not Found") || string.IsNullOrEmpty(outJson))
                     _logger.LogWarning("[Baklava] FFprobe Stderr: {Err}", errText);
             }
