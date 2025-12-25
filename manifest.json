@@ -9,6 +9,15 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.png",
     "versions": [
       {
+        "version": "0.5.4.0",
+        "changelog": "0.5.4.0 - Fixed missing disableModal from configController, set default subtitle to None",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.5.4.0/baklava_0.5.4.0.zip",
+        "checksum": "37a75d2a737ba32fa18fb298ebfae91d",
+        "checksumType": "md5",
+        "timestamp": "2025-12-25T14:15:00Z"
+      },
+      {
         "version": "0.5.3.0",
         "changelog": "0.5.3.0 - Background fetching on approve request instead of routing to title page",
         "targetAbi": "10.11.0.0",

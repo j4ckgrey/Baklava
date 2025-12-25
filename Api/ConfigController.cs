@@ -39,6 +39,7 @@ namespace Baklava.Api
                     forceTVClientLocalSearch = cfg.ForceTVClientLocalSearch,
                     disableNonAdminRequests = cfg.DisableNonAdminRequests,
                     enableAutoImport = cfg.EnableAutoImport,
+                    disableModal = cfg.DisableModal,
                     showReviewsCarousel = cfg.ShowReviewsCarousel,
                     versionUi = cfg.VersionUi,
                     audioUi = cfg.AudioUi,
@@ -61,6 +62,7 @@ namespace Baklava.Api
                 defaultTmdbId = cfg.DefaultTmdbId,
                 disableNonAdminRequests = cfg.DisableNonAdminRequests,
                 enableAutoImport = cfg.EnableAutoImport,
+                disableModal = cfg.DisableModal,
                 showReviewsCarousel = cfg.ShowReviewsCarousel,
                 versionUi = cfg.VersionUi,
                 audioUi = cfg.AudioUi,
@@ -114,6 +116,10 @@ namespace Baklava.Api
             if (dto.enableAutoImport.HasValue)
             {
                 cfg.EnableAutoImport = dto.enableAutoImport.Value;
+            }
+            if (dto.disableModal.HasValue)
+            {
+                cfg.DisableModal = dto.disableModal.Value;
             }
             if (!string.IsNullOrWhiteSpace(dto.versionUi))
             {
@@ -195,6 +201,7 @@ namespace Baklava.Api
         public bool? forceTVClientLocalSearch { get; set; }
         public bool? disableNonAdminRequests { get; set; }
         public bool? enableAutoImport { get; set; }
+        public bool? disableModal { get; set; }
         public bool? showReviewsCarousel { get; set; }
         public string versionUi { get; set; }
         public string audioUi { get; set; }

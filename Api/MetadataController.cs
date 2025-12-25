@@ -500,7 +500,7 @@ namespace Baklava.Api
                      responseCache[src.Id] = new {
                          audio = data.Audio.Select(a => new { index = a.Index, title = a.Title, language = a.Language, codec = a.Codec, channels = a.Channels, bitrate = a.Bitrate }),
 
-                         subs = (new[] { new { index = -1, title = "None", language = (string?)null, codec = (string?)null, isForced = (bool?)false, isDefault = (bool?)false } })
+                     subs = (new[] { new { index = -1, title = "None", language = (string?)null, codec = (string?)null, isForced = (bool?)false, isDefault = (bool?)true } })
                              .Concat(data.Subtitles.Select(s => new { index = s.Index, title = s.Title, language = s.Language, codec = s.Codec, isForced = s.IsForced, isDefault = s.IsDefault }))
                      };
                  }
@@ -512,7 +512,7 @@ namespace Baklava.Api
                  
                  return Ok(new {
                      audio = cachedData!.Audio.Select(a => new { index = a.Index, title = a.Title, language = a.Language, codec = a.Codec, channels = a.Channels, bitrate = a.Bitrate }),
-                     subs = (new[] { new { index = -1, title = "None", language = (string?)null, codec = (string?)null, isForced = (bool?)false, isDefault = (bool?)false } })
+                     subs = (new[] { new { index = -1, title = "None", language = (string?)null, codec = (string?)null, isForced = (bool?)false, isDefault = (bool?)true } })
                          .Concat(cachedData.Subtitles.Select(s => new { index = s.Index, title = s.Title, language = s.Language, codec = s.Codec, isForced = s.IsForced, isDefault = s.IsDefault })),
                      mediaSourceId = targetSource.Id,
                      cache = responseCache
@@ -567,7 +567,7 @@ namespace Baklava.Api
 
                  return Ok(new {
                     audio = result.Audio.Select(a => new { index = a.Index, title = a.Title, language = a.Language, codec = a.Codec, channels = a.Channels, bitrate = a.Bitrate }),
-                    subs = (new[] { new { index = -1, title = "None", language = (string?)null, codec = (string?)null, isForced = (bool?)false, isDefault = (bool?)false } })
+                    subs = (new[] { new { index = -1, title = "None", language = (string?)null, codec = (string?)null, isForced = (bool?)false, isDefault = (bool?)true } })
                         .Concat(result.Subtitles.Select(s => new { index = s.Index, title = s.Title, language = s.Language, codec = s.Codec, isForced = s.IsForced, isDefault = s.IsDefault })),
                     mediaSourceId = targetSource.Id,
                     cache = responseCache
@@ -655,7 +655,7 @@ namespace Baklava.Api
                 _logger.LogInformation("[Baklava] GetMediaStreams: Returning empty/known cache response while background task runs (if enabled).");
                 return Ok(new {
                     audio = new List<object>(),
-                    subs = new[] { new { index = -1, title = "None", language = (string)null, codec = (string)null, isForced = false, isDefault = false } },
+                    subs = new[] { new { index = -1, title = "None", language = (string)null, codec = (string)null, isForced = false, isDefault = true } },
                     mediaSourceId = targetSource.Id,
                     cache = responseCache
                 });
