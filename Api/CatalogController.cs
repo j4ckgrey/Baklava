@@ -652,8 +652,8 @@ namespace Baklava.Api
                 items.AddRange(catalogResp.Metas);
                 skip += catalogResp.Metas.Count;
 
-                // If we got less than page size, we've reached the end
-                if (catalogResp.Metas.Count < pageSize) break;
+                // Optimization: If we got 0 items, break (handled above).
+                // DO NOT break on count < 100 because some addons return small batches (e.g. 20)
             }
 
             return items.Take(maxItems).ToList();
