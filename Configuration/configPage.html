@@ -281,6 +281,70 @@
                     </div>
                 </div>
 
+                <!-- Create Library Confirmation Modal -->
+                <div id="createLibraryModal"
+                    style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
+                    <div
+                        style="background: #222; padding: 20px; border-radius: 8px; width: 450px; border: 1px solid #444; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                        <h3 style="margin-top: 0; color: #1e90ff;">Create Collection from Catalog?</h3>
+                        <p style="color: #ddd; font-size: 14px; line-height: 1.5; margin-bottom: 10px;">
+                            You are about to create a new Jellyfin Collection for: <br><strong id="createLibraryName"
+                                style="color:white; font-size:16px;"></strong>
+                        </p>
+                        <p style="color: #aaa; font-size: 13px; margin-bottom: 20px;">
+                            This will:<br>
+                            1. Create a physical folder.<br>
+                            2. Create a virtual collection in Jellyfin.<br>
+                            3. Import items from the catalog via Gelato.<br>
+                        </p>
+                        <div style="margin-bottom: 20px;">
+                            <label for="createLibraryInputName"
+                                style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Collection
+                                Name</label>
+                            <input id="createLibraryInputName" type="text"
+                                style="width:100%;padding:8px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;box-sizing: border-box;">
+                        </div>
+
+                        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                            <button id="cancelCreateLibBtn"
+                                style="padding: 8px 16px; background: #444; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+                            <button id="confirmCreateLibBtn"
+                                style="padding: 8px 16px; background: #1e90ff; color: white; border: none; border-radius: 4px; cursor: pointer;">Create
+                                Collection</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Catalogs Management -->
+                <div
+                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    <div
+                        style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                        <h4 style="margin: 0; color: #1e90ff;">Catalogs</h4>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <label style="font-size: 12px; color: #999;">Max items:</label>
+                            <input id="catalogsMaxItems" type="number" min="1" max="500" value="100" style="width: 60px; padding: 4px 8px; border: 1px solid #1e90ff; 
+                                          border-radius: 4px; background: rgba(30,144,255,0.1); 
+                                          color: white; font-size: 13px;" />
+                            <button id="catalogsRefreshBtn" type="button"
+                                style="padding: 6px 12px; border: none; background: #1e90ff; color: white; border-radius: 4px; cursor: pointer; font-size: 13px;">Refresh</button>
+                        </div>
+                    </div>
+                    <p style="margin: 0 0 12px 0; font-size: 12px; color: #999;">
+                        Manage aiostreams catalogs from Gelato. Create collections or import items directly to your
+                        library.
+                    </p>
+                    <div id="catalogsLoading" style="display: none; text-align: center; padding: 20px; color: #888;">
+                        Loading catalogs...
+                    </div>
+                    <div id="catalogsError"
+                        style="display: none; padding: 10px; color: #e74c3c; background: rgba(231,76,60,0.1); border-radius: 4px;">
+                    </div>
+                    <div id="catalogsList" style="max-height: 400px; overflow-y: auto;">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
                 <!-- UI Settings -->
                 <div
                     style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
@@ -849,6 +913,207 @@
 
                 // Load cache list on startup
                 loadCacheList();
+
+                // --- Catalogs Management ---
+                const CATALOGS_API = 'api/baklava/catalogs';
+                let catalogsData = [];
+
+                async function loadCatalogs() {
+                    const loading = document.getElementById('catalogsLoading');
+                    const error = document.getElementById('catalogsError');
+                    const list = document.getElementById('catalogsList');
+
+                    loading.style.display = 'block';
+                    error.style.display = 'none';
+                    list.innerHTML = '';
+
+                    try {
+                        const url = (window.ApiClient && window.ApiClient.getUrl)
+                            ? window.ApiClient.getUrl(CATALOGS_API)
+                            : (window.location.origin + '/' + CATALOGS_API);
+
+                        let response;
+                        if (window.ApiClient && window.ApiClient.ajax) {
+                            response = await window.ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' });
+                            if (response && response.constructor && response.constructor.name === 'Response') {
+                                response = await response.json();
+                            }
+                        } else {
+                            const res = await fetch(url, { credentials: 'same-origin' });
+                            if (!res.ok) throw new Error('Failed to fetch catalogs');
+                            response = await res.json();
+                        }
+
+                        catalogsData = response || [];
+                        renderCatalogs();
+                    } catch (e) {
+                        console.error('[Baklava] Failed to load catalogs:', e);
+                        error.textContent = 'Failed to load catalogs: ' + e.message;
+                        error.style.display = 'block';
+                    } finally {
+                        loading.style.display = 'none';
+                    }
+                }
+
+                function renderCatalogs() {
+                    const list = document.getElementById('catalogsList');
+                    if (catalogsData.length === 0) {
+                        list.innerHTML = '<div style="padding: 16px; text-align: center; color: #888;">No catalogs found. Make sure Gelato is configured with a valid aiostreams manifest.</div>';
+                        return;
+                    }
+
+                    console.log('[Baklava] Rendering catalogs:', catalogsData);
+
+                    let html = '';
+                    for (let i = 0; i < catalogsData.length; i++) {
+                        const cat = catalogsData[i];
+                        const icon = cat.type === 'series' ? '📺' : '🎬';
+                        const name = escapeHtml(cat.name || cat.id || 'Unknown');
+                        const type = escapeHtml(cat.type || 'unknown');
+                        const count = cat.itemCount >= 0 ? cat.itemCount + ' titles' : '';
+                        const source = cat.addonName ? ' • ' + escapeHtml(cat.addonName) : '';
+                        const catId = escapeHtml(cat.id || '');
+                        const sourceUrl = cat.sourceUrl || '';
+
+                        html += '<div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; margin-bottom: 8px; background: rgba(0,0,0,0.2); border-radius: 8px;">';
+                        html += '<div style="flex: 1;">';
+                        html += '<div style="font-size: 1rem; font-weight: 500; display: flex; align-items: center; gap: 8px;">';
+                        html += '<span style="font-size: 1.2em;">' + icon + '</span>';
+                        html += name;
+                        html += '<span style="font-size: 0.7em; padding: 2px 6px; background: #1e90ff; color: white; border-radius: 4px; text-transform: uppercase;">' + type + '</span>';
+                        if (sourceUrl) {
+                            html += '<a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener" style="text-decoration: none; color: #1e90ff; font-size: 1.1em; margin-left: 4px;" title="Open source page">🔗</a>';
+                        }
+                        html += '</div>';
+                        html += '<div style="font-size: 0.85em; color: #888; margin-top: 4px;">' + count + source + '</div>';
+                        html += '</div>';
+                        html += '<div style="display: flex; gap: 8px;">';
+                        html += '<button type="button" data-action="import" data-id="' + catId + '" data-type="' + type + '" data-name="' + name + '" style="padding: 6px 12px; border: none; background: #1e90ff; color: white; border-radius: 4px; cursor: pointer; font-size: 12px;">Create Collection</button>';
+                        html += '</div>';
+                        html += '</div>';
+                    }
+                    list.innerHTML = html;
+
+                    // Add event listeners for buttons
+
+                    list.querySelectorAll('button[data-action="import"]').forEach(function (btn) {
+                        btn.addEventListener('click', function () {
+                            openCreateLibraryModal(this.dataset.id, this.dataset.type, this.dataset.name);
+                        });
+                    });
+                }
+
+                function escapeHtml(str) {
+                    if (!str) return '';
+                    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+                }
+
+
+                // --- Create Library Modal Logic ---
+                const createLibModal = document.getElementById('createLibraryModal');
+                const createLibNameDisplay = document.getElementById('createLibraryName');
+                const createLibInputName = document.getElementById('createLibraryInputName');
+                const cancelCreateLibBtn = document.getElementById('cancelCreateLibBtn');
+                const confirmCreateLibBtn = document.getElementById('confirmCreateLibBtn');
+
+                let currentCatalogId = null;
+                let currentCatalogType = null;
+                let currentCatalogName = null;
+
+                cancelCreateLibBtn.onclick = () => { createLibModal.style.display = 'none'; };
+
+                function openCreateLibraryModal(catId, catType, catName) {
+                    currentCatalogId = catId;
+                    currentCatalogType = catType;
+                    currentCatalogName = catName;
+
+                    createLibNameDisplay.textContent = catName;
+                    createLibInputName.value = catName;
+
+                    confirmCreateLibBtn.textContent = 'Create Collection';
+                    confirmCreateLibBtn.disabled = false;
+
+                    createLibModal.style.display = 'flex';
+                }
+
+                confirmCreateLibBtn.onclick = async () => {
+                    const libName = createLibInputName.value || currentCatalogName;
+
+                    confirmCreateLibBtn.textContent = 'Creating...';
+                    confirmCreateLibBtn.disabled = true;
+
+                    try {
+                        await importCatalog(currentCatalogId, currentCatalogType, currentCatalogName, libName);
+                        createLibModal.style.display = 'none';
+                    } catch (e) {
+                        Dashboard.alert({ message: 'Error: ' + e.message, title: 'Error' });
+                        confirmCreateLibBtn.textContent = 'Retry';
+                        confirmCreateLibBtn.disabled = false;
+                    }
+                };
+
+                async function importCatalog(catalogId, catalogType, catalogName, libraryName) {
+                    // if (!confirm('Create a new Jellyfin library for "' + catalogName + '"? This will create a library and import up to 100 items.')) return;
+
+                    const url = (window.ApiClient && window.ApiClient.getUrl)
+                        ? window.ApiClient.getUrl(CATALOGS_API + '/' + encodeURIComponent(catalogId) + '/library') + '?type=' + catalogType
+                        : (window.location.origin + '/' + CATALOGS_API + '/' + encodeURIComponent(catalogId) + '/library?type=' + catalogType);
+
+                    try {
+                        let response;
+                        const maxItems = parseInt(document.getElementById('catalogsMaxItems')?.value) || 100;
+                        const payload = JSON.stringify({ maxItems: maxItems, libraryName: libraryName });
+
+                        if (window.ApiClient && window.ApiClient.ajax) {
+                            response = await window.ApiClient.ajax({
+                                type: 'POST',
+                                url: url,
+                                data: payload,
+                                contentType: 'application/json'
+                            });
+                            if (response && response.constructor && response.constructor.name === 'Response') {
+                                response = await response.json();
+                            }
+                        } else {
+                            const res = await fetch(url, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: payload,
+                                credentials: 'same-origin'
+                            });
+                            response = await res.json();
+                        }
+
+                        if (response && response.success) {
+                            Dashboard.alert({ message: 'Collection "' + response.libraryName + '" created! Items are being imported in the background.', title: 'Import Started' });
+                        } else {
+                            const msg = response?.message || 'Unknown error';
+                            throw new Error(msg);
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        throw e;
+                    }
+                }
+
+                document.getElementById('catalogsRefreshBtn').addEventListener('click', loadCatalogs);
+
+                // Load saved max items from localStorage
+                const maxItemsInput = document.getElementById('catalogsMaxItems');
+                const savedMaxItems = localStorage.getItem('baklava_catalog_max_items');
+                if (savedMaxItems && maxItemsInput) {
+                    maxItemsInput.value = savedMaxItems;
+                }
+
+                // Save max items to localStorage on change
+                if (maxItemsInput) {
+                    maxItemsInput.addEventListener('change', function () {
+                        localStorage.setItem('baklava_catalog_max_items', this.value);
+                    });
+                }
+
+                loadCatalogs(); // Load on startup
+
             </script>
         </div>
     </div>

@@ -75,5 +75,12 @@ namespace Baklava
         // Deep probe (retry on failure): 50MB / 10s
         public int MaxProbeSize { get; set; } = 50000000;
         public int MaxAnalyzeDuration { get; set; } = 10000000;
+
+        // Catalog Management Settings
+        // Maximum items to import per catalog
+        public int CatalogMaxItems { get; set; } = 100;
+        
+        // Catalog import timeout in seconds
+        public int CatalogImportTimeout { get; set; } = 300;
     }
 }

@@ -37,6 +37,7 @@ namespace Baklava.Api
         private readonly IApplicationPaths _appPaths;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ISessionManager _sessionManager;
+        private readonly MediaBrowser.Common.Plugins.IPluginManager _pluginManager;
         private const string TMDB_BASE = "https://api.themoviedb.org/3";
         
         // Simple in-memory cache (consider using IMemoryCache for production)
@@ -52,7 +53,8 @@ namespace Baklava.Api
             IUserManager userManager,
             IApplicationPaths appPaths,
             IHttpContextAccessor httpContextAccessor,
-            ISessionManager sessionManager)
+            ISessionManager sessionManager,
+            MediaBrowser.Common.Plugins.IPluginManager pluginManager)
         {
             _logger = logger;
             _libraryManager = libraryManager;
@@ -61,6 +63,100 @@ namespace Baklava.Api
             _appPaths = appPaths;
             _httpContextAccessor = httpContextAccessor;
             _sessionManager = sessionManager;
+            _pluginManager = pluginManager;
+        }
+
+        private string? GetGelatoStremioUrl()
+        {
+            try
+            {
+                var localPlugin = _pluginManager.Plugins.FirstOrDefault(p => p.Name == "Gelato");
+                if (localPlugin == null || localPlugin.Instance == null) return null;
+                
+                var plugin = localPlugin.Instance;
+
+                // Plugin.Configuration is BasePluginConfiguration, we need to cast to actual type or use dynamic/reflection
+                // Gelato.Configuration.PluginConfiguration has "Url" property
+                var config = plugin.GetType().GetProperty("Configuration")?.GetValue(plugin);
+                if (config == null) return null;
+                
+                var urlProp = config.GetType().GetProperty("Url");
+                if (urlProp != null)
+                {
+                    return urlProp.GetValue(config) as string;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Baklava] Failed to get Gelato Stremio URL via reflection");
+            }
+            return null;
+        }
+
+        private async Task<string?> ResolveStremioStream(string stremioUrl)
+        {
+            // stremioUrl format: stremio://type/id or stremio://type/id/streamId
+            try 
+            {
+                // 1. Get Addon URL from Gelato config
+                var addonUrl = GetGelatoStremioUrl();
+                if (string.IsNullOrEmpty(addonUrl)) 
+                {
+                    _logger.LogWarning("[Baklava] Cannot resolve stremio URL: Gelato addon URL not found in config");
+                    return null;
+                }
+                
+                // Clean URLs
+                addonUrl = addonUrl.TrimEnd('/');
+                if (addonUrl.EndsWith("/manifest.json")) addonUrl = addonUrl.Substring(0, addonUrl.Length - "/manifest.json".Length);
+                
+                // 2. Parse stremio URL manually (Uri class treats 'movie' as Host in stremio://movie/id)
+                var cleanUrl = stremioUrl.Replace("stremio://", "", StringComparison.OrdinalIgnoreCase).Trim('/');
+                var parts = cleanUrl.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                
+                if (parts.Length < 2) 
+                {
+                    _logger.LogWarning("[Baklava] Stremio URL format invalid: {Url}", stremioUrl);
+                    return null;
+                }
+                
+                var type = parts[0]; // movie
+                var id = parts[1];   // tt12345
+                // parts[2] might be streamId
+                
+                // 3. Request stream list from addon
+                // Endpoint: {addonUrl}/stream/{type}/{id}.json
+                var requestUrl = $"{addonUrl}/stream/{type}/{id}.json";
+                _logger.LogInformation("[Baklava] Resolving Stremio URL: {StremioUrl} -> Fetching {RequestUrl}", stremioUrl, requestUrl);
+                
+                using var client = new HttpClient();
+                client.Timeout = TimeSpan.FromSeconds(10);
+                var response = await client.GetStringAsync(requestUrl);
+                
+                using var doc = JsonDocument.Parse(response);
+                if (doc.RootElement.TryGetProperty("streams", out var streamsElement) && streamsElement.GetArrayLength() > 0)
+                {
+                    // Pick first valid stream
+                    foreach (var stream in streamsElement.EnumerateArray())
+                    {
+                        if (stream.TryGetProperty("url", out var urlProp) && !string.IsNullOrEmpty(urlProp.GetString()))
+                        {
+                            var resolvedUrl = urlProp.GetString();
+                            _logger.LogInformation("[Baklava] Resolved Stremio URL {StremioUrl} -> {ResolvedUrl}", stremioUrl, resolvedUrl);
+                            return resolvedUrl;
+                        }
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("[Baklava] Check for streams returned empty for {StremioUrl}", stremioUrl);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Baklava] Error resolving Stremio URL: {Url}", stremioUrl);
+            }
+            return null;
         }
 
         /// <summary>
@@ -483,6 +579,38 @@ namespace Baklava.Api
 
             if (cacheDict == null) cacheDict = new Dictionary<string, CachedStreamData>();
 
+            // 4. Resolve URL (New for Kebap support)
+            // Always resolve fresh because links expire, even if metadata is cached.
+            string? resolvedUrl = null;
+            if (targetSource.Protocol == MediaBrowser.Model.MediaInfo.MediaProtocol.Http && !string.IsNullOrEmpty(targetSource.Path))
+            {
+                 var path = targetSource.Path;
+                 var isResolve = path.Contains("stremio.com/resolve/", StringComparison.OrdinalIgnoreCase) || 
+                                 path.Contains("/resolve/", StringComparison.OrdinalIgnoreCase);
+                 
+                 if (isResolve || path.StartsWith("stremio://", StringComparison.OrdinalIgnoreCase))
+                 {
+                     var cfg = Plugin.Instance?.Configuration;
+                     if (cfg != null && (!string.IsNullOrEmpty(cfg.DebridApiKey) || !string.IsNullOrEmpty(cfg.TorBoxApiKey)))
+                     {
+                         try
+                         {
+                             // Use helper to resolve (allowMagnetRevival = true)
+                             var res = await GetPlayableDebridUrl(path, cfg.DebridApiKey, true);
+                             if (res.HasValue)
+                             {
+                                 resolvedUrl = res.Value.Url;
+                                 _logger.LogInformation("[MetadataController] Resolved URL for {Id}: {Url}", targetSource.Id, resolvedUrl);
+                             }
+                         }
+                         catch (Exception ex)
+                         {
+                             _logger.LogError(ex, "[MetadataController] Failed to resolve URL for {Id}", targetSource.Id);
+                         }
+                     }
+                 }
+            }
+
             // 3. Check Cache for Target
             var pathHash = ComputePathHash(targetSource.Path);
             CachedStreamData? cachedData = null;
@@ -500,7 +628,7 @@ namespace Baklava.Api
                      responseCache[src.Id] = new {
                          audio = data.Audio.Select(a => new { index = a.Index, title = a.Title, language = a.Language, codec = a.Codec, channels = a.Channels, bitrate = a.Bitrate }),
 
-                     subs = (new[] { new { index = -1, title = "None", language = (string?)null, codec = (string?)null, isForced = (bool?)false, isDefault = (bool?)true } })
+                     subs = (new[] { new { index = -1, title = (string?)"None", language = (string?)null, codec = (string?)null, isForced = (bool?)false, isDefault = (bool?)true } })
                              .Concat(data.Subtitles.Select(s => new { index = s.Index, title = s.Title, language = s.Language, codec = s.Codec, isForced = s.IsForced, isDefault = s.IsDefault }))
                      };
                  }
@@ -508,15 +636,28 @@ namespace Baklava.Api
 
             if (cacheHit)
             {
-                 _logger.LogInformation("[Baklava] GetMediaStreams: Cache HIT for {SourceId} (Hash: {Hash})", targetSource.Id, pathHash);
+                 // CHECK FOR BAD CACHE: If cache has no audio AND no subs, it might be a failed probe result.
+                 // Invalidate it to force a retry (which will use the new Stremio resolve logic).
+                 bool isValid = cachedData!.Audio.Count > 0 || cachedData.Subtitles.Count > 0;
                  
-                 return Ok(new {
-                     audio = cachedData!.Audio.Select(a => new { index = a.Index, title = a.Title, language = a.Language, codec = a.Codec, channels = a.Channels, bitrate = a.Bitrate }),
-                     subs = (new[] { new { index = -1, title = "None", language = (string?)null, codec = (string?)null, isForced = (bool?)false, isDefault = (bool?)true } })
-                         .Concat(cachedData.Subtitles.Select(s => new { index = s.Index, title = s.Title, language = s.Language, codec = s.Codec, isForced = s.IsForced, isDefault = s.IsDefault })),
-                     mediaSourceId = targetSource.Id,
-                     cache = responseCache
-                 });
+                 if (isValid)
+                 {
+                     _logger.LogInformation("[Baklava] GetMediaStreams: Cache HIT for {SourceId} (Hash: {Hash})", targetSource.Id, pathHash);
+                     
+                     return Ok(new {
+                         audio = cachedData!.Audio.Select(a => new { index = a.Index, title = a.Title, language = a.Language, codec = a.Codec, channels = a.Channels, bitrate = a.Bitrate }),
+                         subs = (new[] { new { index = -1, title = (string?)"None", language = (string?)null, codec = (string?)null, isForced = (bool?)false, isDefault = (bool?)true } })
+                             .Concat(cachedData.Subtitles.Select(s => new { index = s.Index, title = s.Title, language = s.Language, codec = s.Codec, isForced = s.IsForced, isDefault = s.IsDefault })),
+                         mediaSourceId = targetSource.Id,
+                         url = resolvedUrl,
+                         cache = responseCache
+                     });
+                 }
+                 else
+                 {
+                     _logger.LogWarning("[Baklava] GetMediaStreams: Cache HIT but DATA INVALID (Empty audio/subs) for {SourceId}. Treating as MISS to retry probe.", targetSource.Id);
+                     // Fall through to Cache MISS logic
+                 }
             }
 
             // 4. Cache MISS
@@ -560,16 +701,17 @@ namespace Baklava.Api
                 }
 
                 // Add new result to response cache map
-                responseCache[targetSource.Id] = new {
-                         audio = result.Audio.Select(a => new { index = a.Index, title = a.Title, language = a.Language, codec = a.Codec, channels = a.Channels, bitrate = a.Bitrate }),
-                         subs = result.Subtitles.Select(s => new { index = s.Index, title = s.Title, language = s.Language, codec = s.Codec, isForced = s.IsForced, isDefault = s.IsDefault })
+                 responseCache[targetSource.Id] = new {
+                         audio = result.Audio.Select(a => new { index = a.Index, title = (string?)a.Title, language = (string?)a.Language, codec = (string?)a.Codec, channels = a.Channels, bitrate = a.Bitrate }),
+                         subs = result.Subtitles.Select(s => new { index = s.Index, title = (string?)s.Title, language = (string?)s.Language, codec = (string?)s.Codec, isForced = (bool?)s.IsForced, isDefault = (bool?)s.IsDefault })
                 };
 
                  return Ok(new {
-                    audio = result.Audio.Select(a => new { index = a.Index, title = a.Title, language = a.Language, codec = a.Codec, channels = a.Channels, bitrate = a.Bitrate }),
-                    subs = (new[] { new { index = -1, title = "None", language = (string?)null, codec = (string?)null, isForced = (bool?)false, isDefault = (bool?)true } })
-                        .Concat(result.Subtitles.Select(s => new { index = s.Index, title = s.Title, language = s.Language, codec = s.Codec, isForced = s.IsForced, isDefault = s.IsDefault })),
+                    audio = result.Audio.Select(a => new { index = a.Index, title = (string?)a.Title, language = (string?)a.Language, codec = (string?)a.Codec, channels = a.Channels, bitrate = a.Bitrate }),
+                    subs = (new[] { new { index = -1, title = (string?)"None", language = (string?)null, codec = (string?)null, isForced = (bool?)false, isDefault = (bool?)true } })
+                        .Concat(result.Subtitles.Select(s => new { index = s.Index, title = (string?)s.Title, language = (string?)s.Language, codec = (string?)s.Codec, isForced = (bool?)s.IsForced, isDefault = (bool?)s.IsDefault })),
                     mediaSourceId = targetSource.Id,
+                    url = resolvedUrl,
                     cache = responseCache
                 });
             }
@@ -711,6 +853,27 @@ namespace Baklava.Api
                 !string.IsNullOrEmpty(targetSource.Path))
             {
                 var url = targetSource.Path;
+                
+                // CRITICAL: Handle stremio:// URLs by resolving them to actual stream URLs
+                // ffprobe cannot act on stremio:// directly, but we can ask the addon for the real URL
+                if (url.StartsWith("stremio://", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation("[Baklava] Found stremio:// URL, attempting to resolve: {Url}", url);
+                    var resolvedUrl = await ResolveStremioStream(url);
+                    
+                    if (!string.IsNullOrEmpty(resolvedUrl))
+                    {
+                        url = resolvedUrl;
+                        _logger.LogInformation("[Baklava] Successfully resolved stremio:// URL to: {Url}", url);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[Baklava] FAILED to resolve stremio:// URL. Aborting probe to prevent caching empty results for {SourceId}", targetSource.Id);
+                        // Return null to indicate failure, so calling method does NOT cache "empty" results.
+                        // This prevents getting "stuck" with no streams on transient errors.
+                        return null;
+                    }
+                }
                 
                 // CRITICAL: Skip probing on Torrentio/Stremio resolve URLs - they TRIGGER downloads, not serve files!
                 // These URLs resolve magnets, not serve cached content directly
@@ -1031,9 +1194,10 @@ namespace Baklava.Api
         {
             // Config defaults
             var config = Plugin.Instance?.Configuration;
-            int standardProbeSize = (config?.ProbeSize > 0) ? config.ProbeSize : 5000000;
-            int standardAnalyzeDuration = (config?.AnalyzeDuration > 0) ? config.AnalyzeDuration : 5000000;
+            int standardProbeSize = (config?.ProbeSize > 0) ? config.ProbeSize : 5000000; // 5MB
+            int standardAnalyzeDuration = (config?.AnalyzeDuration > 0) ? config.AnalyzeDuration : 5000000; // 5s
             
+            // Max/Deep: 50MB / 10s (Reset to original, retry logic disabled by default)
             int maxProbeSize = (config?.MaxProbeSize > 0) ? config.MaxProbeSize : 50000000;
             int maxAnalyzeDuration = (config?.MaxAnalyzeDuration > 0) ? config.MaxAnalyzeDuration : 10000000;
 
@@ -1059,14 +1223,41 @@ namespace Baklava.Api
                     CreateNoWindow = true
                 };
 
-                using var proc = System.Diagnostics.Process.Start(psi);
-                if (proc == null) return (null, null);
+                using var proc = new System.Diagnostics.Process { StartInfo = psi };
+                var tcs = new TaskCompletionSource<bool>();
+                
+                var stdoutBuilder = new System.Text.StringBuilder();
+                var stderrBuilder = new System.Text.StringBuilder();
 
-                var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-                var stderrTask = proc.StandardError.ReadToEndAsync();
+                proc.OutputDataReceived += (s, e) => { if (e.Data != null) stdoutBuilder.AppendLine(e.Data); };
+                proc.ErrorDataReceived += (s, e) => { if (e.Data != null) stderrBuilder.AppendLine(e.Data); };
 
-                // Increase timeout for deeper probes
-                var exited = proc.WaitForExit(20000); 
+                proc.EnableRaisingEvents = true;
+                proc.Exited += (s, e) => tcs.TrySetResult(true);
+
+                if (!proc.Start()) return (null, "failed to start");
+                
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
+
+                var stdoutTask = Task.Run(async () => {
+                    while (!proc.HasExited) await Task.Delay(100);
+                    return stdoutBuilder.ToString();
+                });
+                var stderrTask = Task.Run(async () => {
+                   while (!proc.HasExited) await Task.Delay(100);
+                   return stderrBuilder.ToString();
+                });
+
+                // timeout 30s
+                var waitTask = Task.WhenAny(tcs.Task, Task.Delay(30000));
+                
+                // Allow longer timeout if duration is high
+                if (analyzeDuration > 20000000) waitTask = Task.WhenAny(tcs.Task, Task.Delay(analyzeDuration / 1000 + 10000));
+                
+                var completed = await waitTask;
+                bool exited = completed == tcs.Task;
+                
                 if (!exited)
                 {
                     try { proc.Kill(); } catch { }
@@ -1080,33 +1271,32 @@ namespace Baklava.Api
             // 1. Initial Standard Probe
             var (outJson, errText) = await ExecuteProbe(standardProbeSize, standardAnalyzeDuration);
 
-            // 2. Smart Retry (STRICT MODE for Subtitles Only)
-            // Only retry if we see the specific failure for SUBTITLES. 
-            // This prevents retrying for video/audio weirdness that might cause "fake" versions or other issues.
-            if (!string.IsNullOrEmpty(errText))
-            {
-                bool isSubtitleFailure = errText.IndexOf("Subtitle", StringComparison.OrdinalIgnoreCase) >= 0;
-                bool isMissingParams = errText.IndexOf("Could not find codec parameters", StringComparison.OrdinalIgnoreCase) >= 0 
-                                      || errText.IndexOf("unspecified size", StringComparison.OrdinalIgnoreCase) >= 0;
+            // 2. Smart Retry ABORTED - User requested NO deep probe on metadata fetch.
+            // Be content with standard probe even if params are missing.
+            // if (!string.IsNullOrEmpty(errText))
+            // {
+            //     bool isSubtitleFailure = errText.IndexOf("Subtitle", StringComparison.OrdinalIgnoreCase) >= 0;
+            //     bool isMissingParams = errText.IndexOf("Could not find codec parameters", StringComparison.OrdinalIgnoreCase) >= 0 
+            //                           || errText.IndexOf("unspecified size", StringComparison.OrdinalIgnoreCase) >= 0;
 
-                if (isSubtitleFailure && isMissingParams)
-                {
-                    _logger.LogWarning("[Baklava] Standard probe failed to detect SUBTITLE parameters. Retrying with Deep Probe (Size={Size}, Duration={Duration})...", maxProbeSize, maxAnalyzeDuration);
+            //     if (isSubtitleFailure && isMissingParams)
+            //     {
+            //         _logger.LogWarning("[Baklava] Standard probe failed to detect SUBTITLE parameters. Retrying with Deep Probe (Size={Size}, Duration={Duration})....", maxProbeSize, maxAnalyzeDuration);
                     
-                    var (retryJson, retryErr) = await ExecuteProbe(maxProbeSize, maxAnalyzeDuration);
+            //         var (retryJson, retryErr) = await ExecuteProbe(maxProbeSize, maxAnalyzeDuration);
                     
-                    if (!string.IsNullOrEmpty(retryJson))
-                    {
-                        outJson = retryJson;
-                        errText = retryErr;
-                        _logger.LogInformation("[Baklava] Deep Probe completed.");
-                    }
-                    else
-                    {
-                        _logger.LogWarning("[Baklava] Deep Probe failed. Falling back to original result.");
-                    }
-                }
-            }
+            //         if (!string.IsNullOrEmpty(retryJson))
+            //         {
+            //             outJson = retryJson;
+            //             errText = retryErr;
+            //             _logger.LogInformation("[Baklava] Deep Probe completed.");
+            //         }
+            //         else
+            //         {
+            //             _logger.LogWarning("[Baklava] Deep Probe failed. Falling back to original result.");
+            //         }
+            //     }
+            // }
 
             if (!string.IsNullOrEmpty(errText))
             {
