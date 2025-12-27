@@ -54,7 +54,8 @@ namespace Baklava.Api
                     enableFallbackProbe = cfg.EnableFallbackProbe,
                     fetchCachedMetadataPerVersion = cfg.FetchCachedMetadataPerVersion,
                     fetchAllNonCachedMetadata = cfg.FetchAllNonCachedMetadata,
-                    enableExternalSubtitles = cfg.EnableExternalSubtitles
+                    enableExternalSubtitles = cfg.EnableExternalSubtitles,
+                    enableBaklavaUI = cfg.EnableBaklavaUI
                 });
             }
 
@@ -66,7 +67,8 @@ namespace Baklava.Api
                 showReviewsCarousel = cfg.ShowReviewsCarousel,
                 versionUi = cfg.VersionUi,
                 audioUi = cfg.AudioUi,
-                subtitleUi = cfg.SubtitleUi
+                subtitleUi = cfg.SubtitleUi,
+                enableBaklavaUI = cfg.EnableBaklavaUI
             });
         }
 
@@ -139,6 +141,11 @@ namespace Baklava.Api
             {
                 cfg.ShowReviewsCarousel = dto.showReviewsCarousel.Value;
             }
+            if (dto.enableBaklavaUI.HasValue)
+            {
+                cfg.EnableBaklavaUI = dto.enableBaklavaUI.Value;
+                _logger.LogInformation("[ConfigController] EnableBaklavaUI updated to: {Value}", cfg.EnableBaklavaUI);
+            }
 
             // Update Debrid settings
             if (!string.IsNullOrWhiteSpace(dto.debridService))
@@ -187,6 +194,12 @@ namespace Baklava.Api
                 cfg.PremiumizeApiKey = dto.premiumizeApiKey.Trim();
             }
             
+            if (dto.enableBaklavaUI.HasValue)
+            {
+                _logger.LogInformation("[ConfigController] Updating EnableBaklavaUI to {Value}", dto.enableBaklavaUI.Value);
+                cfg.EnableBaklavaUI = dto.enableBaklavaUI.Value;
+            }
+
             Plugin.Instance.SaveConfiguration();
             _logger.LogInformation("[ConfigController] Configuration saved.");
             return Ok();
@@ -217,5 +230,6 @@ namespace Baklava.Api
         public bool? fetchCachedMetadataPerVersion { get; set; }
         public bool? fetchAllNonCachedMetadata { get; set; }
         public bool? enableExternalSubtitles { get; set; }
+        public bool? enableBaklavaUI { get; set; }
     }
 }

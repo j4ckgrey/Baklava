@@ -62,6 +62,9 @@ namespace Baklava
         // Show TMDB reviews carousel on item details pages
         public bool ShowReviewsCarousel { get; set; } = true;
         
+        // Toggle for Baklava UI Injection (index.html override)
+        public bool EnableBaklavaUI { get; set; } = true;
+
         // Playback UI selection per track type: 'carousel' or 'dropdown'
         public string VersionUi { get; set; } = "carousel";
         public string AudioUi { get; set; } = "carousel";

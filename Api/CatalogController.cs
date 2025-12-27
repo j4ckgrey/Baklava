@@ -34,6 +34,12 @@ namespace Baklava.Api
         private readonly ILibraryManager _libraryManager; // Added
         private readonly ICollectionManager _collectionManager; // Added
 
+        // Global import queue - ensures only one catalog import runs at a time
+        private static readonly System.Threading.SemaphoreSlim _importQueue = new(1, 1);
+        
+        // Delay between items in seconds (configurable)
+        private const int IMPORT_ITEM_DELAY_MS = 2000;
+
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             PropertyNameCaseInsensitive = true,
@@ -350,18 +356,62 @@ namespace Baklava.Api
                 _logger.LogInformation("[CatalogController] Found {Count} items in catalog {CatalogId} ({Type}). Importing max {Max}...", items.Count, catalogId, stremioType, maxItems);
 
                 // 2. Start Background Process: Create Collection FIRST, then Import & Add each item one by one
+                // IMPORTANT: Cache Gelato references BEFORE entering background task to avoid ObjectDisposedException
+                object gelatoManager = null;
+                object gelatoPlugin = null;
+                Type managerType = null;
+                Type metaTypeEnum = null;
+                
+                try
+                {
+                    var gelatoAssembly = AppDomain.CurrentDomain.GetAssemblies()
+                        .FirstOrDefault(a => a.GetName().Name == "Gelato");
+                    
+                    if (gelatoAssembly != null)
+                    {
+                        var pluginType = gelatoAssembly.GetType("Gelato.GelatoPlugin");
+                        managerType = gelatoAssembly.GetType("Gelato.GelatoManager");
+                        metaTypeEnum = gelatoAssembly.GetType("Gelato.StremioMediaType");
+                        
+                        if (pluginType != null)
+                        {
+                            gelatoPlugin = pluginType.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)?.GetValue(null);
+                            if (gelatoPlugin != null)
+                            {
+                                var managerField = pluginType.GetField("_manager", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                                gelatoManager = managerField?.GetValue(gelatoPlugin);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[CatalogController] Failed to cache Gelato references - imports will only work for existing library items");
+                }
+                
                 _ = Task.Run(async () => 
                 {
-                    using var scope = _scopeFactory.CreateScope();
-                    var scopedProvider = scope.ServiceProvider;
-                    var libraryManager = scopedProvider.GetRequiredService<ILibraryManager>();
-                    var collectionManager = scopedProvider.GetRequiredService<ICollectionManager>();
+                    // Wait in global queue - only one catalog import at a time
+                    _logger.LogInformation("[CatalogController] Catalog '{Name}' queued for import...", collectionName);
+                    await _importQueue.WaitAsync().ConfigureAwait(false);
                     
-                    var successCount = 0;
-                    var failedCount = 0;
-
                     try
                     {
+                        _logger.LogInformation("[CatalogController] Starting import for catalog '{Name}'", collectionName);
+                        
+                        using var scope = _scopeFactory.CreateScope();
+                        var scopedProvider = scope.ServiceProvider;
+                        var libraryManager = scopedProvider.GetRequiredService<ILibraryManager>();
+                        var collectionManager = scopedProvider.GetRequiredService<ICollectionManager>();
+                        
+                        // Use a semaphore to serialize collection additions (prevents file locking issues)
+                        using var collectionLock = new System.Threading.SemaphoreSlim(1, 1);
+                        
+                        var successCount = 0;
+                        var failedCount = 0;
+
+                        try
+                        {
                         // STEP 1: Create or find collection FIRST
                         var providerId = $"Stremio.{catalogId}";
                         
@@ -445,6 +495,12 @@ namespace Baklava.Api
 
                         _logger.LogInformation("[CatalogController] Collection has {Count} existing items ({ImdbCount} with IMDB). Examining catalog...", linkedIds.Length, existingImdbIds.Count);
 
+                        // Diagnostic counters
+                        var failedNoImdb = 0;
+                        var failedImportError = 0;
+                        var failedNotFound = 0;
+                        var skippedExisting = 0;
+
                         // STEP 2: Import each item and add to collection ONE BY ONE
                         foreach (var item in items.Take(maxItems))
                         {
@@ -453,6 +509,8 @@ namespace Baklava.Api
                                 var imdbId = GetImdbId(item);
                                 if (string.IsNullOrEmpty(imdbId))
                                 {
+                                    _logger.LogDebug("[CatalogController] Item '{Name}' (id={Id}) has no IMDB ID, skipping", item.Name, item.Id);
+                                    failedNoImdb++;
                                     failedCount++;
                                     continue;
                                 }
@@ -461,7 +519,7 @@ namespace Baklava.Api
                                 if (existingImdbIds.Contains(imdbId))
                                 {
                                     // Already exists, skip
-                                    // _logger.LogDebug("[CatalogController] Msg: Item {ImdbId} already in collection, skipping.", imdbId);
+                                    skippedExisting++;
                                     continue;
                                 }
 
@@ -479,15 +537,29 @@ namespace Baklava.Api
                                 // If not in library, Import it
                                 if (libraryItem == null)
                                 {
-                                    // Import via Gelato
-                                    var importedIdStr = await ImportItemViaReflection(imdbId, mediaType, scopedProvider).ConfigureAwait(false);
+                                    _logger.LogDebug("[CatalogController] Item '{Name}' ({ImdbId}) not in library, attempting Gelato import...", item.Name, imdbId);
+                                    
+                                    // Import via Gelato using cached references
+                                    var importedIdStr = await ImportItemViaReflectionCached(
+                                        imdbId, 
+                                        mediaType, 
+                                        gelatoManager, 
+                                        gelatoPlugin, 
+                                        managerType, 
+                                        metaTypeEnum).ConfigureAwait(false);
                                     
                                     if (string.IsNullOrEmpty(importedIdStr))
                                     {
-                                        _logger.LogWarning("[CatalogController] Import failed for {ImdbId}", imdbId);
+                                        _logger.LogWarning("[CatalogController] Gelato import FAILED for '{Name}' ({ImdbId}) - Check Gelato plugin is installed and configured", item.Name, imdbId);
+                                        failedImportError++;
                                         failedCount++;
                                         continue;
                                     }
+                                    
+                                    _logger.LogDebug("[CatalogController] Gelato import returned ID: {Id}", importedIdStr);
+                                    
+                                    // Wait for Jellyfin to register the new item
+                                    await Task.Delay(1000).ConfigureAwait(false);
                                     
                                     // Fetch it again
                                     libraryItem = libraryManager.GetItemList(new InternalItemsQuery
@@ -500,19 +572,43 @@ namespace Baklava.Api
 
                                 if (libraryItem == null)
                                 {
-                                    _logger.LogWarning("[CatalogController] Could not find item by IMDB {ImdbId} even after import or lookup", imdbId);
+                                    _logger.LogWarning("[CatalogController] Item '{Name}' ({ImdbId}) not found in library after import attempt", item.Name, imdbId);
+                                    failedNotFound++;
                                     failedCount++;
                                     continue;
                                 }
 
-                                // Add to collection
+                                // Add to collection with retry logic for file locking
                                 _logger.LogInformation("[CatalogController] Adding '{Name}' to collection", libraryItem.Name);
-                                await collectionManager.AddToCollectionAsync(collection.Id, new[] { libraryItem.Id }).ConfigureAwait(false);
+                                
+                                await collectionLock.WaitAsync().ConfigureAwait(false);
+                                try
+                                {
+                                    // Retry up to 3 times with increasing delay
+                                    for (int attempt = 1; attempt <= 3; attempt++)
+                                    {
+                                        try
+                                        {
+                                            await collectionManager.AddToCollectionAsync(collection.Id, new[] { libraryItem.Id }).ConfigureAwait(false);
+                                            break; // Success, exit retry loop
+                                        }
+                                        catch (System.IO.IOException ioEx) when (attempt < 3)
+                                        {
+                                            _logger.LogDebug("[CatalogController] File locked, attempt {Attempt}/3, waiting...", attempt);
+                                            await Task.Delay(500 * attempt).ConfigureAwait(false);
+                                        }
+                                    }
+                                }
+                                finally
+                                {
+                                    collectionLock.Release();
+                                }
                                 
                                 successCount++;
                                 
-                                // Longer delay to let Jellyfin release file lock
-                                await Task.Delay(500).ConfigureAwait(false);
+                                // Increased delay to let Jellyfin release file lock
+                                // Delay between items to prevent file locking
+                                await Task.Delay(IMPORT_ITEM_DELAY_MS).ConfigureAwait(false);
                             }
                             catch (Exception ex)
                             {
@@ -521,11 +617,18 @@ namespace Baklava.Api
                             }
                         }
 
-                        _logger.LogInformation("[CatalogController] Import complete. Success: {Success}, Failed: {Failed}", successCount, failedCount);
+                        _logger.LogInformation("[CatalogController] Import complete. Success: {Success}, Failed: {Failed} (NoImdb: {NoImdb}, ImportError: {ImportError}, NotFound: {NotFound}), Skipped (existing): {Skipped}", 
+                            successCount, failedCount, failedNoImdb, failedImportError, failedNotFound, skippedExisting);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "[CatalogController] Background import failed");
+                        }
                     }
-                    catch (Exception ex)
+                    finally
                     {
-                        _logger.LogError(ex, "[CatalogController] Background import failed");
+                        _importQueue.Release();
+                        _logger.LogInformation("[CatalogController] Import queue released for '{Name}'", collectionName);
                     }
 
                 });
@@ -678,6 +781,142 @@ namespace Baklava.Api
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Reflection import failed for {ImdbId}", imdbId);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Import an item using pre-cached Gelato references (used in background tasks).
+        /// This avoids ObjectDisposedException by not relying on scoped service providers.
+        /// </summary>
+        private async Task<string> ImportItemViaReflectionCached(
+            string imdbId, 
+            string type, 
+            object gelatoManager, 
+            object gelatoPlugin, 
+            Type managerType, 
+            Type metaTypeEnum)
+        {
+            try
+            {
+                // Validate cached references
+                if (gelatoManager == null || gelatoPlugin == null || managerType == null || metaTypeEnum == null)
+                {
+                    _logger.LogError("[CatalogController] Gelato references not available - Gelato plugin may not be installed");
+                    return null;
+                }
+
+                // 1. Get Configuration to fetch Meta - use cached plugin instance
+                object config;
+                try
+                {
+                    config = gelatoPlugin.GetType().GetMethod("GetConfig")?.Invoke(gelatoPlugin, new object[] { Guid.Empty });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[CatalogController] Failed to get Gelato config - this may happen if Jellyfin services are unavailable");
+                    return null;
+                }
+                
+                if (config == null)
+                {
+                    _logger.LogError("[CatalogController] Gelato config is null");
+                    return null;
+                }
+                
+                // config.stremio
+                var stremioProvider = config.GetType().GetField("stremio")?.GetValue(config);
+                if (stremioProvider == null)
+                {
+                    _logger.LogError("[CatalogController] Gelato stremio provider is null - check Gelato configuration");
+                    return null;
+                }
+
+                // 2. Fetch Meta
+                var metaTypeVal = Enum.Parse(metaTypeEnum, type.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "Series" : "Movie", true);
+                
+                var getMetaMethod = stremioProvider.GetType().GetMethod("GetMetaAsync", new Type[] { typeof(string), metaTypeEnum });
+                if (getMetaMethod == null)
+                {
+                    _logger.LogError("[CatalogController] GetMetaAsync method not found in GelatoStremioProvider");
+                    return null;
+                }
+
+                var metaTask = (Task)getMetaMethod.Invoke(stremioProvider, new object[] { imdbId, metaTypeVal });
+                await metaTask.ConfigureAwait(false);
+                
+                var metaResult = metaTask.GetType().GetProperty("Result")?.GetValue(metaTask);
+                if (metaResult == null)
+                {
+                    _logger.LogWarning("[CatalogController] Meta not found for {ImdbId} - item may not exist in metadata source", imdbId);
+                    return null;
+                }
+
+                // 3. Determine Parent Folder
+                var isSeries = type.Equals("tv", StringComparison.OrdinalIgnoreCase);
+                var folderMethodName = isSeries ? "TryGetSeriesFolder" : "TryGetMovieFolder";
+                var getFolderMethod = managerType.GetMethod(folderMethodName, new Type[] { typeof(Guid) });
+                
+                if (getFolderMethod == null)
+                {
+                    _logger.LogError("[CatalogController] {Method} method not found in GelatoManager", folderMethodName);
+                    return null;
+                }
+                
+                var parentFolder = getFolderMethod.Invoke(gelatoManager, new object[] { Guid.Empty });
+                if (parentFolder == null)
+                {
+                    _logger.LogError("[CatalogController] {Type} folder not configured in Gelato - check Gelato library settings", isSeries ? "Series" : "Movie");
+                    return null;
+                }
+
+                // 4. Insert Meta
+                var insertMetaMethod = managerType.GetMethod("InsertMeta");
+                if (insertMetaMethod == null)
+                {
+                    _logger.LogError("[CatalogController] InsertMeta method not found in GelatoManager");
+                    return null;
+                }
+                
+                var insertTask = (Task)insertMetaMethod.Invoke(gelatoManager, new object[] {
+                    parentFolder,
+                    metaResult,
+                    Guid.Empty, // userId
+                    true, // allowRemoteRefresh
+                    true, // refreshItem  
+                    false, // queueRefreshItem
+                    System.Threading.CancellationToken.None
+                });
+                
+                await insertTask.ConfigureAwait(false);
+                
+                // Return Item.Id from tuple result
+                var resultTuple = insertTask.GetType().GetProperty("Result")?.GetValue(insertTask);
+                if (resultTuple == null)
+                {
+                    _logger.LogWarning("[CatalogController] InsertMeta returned null result for {ImdbId}", imdbId);
+                    return null;
+                }
+                
+                var itemField = resultTuple.GetType().GetField("Item1"); 
+                var item = itemField?.GetValue(resultTuple);
+                
+                if (item != null)
+                {
+                    var idProp = item.GetType().GetProperty("Id");
+                    return idProp?.GetValue(item)?.ToString();
+                }
+
+                return null;
+            }
+            catch (System.Reflection.TargetInvocationException tie) when (tie.InnerException != null)
+            {
+                _logger.LogError(tie.InnerException, "[CatalogController] Gelato import failed for {ImdbId}", imdbId);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[CatalogController] Import failed for {ImdbId}", imdbId);
                 return null;
             }
         }

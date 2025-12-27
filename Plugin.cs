@@ -24,14 +24,7 @@ namespace Baklava
             // Also attempt to register as early as possible in case scheduled startup tasks
             // are not picked up in some environments. This will run the same registration
             // logic but asynchronously so it won't block plugin construction.
-            try
-            {
-                System.Threading.Tasks.Task.Run(() => TransformationRegistrar.Register());
-            }
-            catch (Exception ex)
-            {
-                try { PluginLogger.Log("Plugin constructor registration attempt failed: " + ex.Message); } catch { }
-            }
+            // Legacy registration removed. Logic moved to StartupService injection.
             // Registration moved to StartupService to ensure FileTransformation plugin is loaded first
         }
 

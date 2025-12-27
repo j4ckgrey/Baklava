@@ -23,7 +23,7 @@
 
                 <!-- API Keys -->
                 <div
-                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    style="margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 8px; box-sizing: border-box;">
                     <h4 style="margin-top: 0; color: #1e90ff;">API Keys</h4>
 
                     <div style="margin-bottom: 16px;">
@@ -72,7 +72,7 @@
 
                 <!-- Search Filter Settings -->
                 <div
-                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    style="margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 8px; box-sizing: border-box;">
                     <h4 style="margin-top: 0; color: #1e90ff;">Search Settings</h4>
 
                     <div style="margin-bottom: 12px;">
@@ -89,7 +89,7 @@
 
                 <!-- Request Settings -->
                 <div
-                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    style="margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 8px; box-sizing: border-box;">
                     <h4 style="margin-top: 0; color: #1e90ff;">Request Settings</h4>
 
                     <div style="margin-bottom: 12px;">
@@ -116,7 +116,7 @@
 
                 <!-- Debrid Integration Settings -->
                 <div
-                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    style="margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 8px; box-sizing: border-box;">
                     <h4 style="margin-top: 0; color: #1e90ff;">Debrid Integration (Stream MediaInfo)</h4>
 
                     <div
@@ -188,7 +188,7 @@
 
                 <!-- External Subtitles Settings -->
                 <div
-                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    style="margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 8px; box-sizing: border-box;">
                     <h4 style="margin-top: 0; color: #1e90ff;">External Subtitles</h4>
                     <div style="margin-bottom: 12px;">
                         <label style="display: flex; align-items: center; cursor: not-allowed; opacity: 0.6;">
@@ -205,7 +205,7 @@
 
                 <!-- Cache Management Settings -->
                 <div
-                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    style="margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 8px; box-sizing: border-box;">
                     <h4 style="margin-top: 0; color: #1e90ff;">Cache Management</h4>
 
                     <div
@@ -281,46 +281,42 @@
                     </div>
                 </div>
 
-                <!-- Create Library Confirmation Modal -->
-                <div id="createLibraryModal"
-                    style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
-                    <div
-                        style="background: #222; padding: 20px; border-radius: 8px; width: 450px; border: 1px solid #444; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
-                        <h3 style="margin-top: 0; color: #1e90ff;">Create Collection from Catalog?</h3>
-                        <p style="color: #ddd; font-size: 14px; line-height: 1.5; margin-bottom: 10px;">
-                            You are about to create a new Jellyfin Collection for: <br><strong id="createLibraryName"
-                                style="color:white; font-size:16px;"></strong>
-                        </p>
-                        <p style="color: #aaa; font-size: 13px; margin-bottom: 20px;">
-                            This will:<br>
-                            1. Create a physical folder.<br>
-                            2. Create a virtual collection in Jellyfin.<br>
-                            3. Import items from the catalog via Gelato.<br>
-                        </p>
-                        <div style="margin-bottom: 20px;">
-                            <label for="createLibraryInputName"
-                                style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Collection
-                                Name</label>
-                            <input id="createLibraryInputName" type="text"
-                                style="width:100%;padding:8px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;box-sizing: border-box;">
-                        </div>
 
-                        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
-                            <button id="cancelCreateLibBtn"
-                                style="padding: 8px 16px; background: #444; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
-                            <button id="confirmCreateLibBtn"
-                                style="padding: 8px 16px; background: #1e90ff; color: white; border: none; border-radius: 4px; cursor: pointer;">Create
-                                Collection</button>
-                        </div>
-                    </div>
-                </div>
 
                 <!-- Catalogs Management -->
                 <div
-                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    style="margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 8px; box-sizing: border-box;">
                     <div
                         style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                        <h4 style="margin: 0; color: #1e90ff;">Catalogs</h4>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <h4 style="margin: 0; color: #1e90ff;">Catalogs</h4>
+                            <!-- Hamburger Filter Menu -->
+                            <div style="position: relative;">
+                                <button id="catalogFilterBtn" type="button"
+                                    style="background: transparent; border: 1px solid #444; color: #ccc; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 16px;"
+                                    title="Filter catalogs">☰</button>
+                                <div id="catalogFilterDropdown"
+                                    style="display: none; position: absolute; top: 100%; left: 0; background: #222; border: 1px solid #444; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 100; min-width: 140px; margin-top: 4px;">
+                                    <button type="button" data-filter="all"
+                                        style="display: block; width: 100%; padding: 8px 12px; background: transparent; border: none; color: #fff; text-align: left; cursor: pointer; font-size: 13px;"
+                                        class="catalog-filter-option active">All</button>
+                                    <button type="button" data-filter="imported"
+                                        style="display: block; width: 100%; padding: 8px 12px; background: transparent; border: none; color: #fff; text-align: left; cursor: pointer; font-size: 13px;"
+                                        class="catalog-filter-option">Imported</button>
+                                    <button type="button" data-filter="not-imported"
+                                        style="display: block; width: 100%; padding: 8px 12px; background: transparent; border: none; color: #fff; text-align: left; cursor: pointer; font-size: 13px;"
+                                        class="catalog-filter-option">Not Imported</button>
+                                </div>
+                            </div>
+                            <span id="catalogFilterLabel"
+                                style="font-size: 11px; color: #888; margin-left: 4px;">(All)</span>
+                        </div>
+
+                        <div style="flex: 1; display: flex; justify-content: center; margin: 0 20px;">
+                            <input id="catalogSearchInput" type="text" placeholder="Search catalogs..."
+                                style="width: 100%; max-width: 300px; padding: 6px 12px; border: 1px solid #444; border-radius: 4px; background: #111; color: white; font-size: 13px;" />
+                        </div>
+
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <label style="font-size: 12px; color: #999;">Max items:</label>
                             <input id="catalogsMaxItems" type="number" min="1" max="500" value="100" style="width: 60px; padding: 4px 8px; border: 1px solid #1e90ff; 
@@ -347,8 +343,19 @@
 
                 <!-- UI Settings -->
                 <div
-                    style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    style="margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 8px; box-sizing: border-box;">
                     <h4 style="margin-top: 0; color: #1e90ff;">UI Settings</h4>
+
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input id="enableBaklavaUI" type="checkbox" style="margin-right: 8px;">
+                            <span style="color:#ddd;">Enable Baklava UI Injection</span>
+                        </label>
+                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
+                            Injects custom UI scripts into Jellyfin. Disable to revert to standard UI.
+                            <strong>Refresh page</strong> to apply.
+                        </p>
+                    </div>
 
                     <div style="margin-bottom: 12px;">
                         <label style="display: flex; align-items: center; cursor: pointer;">
@@ -363,7 +370,8 @@
 
                     <div style="margin-bottom: 12px;">
                         <label for="versionUiSelect"
-                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Version UI</label>
+                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Version
+                            UI</label>
                         <select id="versionUiSelect"
                             style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
                             <option value="carousel">Carousel</option>
@@ -390,7 +398,8 @@
 
                     <div style="margin-bottom: 12px;">
                         <label for="subtitleUiSelect"
-                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Subtitle UI</label>
+                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Subtitle
+                            UI</label>
                         <select id="subtitleUiSelect"
                             style="width:260px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
                             <option value="carousel">Carousel</option>
@@ -399,6 +408,81 @@
                         <p style="margin: 4px 0 0 0; font-size: 12px; color: #999;">
                             Choose UI for subtitle selection.
                         </p>
+                    </div>
+                </div>
+            </div>
+
+
+
+            <!-- Create Library Confirmation Modal -->
+            <div id="createLibraryModal"
+                style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
+                <div
+                    style="background: #222; padding: 20px; border-radius: 8px; width: 450px; border: 1px solid #444; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                    <h3 style="margin-top: 0; color: #1e90ff;">Create Collection from Catalog?</h3>
+                    <p style="color: #ddd; font-size: 14px; line-height: 1.5; margin-bottom: 10px;">
+                        You are about to create a new Jellyfin Collection for: <br><strong id="createLibraryName"
+                            style="color:white; font-size:16px;"></strong>
+                    </p>
+                    <p style="color: #aaa; font-size: 13px; margin-bottom: 20px;">
+                        This will:<br>
+                        1. Create a physical folder.<br>
+                        2. Create a virtual collection in Jellyfin.<br>
+                        3. Import items from the catalog via Gelato.<br>
+                    </p>
+
+                    <label for="createLibraryInputName"
+                        style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Collection
+                        Name</label>
+                    <input id="createLibraryInputName" type="text"
+                        style="width:100%;padding:8px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;box-sizing: border-box;">
+
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                        <button id="cancelCreateLibBtn"
+                            style="padding: 8px 16px; background: #444; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+                        <button id="confirmCreateLibBtn"
+                            style="padding: 8px 16px; background: #1e90ff; color: white; border: none; border-radius: 4px; cursor: pointer;">Create
+                            Collection</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Update Preview Modal -->
+            <div id="updatePreviewModal"
+                style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
+                <div
+                    style="background: #222; padding: 20px; border-radius: 8px; width: 450px; color: white; border: 1px solid #444; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                    <h3 style="margin-top: 0; color: #2ecc71;">Collection Status</h3>
+
+                    <div style="margin: 20px 0; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 6px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span>Existing Items:</span>
+                            <span id="previewExisting" style="font-weight: bold; color: #bdc3c7;">Loading...</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span>New Items (Missing):</span>
+                            <span id="previewNew" style="font-weight: bold; color: #2ecc71;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Removed Items (Extra):</span>
+                            <span id="previewRemoved" style="font-weight: bold; color: #e74c3c;">-</span>
+                        </div>
+                        <div
+                            style="margin-top: 10px; border-top: 1px solid #444; padding-top: 8px; text-align: center; color: #888; font-size: 0.9em;">
+                            Total in Catalog: <span id="previewTotal">-</span>
+                        </div>
+                    </div>
+
+                    <div id="previewMessage" style="margin-bottom: 20px; text-align: center; font-style: italic;">
+                        Checking for updates...
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                        <button id="closePreviewBtn"
+                            style="padding: 8px 16px; border: none; background: #555; color: white; border-radius: 4px; cursor: pointer;">Close</button>
+                        <button id="confirmUpdateBtn"
+                            style="padding: 8px 16px; border: none; background: #2ecc71; color: white; border-radius: 4px; cursor: pointer; display: none;">Update
+                            Collection</button>
                     </div>
                 </div>
             </div>
@@ -441,6 +525,11 @@
                             document.getElementById('versionUiSelect').value = response?.versionUi || 'carousel';
                             document.getElementById('audioUiSelect').value = response?.audioUi || 'carousel';
                             document.getElementById('subtitleUiSelect').value = response?.subtitleUi || 'carousel';
+
+                            // UI Injection Toggle
+                            const val = response?.enableBaklavaUI ?? response?.EnableBaklavaUI;
+                            document.getElementById('enableBaklavaUI').checked = (val === undefined) ? true : val;
+
                             // Multi-debrid API keys
                             document.getElementById('realDebridApiKey').value = response?.realDebridApiKey || response?.debridApiKey || '';
                             document.getElementById('torboxApiKey').value = response?.torboxApiKey || '';
@@ -475,6 +564,13 @@
                         document.getElementById('versionUiSelect').value = json.versionUi || 'carousel';
                         document.getElementById('audioUiSelect').value = json.audioUi || 'carousel';
                         document.getElementById('subtitleUiSelect').value = json.subtitleUi || 'carousel';
+
+
+                        // UI Injection Toggle
+                        const val2 = json.enableBaklavaUI ?? json.EnableBaklavaUI;
+                        console.log('[Baklava] Loaded raw EnableBaklavaUI:', val2);
+                        document.getElementById('enableBaklavaUI').checked = (val2 === undefined) ? true : val2;
+
                         // Multi-debrid API keys
                         document.getElementById('realDebridApiKey').value = json.realDebridApiKey || json.debridApiKey || '';
                         document.getElementById('torboxApiKey').value = json.torboxApiKey || '';
@@ -529,6 +625,8 @@
                     const versionUi = document.getElementById('versionUiSelect').value || 'carousel';
                     const audioUi = document.getElementById('audioUiSelect').value || 'carousel';
                     const subtitleUi = document.getElementById('subtitleUiSelect').value || 'carousel';
+                    const enableBaklavaUI = document.getElementById('enableBaklavaUI').checked;
+                    console.log('[Baklava] Saving EnableBaklavaUI value:', enableBaklavaUI);
                     const debridService = 'realdebrid'; // Multi-service but default to realdebrid for now
                     // Multi-debrid API keys
                     const realDebridApiKey = document.getElementById('realDebridApiKey').value || '';
@@ -550,6 +648,7 @@
                         versionUi: versionUi,
                         audioUi: audioUi,
                         subtitleUi: subtitleUi,
+                        enableBaklavaUI: enableBaklavaUI,
                         debridService: debridService,
                         debridApiKey: realDebridApiKey, // Backwards compat
                         realDebridApiKey: realDebridApiKey,
@@ -917,6 +1016,33 @@
                 // --- Catalogs Management ---
                 const CATALOGS_API = 'api/baklava/catalogs';
                 let catalogsData = [];
+                let catalogFilter = 'all'; // 'all', 'imported', 'not-imported'
+
+                // Filter dropdown toggle
+                document.getElementById('catalogFilterBtn').addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    const dropdown = document.getElementById('catalogFilterDropdown');
+                    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+                });
+
+                // Close dropdown when clicking outside
+                document.addEventListener('click', function () {
+                    document.getElementById('catalogFilterDropdown').style.display = 'none';
+                });
+
+                // Filter option selection
+                document.querySelectorAll('.catalog-filter-option').forEach(btn => {
+                    btn.addEventListener('click', function (e) {
+                        e.stopPropagation();
+                        catalogFilter = this.dataset.filter;
+                        document.querySelectorAll('.catalog-filter-option').forEach(b => b.style.background = 'transparent');
+                        this.style.background = 'rgba(30,144,255,0.3)';
+                        const labels = { 'all': 'All', 'imported': 'Imported', 'not-imported': 'Not Imported' };
+                        document.getElementById('catalogFilterLabel').textContent = '(' + labels[catalogFilter] + ')';
+                        document.getElementById('catalogFilterDropdown').style.display = 'none';
+                        renderCatalogs();
+                    });
+                });
 
                 async function loadCatalogs() {
                     const loading = document.getElementById('catalogsLoading');
@@ -967,6 +1093,12 @@
                     let html = '';
                     for (let i = 0; i < catalogsData.length; i++) {
                         const cat = catalogsData[i];
+
+                        // Apply filter
+                        const isImported = !!cat.existingCollectionId;
+                        if (catalogFilter === 'imported' && !isImported) continue;
+                        if (catalogFilter === 'not-imported' && isImported) continue;
+
                         const icon = cat.type === 'series' ? '📺' : '🎬';
                         const name = escapeHtml(cat.name || cat.id || 'Unknown');
                         const type = escapeHtml(cat.type || 'unknown');
@@ -974,8 +1106,9 @@
                         const source = cat.addonName ? ' • ' + escapeHtml(cat.addonName) : '';
                         const catId = escapeHtml(cat.id || '');
                         const sourceUrl = cat.sourceUrl || '';
+                        const searchText = (name + ' ' + (cat.addonName || '')).toLowerCase();
 
-                        html += '<div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; margin-bottom: 8px; background: rgba(0,0,0,0.2); border-radius: 8px;">';
+                        html += '<div class="catalog-item" data-search="' + escapeHtml(searchText) + '" style="display: flex; align-items: center; justify-content: space-between; padding: 12px; margin-bottom: 8px; background: rgba(0,0,0,0.2); border-radius: 8px;">';
                         html += '<div style="flex: 1;">';
                         html += '<div style="font-size: 1rem; font-weight: 500; display: flex; align-items: center; gap: 8px;">';
                         html += '<span style="font-size: 1.2em;">' + icon + '</span>';
@@ -987,8 +1120,12 @@
                         html += '</div>';
                         html += '<div style="font-size: 0.85em; color: #888; margin-top: 4px;">' + count + source + '</div>';
                         html += '</div>';
+                        const existingId = cat.existingCollectionId;
+                        const btnText = existingId ? 'Update Collection' : 'Create Collection';
+                        const btnBg = existingId ? '#2ecc71' : '#1e90ff';
+
                         html += '<div style="display: flex; gap: 8px;">';
-                        html += '<button type="button" data-action="import" data-id="' + catId + '" data-type="' + type + '" data-name="' + name + '" style="padding: 6px 12px; border: none; background: #1e90ff; color: white; border-radius: 4px; cursor: pointer; font-size: 12px;">Create Collection</button>';
+                        html += '<button type="button" data-action="import" data-id="' + catId + '" data-type="' + type + '" data-name="' + name + '" data-existing="' + (existingId || '') + '" style="padding: 6px 12px; border: none; background: ' + btnBg + '; color: white; border-radius: 4px; cursor: pointer; font-size: 12px;">' + btnText + '</button>';
                         html += '</div>';
                         html += '</div>';
                     }
@@ -998,7 +1135,11 @@
 
                     list.querySelectorAll('button[data-action="import"]').forEach(function (btn) {
                         btn.addEventListener('click', function () {
-                            openCreateLibraryModal(this.dataset.id, this.dataset.type, this.dataset.name);
+                            if (this.dataset.existing) {
+                                openUpdatePreviewModal(this.dataset.id, this.dataset.type, this.dataset.name);
+                            } else {
+                                openCreateLibraryModal(this.dataset.id, this.dataset.type, this.dataset.name);
+                            }
                         });
                     });
                 }
@@ -1096,6 +1237,100 @@
                     }
                 }
 
+                // --- Update Preview Modal Logic ---
+                const updatePreviewModal = document.getElementById('updatePreviewModal');
+                const closePreviewBtn = document.getElementById('closePreviewBtn');
+                const confirmUpdateBtn = document.getElementById('confirmUpdateBtn');
+                const previewExisting = document.getElementById('previewExisting');
+                const previewNew = document.getElementById('previewNew');
+                const previewRemoved = document.getElementById('previewRemoved');
+                const previewTotal = document.getElementById('previewTotal');
+                const previewMessage = document.getElementById('previewMessage');
+
+                let previewCatalogId, previewType, previewName;
+
+                closePreviewBtn.onclick = () => { updatePreviewModal.style.display = 'none'; };
+
+                async function openUpdatePreviewModal(catId, catType, catName) {
+                    previewCatalogId = catId;
+                    previewType = catType;
+                    previewName = catName;
+
+                    // Reset UI
+                    updatePreviewModal.style.display = 'flex';
+                    confirmUpdateBtn.style.display = 'none';
+                    previewExisting.textContent = 'Loading...';
+                    previewNew.textContent = '-';
+                    previewRemoved.textContent = '-';
+                    previewTotal.textContent = '-';
+                    previewMessage.textContent = 'Comparing catalog with collection...';
+                    previewMessage.style.color = '#bdc3c7';
+
+                    try {
+                        const maxItems = parseInt(document.getElementById('catalogsMaxItems')?.value) || 100;
+                        const url = (window.ApiClient && window.ApiClient.getUrl)
+                            ? window.ApiClient.getUrl(CATALOGS_API + '/' + encodeURIComponent(catId) + '/preview-update') + '?type=' + catType
+                            : (window.location.origin + '/' + CATALOGS_API + '/' + encodeURIComponent(catId) + '/preview-update?type=' + catType);
+
+                        const payload = JSON.stringify({ maxItems: maxItems });
+
+                        let response;
+                        if (window.ApiClient && window.ApiClient.ajax) {
+                            response = await window.ApiClient.ajax({
+                                type: 'POST',
+                                url: url,
+                                data: payload,
+                                contentType: 'application/json'
+                            });
+                            if (response && response.constructor && response.constructor.name === 'Response') {
+                                response = await response.json();
+                            }
+                        } else {
+                            const res = await fetch(url, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: payload,
+                                credentials: 'same-origin'
+                            });
+                            response = await res.json();
+                        }
+
+                        // Update Stats
+                        previewExisting.textContent = response.existingItems;
+                        previewNew.textContent = response.newItems;
+                        previewRemoved.textContent = response.removedItems;
+                        previewTotal.textContent = response.totalCatalogItems;
+
+                        if (response.newItems > 0 || response.removedItems > 0) {
+                            previewMessage.textContent = `Updates available: ${response.newItems} new items found.`;
+                            previewMessage.style.color = '#2ecc71';
+                            confirmUpdateBtn.style.display = 'block';
+                            confirmUpdateBtn.textContent = 'Update Collection';
+                            confirmUpdateBtn.disabled = false;
+                        } else {
+                            previewMessage.textContent = 'Collection is up to date!';
+                            previewMessage.style.color = '#3498db';
+                        }
+
+                    } catch (e) {
+                        previewMessage.textContent = 'Error checking for updates: ' + e.message;
+                        previewMessage.style.color = '#e74c3c';
+                    }
+                }
+
+                confirmUpdateBtn.onclick = async () => {
+                    confirmUpdateBtn.textContent = 'Updating...';
+                    confirmUpdateBtn.disabled = true;
+                    try {
+                        // Reuse importCatalog which does add-only logic for now
+                        await importCatalog(previewCatalogId, previewType, previewName, null);
+                        updatePreviewModal.style.display = 'none';
+                    } catch (e) {
+                        Dashboard.alert({ message: 'Error: ' + e.message, title: 'Error' });
+                        confirmUpdateBtn.disabled = false;
+                    }
+                };
+
                 document.getElementById('catalogsRefreshBtn').addEventListener('click', loadCatalogs);
 
                 // Load saved max items from localStorage
@@ -1106,9 +1341,23 @@
                 }
 
                 // Save max items to localStorage on change
+                // Save max items to localStorage on change
                 if (maxItemsInput) {
                     maxItemsInput.addEventListener('change', function () {
                         localStorage.setItem('baklava_catalog_max_items', this.value);
+                    });
+                }
+
+                // Search Filter Logic
+                const searchInput = document.getElementById('catalogSearchInput');
+                if (searchInput) {
+                    searchInput.addEventListener('input', function (e) {
+                        const term = e.target.value.toLowerCase();
+                        const rows = document.querySelectorAll('.catalog-item');
+                        rows.forEach(function (row) {
+                            const searchVal = row.getAttribute('data-search') || '';
+                            row.style.display = searchVal.indexOf(term) > -1 ? 'flex' : 'none';
+                        });
                     });
                 }
 
