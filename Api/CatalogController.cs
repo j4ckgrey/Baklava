@@ -119,6 +119,31 @@ namespace Baklava.Api
                     })
                     .ToList();
 
+                // Check for existing collections
+                foreach (var cat in catalogs)
+                {
+                    try
+                    {
+                        var providerId = $"Stremio.{cat.Id}";
+                        var existing = _libraryManager.GetItemList(new InternalItemsQuery
+                        {
+                            IncludeItemTypes = new[] { BaseItemKind.BoxSet },
+                            Recursive = true,
+                            HasAnyProviderId = new Dictionary<string, string> { { "Stremio", providerId } },
+                            Limit = 1
+                        }).FirstOrDefault();
+
+                        if (existing != null)
+                        {
+                            cat.ExistingCollectionId = existing.Id.ToString();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning("Failed to check existing collection for {Id}: {Msg}", cat.Id, ex.Message);
+                    }
+                }
+
                 _logger.LogInformation("[CatalogController] Found {Count} catalogs", catalogs.Count);
 
                 // Note: Skipping item count fetching as it times out with many catalogs
@@ -134,8 +159,118 @@ namespace Baklava.Api
         }
 
         /// <summary>
-        /// Get item count for a specific catalog
+        /// Preview changes for a catalog update
         /// </summary>
+        [HttpPost("{catalogId}/preview-update")]
+        public async Task<ActionResult<PreviewUpdateResponse>> PreviewUpdate(
+            string catalogId,
+            [FromQuery] string type = "movie",
+            [FromBody] CreateLibraryRequest request = null)
+        {
+            var cfg = Plugin.Instance?.Configuration;
+            if (cfg == null) return BadRequest("Plugin configuration not available");
+
+            var maxItems = request?.MaxItems ?? cfg.CatalogMaxItems;
+            
+            // 1. Get existing collection
+            var providerId = $"Stremio.{catalogId}";
+            var collection = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = new[] { BaseItemKind.BoxSet },
+                Recursive = true,
+                HasAnyProviderId = new Dictionary<string, string> { { "Stremio", providerId } },
+                Limit = 1
+            }).FirstOrDefault() as MediaBrowser.Controller.Entities.Movies.BoxSet;
+
+            if (collection == null)
+            {
+                return NotFound("Collection not found. Please create it first.");
+            }
+
+            // 2. Fetch Catalog Items
+            var aiostreamsBaseUrl = GetGelatoAiostreamsBaseUrl();
+            if (string.IsNullOrEmpty(aiostreamsBaseUrl)) return BadRequest("Gelato aiostreams URL not configured");
+
+            using var http = CreateHttpClient(cfg);
+            var stremioType = (type.Equals("series", StringComparison.OrdinalIgnoreCase) || 
+                               type.Equals("tvshows", StringComparison.OrdinalIgnoreCase) || 
+                               type.Equals("tv", StringComparison.OrdinalIgnoreCase)) 
+                               ? "series" : "movie";
+
+            List<StremioMetaDto> catalogItems;
+            try
+            {
+                catalogItems = await FetchCatalogItemsAsync(http, aiostreamsBaseUrl, stremioType, catalogId, maxItems).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to fetch catalog items for preview");
+                return StatusCode(500, "Failed to fetch catalog items: " + ex.Message);
+            }
+
+            // 3. Compare
+            // Get existing IMDB IDs
+            var linkedIds = collection.LinkedChildren
+                .Where(lc => lc.ItemId.HasValue)
+                .Select(lc => lc.ItemId.Value)
+                .ToArray();
+                
+            var existingImdbIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (linkedIds.Length > 0)
+            {
+                var existingItems = _libraryManager.GetItemList(new InternalItemsQuery
+                {
+                    ItemIds = linkedIds
+                });
+                
+                foreach(var i in existingItems)
+                {
+                    if (i.ProviderIds.TryGetValue("Imdb", out var id) && !string.IsNullOrEmpty(id))
+                    {
+                        existingImdbIds.Add(id);
+                    }
+                }
+            }
+
+            var catalogImdbIds = catalogItems
+                .Select(GetImdbId)
+                .Where(id => !string.IsNullOrEmpty(id))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var missingCount = 0; // In catalog, not in collection
+            foreach (var item in catalogItems)
+            {
+                var id = GetImdbId(item);
+                if (!string.IsNullOrEmpty(id) && !existingImdbIds.Contains(id))
+                {
+                    missingCount++;
+                }
+            }
+
+            var totalCount = catalogItems.Count;
+            var existingCount = catalogItems.Count - missingCount;
+            
+            // Items in collection but NOT in catalog (Removed/Extra)
+            var removedCount = 0;
+            foreach(var existingId in existingImdbIds)
+            {
+                if (!catalogImdbIds.Contains(existingId))
+                {
+                    removedCount++;
+                }
+            }
+
+            return Ok(new PreviewUpdateResponse
+            {
+                TotalCatalogItems = totalCount,
+                ExistingItems = existingCount,
+                NewItems = missingCount,
+                RemovedItems = removedCount,
+                CollectionName = collection.Name
+            });
+        }
+
+
         [HttpGet("{catalogId}/count")]
         public async Task<ActionResult<int>> GetCatalogCount(string catalogId, [FromQuery] string type = "movie")
         {
@@ -272,14 +407,10 @@ namespace Baklava.Api
                         }
                         else
                         {
-                            _logger.LogInformation("[CatalogController] Using existing collection: {Id}", collection.Id);
-                            // Clear existing items
-                            var existing = collection.LinkedChildren.Where(lc => lc.ItemId.HasValue).Select(lc => lc.ItemId.Value).ToList();
-                            if (existing.Count > 0)
-                            {
-                                _logger.LogInformation("[CatalogController] Removing {Count} existing items", existing.Count);
-                                await collectionManager.RemoveFromCollectionAsync(collection.Id, existing).ConfigureAwait(false);
-                            }
+                            _logger.LogInformation("[CatalogController] Using existing collection: {Id}. Syncing items (additive)...", collection.Id);
+                            // DO NOT CLEAR ITEMS - We want to Additive Sync
+                            // Check what is already in the collection to skip
+                            // var existing = ... (Removed)
                         }
 
                         if (collection == null)
@@ -287,6 +418,32 @@ namespace Baklava.Api
                             _logger.LogError("[CatalogController] Failed to create collection!");
                             return;
                         }
+
+                        // PRE-FETCH: Get existing IMDB IDs in the collection to skip processing
+                        var linkedIds = collection.LinkedChildren
+                            .Where(lc => lc.ItemId.HasValue)
+                            .Select(lc => lc.ItemId.Value)
+                            .ToArray();
+                            
+                        var existingImdbIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        
+                        if (linkedIds.Length > 0)
+                        {
+                            var existingItems = libraryManager.GetItemList(new InternalItemsQuery
+                            {
+                                ItemIds = linkedIds
+                            });
+                            
+                            foreach(var i in existingItems)
+                            {
+                                if (i.ProviderIds.TryGetValue("Imdb", out var id) && !string.IsNullOrEmpty(id))
+                                {
+                                    existingImdbIds.Add(id);
+                                }
+                            }
+                        }
+
+                        _logger.LogInformation("[CatalogController] Collection has {Count} existing items ({ImdbCount} with IMDB). Examining catalog...", linkedIds.Length, existingImdbIds.Count);
 
                         // STEP 2: Import each item and add to collection ONE BY ONE
                         foreach (var item in items.Take(maxItems))
@@ -300,41 +457,62 @@ namespace Baklava.Api
                                     continue;
                                 }
 
-                                var mediaType = (type.Equals("series", StringComparison.OrdinalIgnoreCase) || type.Equals("tvshows", StringComparison.OrdinalIgnoreCase)) ? "tv" : "movie";
-                                
-                                // Import via Gelato
-                                var importedIdStr = await ImportItemViaReflection(imdbId, mediaType, scopedProvider).ConfigureAwait(false);
-                                
-                                if (string.IsNullOrEmpty(importedIdStr))
+                                // CHECK 1: Is it already in the collection?
+                                if (existingImdbIds.Contains(imdbId))
                                 {
-                                    _logger.LogWarning("[CatalogController] Import failed for {ImdbId}", imdbId);
-                                    failedCount++;
+                                    // Already exists, skip
+                                    // _logger.LogDebug("[CatalogController] Msg: Item {ImdbId} already in collection, skipping.", imdbId);
                                     continue;
                                 }
 
-                                // Look up by IMDB to get library item
+                                var mediaType = (type.Equals("series", StringComparison.OrdinalIgnoreCase) || type.Equals("tvshows", StringComparison.OrdinalIgnoreCase)) ? "tv" : "movie";
+                                
+                                // CHECK 2: Is it already in the LIBRARY (but not in collection)?
                                 var libraryItem = libraryManager.GetItemList(new InternalItemsQuery
                                 {
                                     HasAnyProviderId = new Dictionary<string, string> { { "Imdb", imdbId } },
                                     Recursive = true,
-                                    Limit = 1
+                                    Limit = 1,
+                                    IncludeItemTypes = new[] { mediaType.Equals("tv") ? BaseItemKind.Series : BaseItemKind.Movie }
                                 }).FirstOrDefault();
+
+                                // If not in library, Import it
+                                if (libraryItem == null)
+                                {
+                                    // Import via Gelato
+                                    var importedIdStr = await ImportItemViaReflection(imdbId, mediaType, scopedProvider).ConfigureAwait(false);
+                                    
+                                    if (string.IsNullOrEmpty(importedIdStr))
+                                    {
+                                        _logger.LogWarning("[CatalogController] Import failed for {ImdbId}", imdbId);
+                                        failedCount++;
+                                        continue;
+                                    }
+                                    
+                                    // Fetch it again
+                                    libraryItem = libraryManager.GetItemList(new InternalItemsQuery
+                                    {
+                                        HasAnyProviderId = new Dictionary<string, string> { { "Imdb", imdbId } },
+                                        Recursive = true,
+                                        Limit = 1
+                                    }).FirstOrDefault();
+                                }
 
                                 if (libraryItem == null)
                                 {
-                                    _logger.LogWarning("[CatalogController] Could not find item by IMDB {ImdbId}", imdbId);
+                                    _logger.LogWarning("[CatalogController] Could not find item by IMDB {ImdbId} even after import or lookup", imdbId);
                                     failedCount++;
                                     continue;
                                 }
 
-                                // Add to collection using Jellyfin's AddToCollectionAsync (same as UI right-click)
+                                // Add to collection
                                 _logger.LogInformation("[CatalogController] Adding '{Name}' to collection", libraryItem.Name);
                                 await collectionManager.AddToCollectionAsync(collection.Id, new[] { libraryItem.Id }).ConfigureAwait(false);
                                 
                                 successCount++;
                                 
                                 // Longer delay to let Jellyfin release file lock
-                                await Task.Delay(1000).ConfigureAwait(false);
+                                await Task.Delay(500).ConfigureAwait(false);
                             }
                             catch (Exception ex)
                             {
@@ -366,6 +544,11 @@ namespace Baklava.Api
             }
         }
 
+        /// <summary>
+        /// Preview changes for a catalog update
+        /// </summary>
+
+
         private async Task<string> ImportItemViaReflection(string imdbId, string type, IServiceProvider serviceProvider)
         {
             try
@@ -383,17 +566,32 @@ namespace Baklava.Api
                 var managerType = gelatoAssembly.GetType("Gelato.GelatoManager");
                 var pluginType = gelatoAssembly.GetType("Gelato.GelatoPlugin");
                 var metaTypeEnum = gelatoAssembly.GetType("Gelato.StremioMediaType");
-                if (metaTypeEnum == null)
+
+                if (managerType == null || pluginType == null || metaTypeEnum == null)
                 {
-                    _logger.LogError("StremioMediaType enum not found in Gelato assembly");
+                    _logger.LogError("Required Gelato types not found. Manager: {M}, Plugin: {P}, Enum: {E}", 
+                        managerType != null, pluginType != null, metaTypeEnum != null);
                     return null;
                 }
-                
+
                 // 2. Get Manager Instance
+                // Strategy A: Try DI (Preferred)
                 var manager = serviceProvider.GetService(managerType);
+                
+                // Strategy B: Fallback to Static Instance (More robust for cross-plugin)
                 if (manager == null)
                 {
-                    _logger.LogError("GelatoManager service not found");
+                    var gelatoPlugin = pluginType.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)?.GetValue(null);
+                    if (gelatoPlugin != null)
+                    {
+                        var managerField = pluginType.GetField("_manager", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                        manager = managerField?.GetValue(gelatoPlugin);
+                    }
+                }
+
+                if (manager == null)
+                {
+                    _logger.LogError("GelatoManager service not found in DI or Plugin Instance.");
                     return null;
                 }
 
@@ -743,6 +941,9 @@ namespace Baklava.Api
 
         [JsonPropertyName("sourceUrl")]
         public string SourceUrl { get; set; }
+
+        [JsonPropertyName("existingCollectionId")]
+        public string ExistingCollectionId { get; set; }
     }
 
     public class CreateCollectionRequest
@@ -815,6 +1016,24 @@ namespace Baklava.Api
 
         [JsonPropertyName("message")]
         public string Message { get; set; }
+    }
+
+    public class PreviewUpdateResponse
+    {
+        [JsonPropertyName("totalCatalogItems")]
+        public int TotalCatalogItems { get; set; }
+
+        [JsonPropertyName("existingItems")]
+        public int ExistingItems { get; set; }
+
+        [JsonPropertyName("newItems")]
+        public int NewItems { get; set; }
+
+        [JsonPropertyName("removedItems")]
+        public int RemovedItems { get; set; }
+
+        [JsonPropertyName("collectionName")]
+        public string CollectionName { get; set; }
     }
 
     // Stremio manifest DTOs (simplified versions matching Gelato)
