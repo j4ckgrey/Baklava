@@ -17,22 +17,6 @@ namespace Baklava
         // TMDB API key for metadata lookups
         public string TmdbApiKey { get; set; } = string.Empty;
 
-        // Debrid Configuration
-        public string DebridService { get; set; } = "realdebrid";
-        public string DebridApiKey { get; set; } = string.Empty;  // RealDebrid API Key (legacy, kept for compatibility)
-        
-        // Multi-Debrid API Keys
-        public string RealDebridApiKey { get; set; } = string.Empty;
-        public string TorBoxApiKey { get; set; } = string.Empty;
-        public string AllDebridApiKey { get; set; } = string.Empty;
-        public string PremiumizeApiKey { get; set; } = string.Empty;
-
-        // Advanced Debrid Metadata Settings
-        public bool EnableDebridMetadata { get; set; } = true;
-        public bool EnableFallbackProbe { get; set; } = false;
-        public bool FetchCachedMetadataPerVersion { get; set; } = false;
-        public bool FetchAllNonCachedMetadata { get; set; } = false;
-
         // External Subtitles
         public bool EnableExternalSubtitles { get; set; } = false;
 
@@ -69,15 +53,6 @@ namespace Baklava
         public string VersionUi { get; set; } = "carousel";
         public string AudioUi { get; set; } = "carousel";
         public string SubtitleUi { get; set; } = "carousel";
-
-        // Probe configuration (Smart Retry Strategy)
-        // Standard probe (fast): 5MB / 5s
-        public int ProbeSize { get; set; } = 5000000;
-        public int AnalyzeDuration { get; set; } = 5000000;
-
-        // Deep probe (retry on failure): 50MB / 10s
-        public int MaxProbeSize { get; set; } = 50000000;
-        public int MaxAnalyzeDuration { get; set; } = 10000000;
 
         // Catalog Management Settings
         // Maximum items to import per catalog

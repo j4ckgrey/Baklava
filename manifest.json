@@ -9,6 +9,15 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.png",
     "versions": [
       {
+        "version": "0.6.8.0",
+        "changelog": "Removed all stream probing and caching logic. Leaner plugin focused on metadata and catalogs.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.6.8.0/baklava_0.6.8.0.zip",
+        "checksum": "e522888ebc2839f147fb7b7a3d8beaff",
+        "checksumType": "md5",
+        "timestamp": "2025-12-28T22:00:00Z"
+      },
+      {
         "version": "0.6.7.0",
         "changelog": "Fixed play button on cards bypassing modal for items not in library",
         "targetAbi": "10.11.0.0",

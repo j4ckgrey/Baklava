@@ -12,6 +12,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -30,6 +31,7 @@ namespace Baklava.Tasks
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly MediaBrowser.Controller.Configuration.IServerConfigurationManager _configManager;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
         public CatalogSyncTask(
             ILogger<CatalogSyncTask> logger,
@@ -37,7 +39,8 @@ namespace Baklava.Tasks
             ICollectionManager collectionManager,
             IHttpClientFactory httpClientFactory,
             IServiceScopeFactory scopeFactory,
-            MediaBrowser.Controller.Configuration.IServerConfigurationManager configManager)
+            MediaBrowser.Controller.Configuration.IServerConfigurationManager configManager,
+            IHttpContextAccessor httpContextAccessor)
         {
             _logger = logger;
             _libraryManager = libraryManager;
@@ -45,6 +48,7 @@ namespace Baklava.Tasks
             _httpClientFactory = httpClientFactory;
             _scopeFactory = scopeFactory;
             _configManager = configManager;
+            _httpContextAccessor = httpContextAccessor;
         }
 
         public string Name => "Sync Stremio Catalogs";
@@ -67,6 +71,9 @@ namespace Baklava.Tasks
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
             _logger.LogInformation("[Baklava] CatalogSyncTask starting...");
+            
+            // CRITICAL: Clear HttpContext to avoid ObjectDisposedException
+            if (_httpContextAccessor != null) _httpContextAccessor.HttpContext = null;
 
             // Find all BoxSets with Stremio provider ID
             var collections = _libraryManager.GetItemList(new InternalItemsQuery
@@ -114,21 +121,19 @@ namespace Baklava.Tasks
                     string catalogId = idPart;
                     string? specificType = null;
 
-                    // Check for new format: catalogId.type
-                    var lastDotIndex = idPart.LastIndexOf('.');
-                    if (lastDotIndex > 0)
+                    // Parse Stremio.{catalogId}.{type}
+                    var parts = idPart.Split('.');
+                    if (parts.Length >= 2)
                     {
-                        var potentialType = idPart.Substring(lastDotIndex + 1);
+                        var potentialType = parts.Last();
                         if (potentialType == "movie" || potentialType == "series")
                         {
-                            catalogId = idPart.Substring(0, lastDotIndex);
                             specificType = potentialType;
+                            catalogId = string.Join(".", parts.Take(parts.Length - 1));
                         }
                     }
 
                     // Determine type to try
-                    // If specific type is encoded in ID, use ONLY that. 
-                    // Otherwise rely on heuristic or try both.
                     var type = specificType ?? (catalogId.Contains("series") ? "series" : "movie");
 
                     _logger.LogInformation("[Baklava] Syncing collection '{Name}' (CatalogId: {CatalogId}, SpecificType: {SpecificType})",
@@ -389,34 +394,28 @@ namespace Baklava.Tasks
                     return null;
                 }
 
-                // Get Configuration to fetch Meta
-                var pluginInstance = pluginType.GetProperty("Instance")?.GetValue(null);
-                if (pluginInstance == null) return null;
-                
-                var config = pluginInstance.GetType().GetMethod("GetConfig")?.Invoke(pluginInstance, new object[] { Guid.Empty });
-                if (config == null) return null;
-                
-                var stremioProvider = config.GetType().GetField("stremio")?.GetValue(config);
-                if (stremioProvider == null) return null;
-
-                // Fetch Meta
-                var metaTypeVal = Enum.Parse(metaTypeEnum, type.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "Series" : "Movie", true);
-                var getMetaMethod = stremioProvider.GetType().GetMethod("GetMetaAsync", new Type[] { typeof(string), metaTypeEnum });
-                
-                if (getMetaMethod == null)
+                // 1. Create stub StremioMeta object via reflection - Gelato will fill it "naturally"
+                var stremioMetaType = gelatoAssembly.GetType("Gelato.StremioMeta");
+                if (stremioMetaType == null)
                 {
-                    _logger.LogError("[Baklava] GetMetaAsync method not found");
+                    _logger.LogError("[Baklava] StremioMeta type not found in Gelato assembly");
                     return null;
                 }
-
-                var metaTask = (Task)getMetaMethod.Invoke(stremioProvider, new object[] { imdbId, metaTypeVal })!;
-                await metaTask.ConfigureAwait(false);
                 
-                var metaResult = metaTask.GetType().GetProperty("Result")?.GetValue(metaTask);
-                if (metaResult == null)
+                var metaResult = Activator.CreateInstance(stremioMetaType);
+                
+                // Set ID and ImdbId
+                stremioMetaType.GetProperty("Id")?.SetValue(metaResult, imdbId);
+                stremioMetaType.GetProperty("ImdbId")?.SetValue(metaResult, imdbId);
+                
+                // Set Type
+                var metaTypeVal = Enum.Parse(metaTypeEnum, type.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "Series" : "Movie", true);
+                stremioMetaType.GetProperty("Type")?.SetValue(metaResult, metaTypeVal);
+                
+                // Clear Videos for series to ensure Gelato fetches them
+                if (type.Equals("tv", StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogWarning("[Baklava] Meta not found for {ImdbId}", imdbId);
-                    return null;
+                    stremioMetaType.GetProperty("Videos")?.SetValue(metaResult, null);
                 }
 
                 // Determine Parent Folder

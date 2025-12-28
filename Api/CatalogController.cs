@@ -14,6 +14,7 @@ using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Querying; // Added
 using Jellyfin.Data.Enums;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,6 +34,7 @@ namespace Baklava.Api
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILibraryManager _libraryManager; // Added
         private readonly ICollectionManager _collectionManager; // Added
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
         // Global import queue - ensures only one catalog import runs at a time
         private static readonly System.Threading.SemaphoreSlim _importQueue = new(1, 1);
@@ -53,7 +55,8 @@ namespace Baklava.Api
             IServerConfigurationManager configurationManager,
             IServiceScopeFactory scopeFactory,
             ILibraryManager libraryManager,
-            ICollectionManager collectionManager) // Added
+            ICollectionManager collectionManager,
+            IHttpContextAccessor httpContextAccessor) // Added
         {
             _logger = logger;
             _httpClientFactory = httpClientFactory;
@@ -62,6 +65,7 @@ namespace Baklava.Api
             _scopeFactory = scopeFactory;
             _libraryManager = libraryManager;
             _collectionManager = collectionManager; // Added
+            _httpContextAccessor = httpContextAccessor;
         }
 
         /// <summary>
@@ -130,7 +134,7 @@ namespace Baklava.Api
                 {
                     try
                     {
-                        var providerId = $"Stremio.{cat.Id}";
+                        var providerId = $"Stremio.{cat.Id}.{cat.Type}";
                         var existing = _libraryManager.GetItemList(new InternalItemsQuery
                         {
                             IncludeItemTypes = new[] { BaseItemKind.BoxSet },
@@ -203,7 +207,7 @@ namespace Baklava.Api
             var maxItems = request?.MaxItems ?? cfg.CatalogMaxItems;
             
             // 1. Get existing collection
-            var providerId = $"Stremio.{catalogId}";
+            var providerId = $"Stremio.{catalogId}.{type}";
             var collection = _libraryManager.GetItemList(new InternalItemsQuery
             {
                 IncludeItemTypes = new[] { BaseItemKind.BoxSet },
@@ -430,6 +434,9 @@ namespace Baklava.Api
                 
                 _ = Task.Run(async () => 
                 {
+                    // CRITICAL: Clear HttpContext to avoid ObjectDisposedException in background thread
+                    if (_httpContextAccessor != null) _httpContextAccessor.HttpContext = null;
+                    
                     // Initialize progress tracking
                     var progress = new ImportProgress { CatalogId = catalogId, CatalogName = collectionName, Status = "queued", Total = items.Count, Processed = 0 };
                     _importProgress[catalogId] = progress;
@@ -455,8 +462,8 @@ namespace Baklava.Api
                         try
                         {
                         // STEP 1: Create or find collection FIRST
-                        // Format: Stremio.{CatalogId} (merged) OR Stremio.{CatalogId}.{Type} (separate)
-                        var providerId = separate ? $"Stremio.{catalogId}.{stremioType}" : $"Stremio.{catalogId}";
+                        // Format: Stremio.{CatalogId}.{Type}
+                        var providerId = $"Stremio.{catalogId}.{stremioType}";
                         
                         var query = new InternalItemsQuery
                         {
@@ -891,28 +898,7 @@ namespace Baklava.Api
                     return null;
                 }
 
-                // 1. Fetch Meta directly using our own HttpClient (not Gelato's which causes ObjectDisposedException)
-                var stremioType = type.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "series" : "movie";
-                var metaUrl = $"{aiostreamsBaseUrl}/meta/{stremioType}/{imdbId}.json";
-                
-                string metaJson;
-                try
-                {
-                    metaJson = await httpClient.GetStringAsync(metaUrl).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning("[CatalogController] Failed to fetch meta for {ImdbId} from {Url}: {Error}", imdbId, metaUrl, ex.Message);
-                    return null;
-                }
-                
-                if (string.IsNullOrEmpty(metaJson))
-                {
-                    _logger.LogWarning("[CatalogController] Empty meta response for {ImdbId}", imdbId);
-                    return null;
-                }
-                
-                // 2. Parse the meta JSON into Gelato's StremioMeta type using reflection
+                // 1. Create stub StremioMeta object via reflection - Gelato will fill it "naturally" if we allow refresh
                 var gelatoAssembly = managerType.Assembly;
                 var stremioMetaType = gelatoAssembly.GetType("Gelato.StremioMeta");
                 if (stremioMetaType == null)
@@ -921,30 +907,20 @@ namespace Baklava.Api
                     return null;
                 }
                 
-                // Parse the JSON - Stremio returns { "meta": { ... } }
-                var jsonDoc = System.Text.Json.JsonDocument.Parse(metaJson);
-                if (!jsonDoc.RootElement.TryGetProperty("meta", out var metaElement))
-                {
-                    _logger.LogWarning("[CatalogController] No 'meta' property in response for {ImdbId}", imdbId);
-                    return null;
-                }
+                var metaResult = Activator.CreateInstance(stremioMetaType);
                 
-                // Deserialize to Gelato.StremioMeta
-                object metaResult;
-                try
-                {
-                    metaResult = System.Text.Json.JsonSerializer.Deserialize(metaElement.GetRawText(), stremioMetaType, JsonOptions);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning("[CatalogController] Failed to deserialize meta for {ImdbId}: {Error}", imdbId, ex.Message);
-                    return null;
-                }
+                // Set ID and ImdbId
+                stremioMetaType.GetProperty("Id")?.SetValue(metaResult, imdbId);
+                stremioMetaType.GetProperty("ImdbId")?.SetValue(metaResult, imdbId);
                 
-                if (metaResult == null)
+                // Set Type
+                var metaTypeVal = Enum.Parse(metaTypeEnum, type.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "Series" : "Movie", true);
+                stremioMetaType.GetProperty("Type")?.SetValue(metaResult, metaTypeVal);
+                
+                // Clear Videos for series to ensure Gelato fetches them
+                if (type.Equals("tv", StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogWarning("[CatalogController] Meta not found for {ImdbId} - item may not exist in metadata source", imdbId);
-                    return null;
+                    stremioMetaType.GetProperty("Videos")?.SetValue(metaResult, null);
                 }
 
                 // 3. Determine Parent Folder using scoped ILibraryManager (NOT GelatoManager.TryGetFolder which uses disposed services)

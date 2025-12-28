@@ -1317,5 +1317,32 @@
     window.addEventListener('popstate', hideModal);
     document.addEventListener('visibilitychange', () => { if (document.hidden) hideModal(); });
 
+    // Intercept play button clicks on cards to show modal if not in library
+    document.addEventListener('click', async (ev) => {
+        const playBtn = ev.target.closest('button.cardOverlayButton');
+        if (!playBtn) return;
+
+        const card = playBtn.closest('.card');
+        if (!card) return;
+
+        const itemId = card.dataset.id || card.getAttribute('data-item-id');
+        if (!itemId) return;
+
+        // Check if in library
+        try {
+            const inLibrary = await window.LibraryStatus.check(null, null, null, itemId);
+            if (!inLibrary) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                // Show modal
+                const modal = getModal();
+                populateFromCard(card, itemId, modal);
+                showModal(modal);
+            }
+        } catch (e) {
+            console.error('[DetailsModal] Error checking library status:', e);
+        }
+    }, true);
+
     console.log('[DetailsModal] Standalone version loaded');
 })();
