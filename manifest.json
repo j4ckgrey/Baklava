@@ -9,6 +9,15 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.png",
     "versions": [
       {
+        "version": "0.6.6.0",
+        "changelog": "group multiple catalogs in 1 collection folder",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.6.6.0/baklava_0.6.6.0.zip",
+        "checksum": "02590f8744efffb13df9f157843c7b8c",
+        "checksumType": "md5",
+        "timestamp": "2025-12-28T19:00:00Z"
+      },
+      {
         "version": "0.6.5.0",
         "changelog": "hotfix",
         "targetAbi": "10.11.0.0",
