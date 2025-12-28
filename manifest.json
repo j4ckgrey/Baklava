@@ -9,13 +9,13 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.png",
     "versions": [
       {
-        "version": "0.6.2.0",
-        "changelog": "Hotfix: Fixed catalog import failures. Added global import queue for serialized processing, fixed ObjectDisposedException in background tasks, retry logic for file locking, and improved diagnostics.",
+        "version": "0.6.3.0",
+        "changelog": "Fixed import catalog bug: improved custom naming, non-blocking modal, restored full catalog counting, and fixed existing item count display.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.6.2.0/baklava_0.6.2.0.zip",
-        "checksum": "ffe30e0d76671c93bdaf9af4310da339",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.6.3.0/baklava_0.6.3.0.zip",
+        "checksum": "c61ed412ae4f57d60d38799ad28b032c",
         "checksumType": "md5",
-        "timestamp": "2025-12-27T19:15:00Z"
+        "timestamp": "2025-12-28T01:53:00Z"
       },
       {
         "version": "0.6.1.0",
