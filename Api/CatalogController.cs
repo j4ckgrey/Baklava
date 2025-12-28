@@ -37,8 +37,8 @@ namespace Baklava.Api
         // Global import queue - ensures only one catalog import runs at a time
         private static readonly System.Threading.SemaphoreSlim _importQueue = new(1, 1);
         
-        // Delay between items in seconds (configurable)
-        private const int IMPORT_ITEM_DELAY_MS = 2000;
+        // Track import progress per catalog (catalogId -> progress info)
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ImportProgress> _importProgress = new();
 
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
@@ -142,6 +142,17 @@ namespace Baklava.Api
                         if (existing != null)
                         {
                             cat.ExistingCollectionId = existing.Id.ToString();
+                            cat.CollectionName = existing.Name;
+                            
+                            // Get item count from collection's linked children
+                            var boxSet = existing as MediaBrowser.Controller.Entities.Movies.BoxSet;
+                            cat.ExistingItemCount = boxSet?.LinkedChildren?.Count(lc => lc.ItemId.HasValue) ?? 0;
+                            
+                            // Read stored catalog total from ProviderIds
+                            if (existing.ProviderIds.TryGetValue("Stremio.CatalogTotal", out var totalStr) && int.TryParse(totalStr, out var total))
+                            {
+                                cat.ItemCount = total;
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -162,6 +173,19 @@ namespace Baklava.Api
                 _logger.LogError(ex, "[CatalogController] Error fetching catalogs");
                 return StatusCode(500, $"Error fetching catalogs: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Get import progress for a catalog
+        /// </summary>
+        [HttpGet("{catalogId}/progress")]
+        public ActionResult<ImportProgress> GetImportProgress(string catalogId)
+        {
+            if (_importProgress.TryGetValue(catalogId, out var progress))
+            {
+                return Ok(progress);
+            }
+            return Ok(new ImportProgress { CatalogId = catalogId, Status = "idle", Total = 0, Processed = 0 });
         }
 
         /// <summary>
@@ -206,7 +230,7 @@ namespace Baklava.Api
             List<StremioMetaDto> catalogItems;
             try
             {
-                catalogItems = await FetchCatalogItemsAsync(http, aiostreamsBaseUrl, stremioType, catalogId, maxItems).ConfigureAwait(false);
+                (catalogItems, _) = await FetchCatalogItemsAsync(http, aiostreamsBaseUrl, stremioType, catalogId, maxItems).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -310,8 +334,11 @@ namespace Baklava.Api
         public async Task<ActionResult<CreateLibraryResponse>> CreateLibraryFromCatalog(
             string catalogId,
             [FromQuery] string type = "movie",
+            [FromQuery] bool separate = false,
             [FromBody] CreateLibraryRequest request = null)
         {
+            _logger.LogInformation("[CatalogController] Request received - LibraryName: '{LibName}', MaxItems: {Max}, Separate: {Separate}", 
+                request?.LibraryName ?? "(null)", request?.MaxItems ?? -1, separate);
             var collectionName = request?.LibraryName ?? catalogId;
             _logger.LogInformation("[CatalogController] Creating collection '{Name}' from catalog {CatalogId}", collectionName, catalogId);
 
@@ -339,7 +366,7 @@ namespace Baklava.Api
                                    ? "series" : "movie";
 
                 // 1. Fetch Items from Catalog
-                var items = await FetchCatalogItemsAsync(http, aiostreamsBaseUrl, stremioType, catalogId, maxItems).ConfigureAwait(false);
+                var (items, catalogTotalCount) = await FetchCatalogItemsAsync(http, aiostreamsBaseUrl, stremioType, catalogId, maxItems).ConfigureAwait(false);
                 
                 if (items == null || items.Count == 0)
                 {
@@ -353,7 +380,7 @@ namespace Baklava.Api
                     });
                 }
 
-                _logger.LogInformation("[CatalogController] Found {Count} items in catalog {CatalogId} ({Type}). Importing max {Max}...", items.Count, catalogId, stremioType, maxItems);
+                _logger.LogInformation("[CatalogController] Catalog {CatalogId} ({Type}) has {Total} total items. Importing max {Max}...", catalogId, stremioType, catalogTotalCount, maxItems);
 
                 // 2. Start Background Process: Create Collection FIRST, then Import & Add each item one by one
                 // IMPORTANT: Cache Gelato references BEFORE entering background task to avoid ObjectDisposedException
@@ -389,11 +416,29 @@ namespace Baklava.Api
                     _logger.LogWarning(ex, "[CatalogController] Failed to cache Gelato references - imports will only work for existing library items");
                 }
                 
+                // IMPORTANT: Create HttpClient BEFORE background task to avoid ObjectDisposedException
+                // IHttpClientFactory uses IServiceProvider internally which will be disposed after response
+                var backgroundHttpClient = _httpClientFactory.CreateClient();
+                backgroundHttpClient.Timeout = TimeSpan.FromSeconds(300);
+                
+                // CRITICAL: Cache Gelato folder paths BEFORE background task to avoid ObjectDisposedException
+                // We'll use these paths with a scoped ILibraryManager inside the background task
+                var (cachedMoviePath, cachedSeriesPath) = GetGelatoFolderPaths();
+                
+                // Also get the aiostreams base URL now while we still have access
+                var aiostreamsBaseUrlForImport = aiostreamsBaseUrl;
+                
                 _ = Task.Run(async () => 
                 {
+                    // Initialize progress tracking
+                    var progress = new ImportProgress { CatalogId = catalogId, CatalogName = collectionName, Status = "queued", Total = items.Count, Processed = 0 };
+                    _importProgress[catalogId] = progress;
+                    
                     // Wait in global queue - only one catalog import at a time
                     _logger.LogInformation("[CatalogController] Catalog '{Name}' queued for import...", collectionName);
                     await _importQueue.WaitAsync().ConfigureAwait(false);
+                    
+                    progress.Status = "running";
                     
                     try
                     {
@@ -404,16 +449,14 @@ namespace Baklava.Api
                         var libraryManager = scopedProvider.GetRequiredService<ILibraryManager>();
                         var collectionManager = scopedProvider.GetRequiredService<ICollectionManager>();
                         
-                        // Use a semaphore to serialize collection additions (prevents file locking issues)
-                        using var collectionLock = new System.Threading.SemaphoreSlim(1, 1);
-                        
                         var successCount = 0;
                         var failedCount = 0;
 
                         try
                         {
                         // STEP 1: Create or find collection FIRST
-                        var providerId = $"Stremio.{catalogId}";
+                        // Format: Stremio.{CatalogId} (merged) OR Stremio.{CatalogId}.{Type} (separate)
+                        var providerId = separate ? $"Stremio.{catalogId}.{stremioType}" : $"Stremio.{catalogId}";
                         
                         var query = new InternalItemsQuery
                         {
@@ -424,25 +467,32 @@ namespace Baklava.Api
                         
                         var collection = libraryManager.GetItemList(query).FirstOrDefault() as MediaBrowser.Controller.Entities.Movies.BoxSet;
 
-                        // Delete old collections with same name
+                        // 2. Fallback: Search by Name if ID not found
                         if (collection == null)
                         {
-                            var allBoxSets = libraryManager.GetItemList(new InternalItemsQuery
+                            var existingByName = libraryManager.GetItemList(new InternalItemsQuery
                             {
                                 IncludeItemTypes = new[] { BaseItemKind.BoxSet },
                                 Recursive = true
                             }).OfType<MediaBrowser.Controller.Entities.Movies.BoxSet>()
-                              .Where(b => b.Name.Equals(collectionName, StringComparison.OrdinalIgnoreCase))
-                              .ToList();
+                              .FirstOrDefault(b => b.Name.Equals(collectionName, StringComparison.OrdinalIgnoreCase));
                             
-                            foreach (var old in allBoxSets)
+                            if (existingByName != null)
                             {
-                                _logger.LogInformation("[CatalogController] Deleting old collection '{Name}'", old.Name);
-                                libraryManager.DeleteItem(old, new DeleteOptions { DeleteFileLocation = true });
+                                _logger.LogInformation("[CatalogController] Found existing collection by name '{Name}'. Adopting it...", existingByName.Name);
+                                collection = existingByName;
+
+                                // Ensure ProviderID is set correctly on adopted collection
+                                if (!collection.ProviderIds.TryGetValue("Stremio", out var existingId) || existingId != providerId)
+                                {
+                                    _logger.LogInformation("[CatalogController] Updating ProviderId for adopted collection to {Id}", providerId);
+                                    collection.ProviderIds["Stremio"] = providerId;
+                                    await collection.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, System.Threading.CancellationToken.None).ConfigureAwait(false);
+                                }
                             }
                         }
 
-                        // Create new collection
+                        // 3. Create new collection if still null
                         if (collection == null)
                         {
                             _logger.LogInformation("[CatalogController] Creating collection '{Name}' FIRST", collectionName);
@@ -453,14 +503,24 @@ namespace Baklava.Api
                             }).ConfigureAwait(false);
                             
                             collection = libraryManager.GetItemById(created.Id) as MediaBrowser.Controller.Entities.Movies.BoxSet;
+                             
                             _logger.LogInformation("[CatalogController] Collection created: {Id}", collection?.Id);
                         }
                         else
                         {
                             _logger.LogInformation("[CatalogController] Using existing collection: {Id}. Syncing items (additive)...", collection.Id);
-                            // DO NOT CLEAR ITEMS - We want to Additive Sync
-                            // Check what is already in the collection to skip
-                            // var existing = ... (Removed)
+                        }
+                        
+                        // Store catalog total in collection ProviderIds for display later
+                        if (collection != null)
+                        {
+                            var catalogTotal = catalogTotalCount.ToString();
+                            if (!collection.ProviderIds.TryGetValue("Stremio.CatalogTotal", out var existing) || existing != catalogTotal)
+                            {
+                                collection.ProviderIds["Stremio.CatalogTotal"] = catalogTotal;
+                                await collection.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, System.Threading.CancellationToken.None).ConfigureAwait(false);
+                                _logger.LogInformation("[CatalogController] Stored catalog total: {Total}", catalogTotal);
+                            }
                         }
 
                         if (collection == null)
@@ -500,10 +560,28 @@ namespace Baklava.Api
                         var failedImportError = 0;
                         var failedNotFound = 0;
                         var skippedExisting = 0;
+                        
+                        // Collect all items to add, then batch-add at the end
+                        var itemsToAdd = new List<Guid>();
+                        var totalToProcess = Math.Min(items.Count, maxItems);
+                        var processedCount = 0;
+                        var lastLoggedPercent = 0;
 
-                        // STEP 2: Import each item and add to collection ONE BY ONE
+                        // STEP 2: Process each item - import if needed, collect IDs
                         foreach (var item in items.Take(maxItems))
                         {
+                            processedCount++;
+                            progress.Processed = processedCount; // Update for polling
+                            
+                            // Log progress only at 25%, 50%, 75% milestones
+                            var currentPercent = (processedCount * 100) / totalToProcess;
+                            if (currentPercent >= lastLoggedPercent + 25)
+                            {
+                                lastLoggedPercent = (currentPercent / 25) * 25; // Round to nearest 25
+                                _logger.LogInformation("[CatalogController] Progress: {Percent}% ({Current}/{Total}), {Queued} queued", 
+                                    lastLoggedPercent, processedCount, totalToProcess, itemsToAdd.Count);
+                            }
+                            
                             try
                             {
                                 var imdbId = GetImdbId(item);
@@ -539,14 +617,18 @@ namespace Baklava.Api
                                 {
                                     _logger.LogDebug("[CatalogController] Item '{Name}' ({ImdbId}) not in library, attempting Gelato import...", item.Name, imdbId);
                                     
-                                    // Import via Gelato using cached references
+                                    // Import via Gelato using cached references and scoped library manager
+                                    var cachedFolderPath = mediaType.Equals("tv") ? cachedSeriesPath : cachedMoviePath;
                                     var importedIdStr = await ImportItemViaReflectionCached(
                                         imdbId, 
                                         mediaType, 
                                         gelatoManager, 
-                                        gelatoPlugin, 
                                         managerType, 
-                                        metaTypeEnum).ConfigureAwait(false);
+                                        metaTypeEnum,
+                                        backgroundHttpClient,
+                                        aiostreamsBaseUrlForImport,
+                                        cachedFolderPath,
+                                        libraryManager).ConfigureAwait(false);
                                     
                                     if (string.IsNullOrEmpty(importedIdStr))
                                     {
@@ -559,7 +641,7 @@ namespace Baklava.Api
                                     _logger.LogDebug("[CatalogController] Gelato import returned ID: {Id}", importedIdStr);
                                     
                                     // Wait for Jellyfin to register the new item
-                                    await Task.Delay(1000).ConfigureAwait(false);
+                                    await Task.Delay(500).ConfigureAwait(false);
                                     
                                     // Fetch it again
                                     libraryItem = libraryManager.GetItemList(new InternalItemsQuery
@@ -578,42 +660,31 @@ namespace Baklava.Api
                                     continue;
                                 }
 
-                                // Add to collection with retry logic for file locking
-                                _logger.LogInformation("[CatalogController] Adding '{Name}' to collection", libraryItem.Name);
-                                
-                                await collectionLock.WaitAsync().ConfigureAwait(false);
-                                try
-                                {
-                                    // Retry up to 3 times with increasing delay
-                                    for (int attempt = 1; attempt <= 3; attempt++)
-                                    {
-                                        try
-                                        {
-                                            await collectionManager.AddToCollectionAsync(collection.Id, new[] { libraryItem.Id }).ConfigureAwait(false);
-                                            break; // Success, exit retry loop
-                                        }
-                                        catch (System.IO.IOException ioEx) when (attempt < 3)
-                                        {
-                                            _logger.LogDebug("[CatalogController] File locked, attempt {Attempt}/3, waiting...", attempt);
-                                            await Task.Delay(500 * attempt).ConfigureAwait(false);
-                                        }
-                                    }
-                                }
-                                finally
-                                {
-                                    collectionLock.Release();
-                                }
-                                
+                                // Queue for batch addition
+                                itemsToAdd.Add(libraryItem.Id);
                                 successCount++;
-                                
-                                // Increased delay to let Jellyfin release file lock
-                                // Delay between items to prevent file locking
-                                await Task.Delay(IMPORT_ITEM_DELAY_MS).ConfigureAwait(false);
+                                _logger.LogDebug("[CatalogController] Queued '{Name}' for collection", libraryItem.Name);
                             }
                             catch (Exception ex)
                             {
                                 _logger.LogWarning(ex, "[CatalogController] Failed to process item {Id}", item.Id);
                                 failedCount++;
+                            }
+                        }
+
+                        // STEP 3: Batch add ALL items to collection in ONE call
+                        if (itemsToAdd.Count > 0)
+                        {
+                            _logger.LogInformation("[CatalogController] Adding {Count} items to collection in single batch...", itemsToAdd.Count);
+                            
+                            try
+                            {
+                                await collectionManager.AddToCollectionAsync(collection.Id, itemsToAdd).ConfigureAwait(false);
+                                _logger.LogInformation("[CatalogController] Batch add completed successfully");
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "[CatalogController] Batch add failed, items may not be in collection");
                             }
                         }
 
@@ -627,8 +698,12 @@ namespace Baklava.Api
                     }
                     finally
                     {
+                        progress.Status = "complete";
                         _importQueue.Release();
                         _logger.LogInformation("[CatalogController] Import queue released for '{Name}'", collectionName);
+                        
+                        // Clean up progress after a delay (let frontend poll final state)
+                        _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(_ => _importProgress.TryRemove(catalogId, out ImportProgress? _removed));
                     }
 
                 });
@@ -787,86 +862,105 @@ namespace Baklava.Api
 
         /// <summary>
         /// Import an item using pre-cached Gelato references (used in background tasks).
-        /// This avoids ObjectDisposedException by not relying on scoped service providers.
+        /// This avoids ObjectDisposedException by using scoped ILibraryManager for folder lookups
+        /// instead of GelatoManager.TryGetFolder which uses disposed services.
         /// </summary>
         private async Task<string> ImportItemViaReflectionCached(
             string imdbId, 
             string type, 
             object gelatoManager, 
-            object gelatoPlugin, 
             Type managerType, 
-            Type metaTypeEnum)
+            Type metaTypeEnum,
+            HttpClient httpClient,
+            string aiostreamsBaseUrl,
+            string gelatoFolderPath,
+            ILibraryManager scopedLibraryManager)
         {
             try
             {
                 // Validate cached references
-                if (gelatoManager == null || gelatoPlugin == null || managerType == null || metaTypeEnum == null)
+                if (gelatoManager == null || managerType == null || metaTypeEnum == null)
                 {
                     _logger.LogError("[CatalogController] Gelato references not available - Gelato plugin may not be installed");
                     return null;
                 }
+                
+                if (string.IsNullOrEmpty(gelatoFolderPath))
+                {
+                    _logger.LogError("[CatalogController] Gelato folder path not configured - check Gelato library settings");
+                    return null;
+                }
 
-                // 1. Get Configuration to fetch Meta - use cached plugin instance
-                object config;
+                // 1. Fetch Meta directly using our own HttpClient (not Gelato's which causes ObjectDisposedException)
+                var stremioType = type.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "series" : "movie";
+                var metaUrl = $"{aiostreamsBaseUrl}/meta/{stremioType}/{imdbId}.json";
+                
+                string metaJson;
                 try
                 {
-                    config = gelatoPlugin.GetType().GetMethod("GetConfig")?.Invoke(gelatoPlugin, new object[] { Guid.Empty });
+                    metaJson = await httpClient.GetStringAsync(metaUrl).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "[CatalogController] Failed to get Gelato config - this may happen if Jellyfin services are unavailable");
+                    _logger.LogWarning("[CatalogController] Failed to fetch meta for {ImdbId} from {Url}: {Error}", imdbId, metaUrl, ex.Message);
                     return null;
                 }
                 
-                if (config == null)
+                if (string.IsNullOrEmpty(metaJson))
                 {
-                    _logger.LogError("[CatalogController] Gelato config is null");
+                    _logger.LogWarning("[CatalogController] Empty meta response for {ImdbId}", imdbId);
                     return null;
                 }
                 
-                // config.stremio
-                var stremioProvider = config.GetType().GetField("stremio")?.GetValue(config);
-                if (stremioProvider == null)
+                // 2. Parse the meta JSON into Gelato's StremioMeta type using reflection
+                var gelatoAssembly = managerType.Assembly;
+                var stremioMetaType = gelatoAssembly.GetType("Gelato.StremioMeta");
+                if (stremioMetaType == null)
                 {
-                    _logger.LogError("[CatalogController] Gelato stremio provider is null - check Gelato configuration");
+                    _logger.LogError("[CatalogController] StremioMeta type not found in Gelato assembly");
                     return null;
                 }
-
-                // 2. Fetch Meta
-                var metaTypeVal = Enum.Parse(metaTypeEnum, type.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "Series" : "Movie", true);
                 
-                var getMetaMethod = stremioProvider.GetType().GetMethod("GetMetaAsync", new Type[] { typeof(string), metaTypeEnum });
-                if (getMetaMethod == null)
+                // Parse the JSON - Stremio returns { "meta": { ... } }
+                var jsonDoc = System.Text.Json.JsonDocument.Parse(metaJson);
+                if (!jsonDoc.RootElement.TryGetProperty("meta", out var metaElement))
                 {
-                    _logger.LogError("[CatalogController] GetMetaAsync method not found in GelatoStremioProvider");
+                    _logger.LogWarning("[CatalogController] No 'meta' property in response for {ImdbId}", imdbId);
                     return null;
                 }
-
-                var metaTask = (Task)getMetaMethod.Invoke(stremioProvider, new object[] { imdbId, metaTypeVal });
-                await metaTask.ConfigureAwait(false);
                 
-                var metaResult = metaTask.GetType().GetProperty("Result")?.GetValue(metaTask);
+                // Deserialize to Gelato.StremioMeta
+                object metaResult;
+                try
+                {
+                    metaResult = System.Text.Json.JsonSerializer.Deserialize(metaElement.GetRawText(), stremioMetaType, JsonOptions);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("[CatalogController] Failed to deserialize meta for {ImdbId}: {Error}", imdbId, ex.Message);
+                    return null;
+                }
+                
                 if (metaResult == null)
                 {
                     _logger.LogWarning("[CatalogController] Meta not found for {ImdbId} - item may not exist in metadata source", imdbId);
                     return null;
                 }
 
-                // 3. Determine Parent Folder
+                // 3. Determine Parent Folder using scoped ILibraryManager (NOT GelatoManager.TryGetFolder which uses disposed services)
                 var isSeries = type.Equals("tv", StringComparison.OrdinalIgnoreCase);
-                var folderMethodName = isSeries ? "TryGetSeriesFolder" : "TryGetMovieFolder";
-                var getFolderMethod = managerType.GetMethod(folderMethodName, new Type[] { typeof(Guid) });
                 
-                if (getFolderMethod == null)
+                // Use scoped library manager to find folder by path - this is safe in background tasks
+                var parentFolder = scopedLibraryManager.GetItemList(new InternalItemsQuery
                 {
-                    _logger.LogError("[CatalogController] {Method} method not found in GelatoManager", folderMethodName);
-                    return null;
-                }
+                    Path = gelatoFolderPath,
+                    Recursive = false,
+                    Limit = 1
+                }).OfType<MediaBrowser.Controller.Entities.Folder>().FirstOrDefault();
                 
-                var parentFolder = getFolderMethod.Invoke(gelatoManager, new object[] { Guid.Empty });
                 if (parentFolder == null)
                 {
-                    _logger.LogError("[CatalogController] {Type} folder not configured in Gelato - check Gelato library settings", isSeries ? "Series" : "Movie");
+                    _logger.LogError("[CatalogController] {Type} folder not found at path '{Path}' - check Gelato library settings", isSeries ? "Series" : "Movie", gelatoFolderPath);
                     return null;
                 }
 
@@ -1038,6 +1132,44 @@ namespace Baklava.Api
         }
 
         /// <summary>
+        /// Get Gelato's configured folder paths for movies and series from its XML config.
+        /// This is used to avoid calling GelatoManager.TryGetFolder in background tasks which
+        /// would cause ObjectDisposedException because it uses services from a disposed scope.
+        /// </summary>
+        private (string MoviePath, string SeriesPath) GetGelatoFolderPaths()
+        {
+            try
+            {
+                var configDir = _configurationManager.ApplicationPaths.PluginsPath;
+                var gelatoConfigPath = System.IO.Path.Combine(configDir, "configurations", "Gelato.xml");
+
+                if (!System.IO.File.Exists(gelatoConfigPath))
+                {
+                    _logger.LogWarning("[CatalogController] Gelato config file not found at {Path}", gelatoConfigPath);
+                    return (null, null);
+                }
+
+                var xmlContent = System.IO.File.ReadAllText(gelatoConfigPath);
+                var xmlDoc = System.Xml.Linq.XDocument.Parse(xmlContent);
+                
+                var moviePathElement = xmlDoc.Descendants("MoviePath").FirstOrDefault();
+                var seriesPathElement = xmlDoc.Descendants("SeriesPath").FirstOrDefault();
+                
+                var moviePath = moviePathElement?.Value?.Trim();
+                var seriesPath = seriesPathElement?.Value?.Trim();
+                
+                _logger.LogDebug("[CatalogController] Found Gelato paths - Movie: {MoviePath}, Series: {SeriesPath}", moviePath, seriesPath);
+                
+                return (moviePath, seriesPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[CatalogController] Failed to read Gelato folder paths");
+                return (null, null);
+            }
+        }
+
+        /// <summary>
         /// Get just the aiostreams base URL (without /manifest.json) for fetching catalogs
         /// </summary>
         private string GetGelatoAiostreamsBaseUrl()
@@ -1062,13 +1194,14 @@ namespace Baklava.Api
             return catalogResp?.Metas?.Count ?? 0;
         }
 
-        private async Task<List<StremioMetaDto>> FetchCatalogItemsAsync(HttpClient http, string baseUrl, string type, string catalogId, int maxItems)
+        private async Task<(List<StremioMetaDto> Items, int TotalCount)> FetchCatalogItemsAsync(HttpClient http, string baseUrl, string type, string catalogId, int maxItems)
         {
             var items = new List<StremioMetaDto>();
             var skip = 0;
-            var pageSize = 100; // Stremio typically returns up to 100 items per page
+            var totalCount = 0;
+            var countingOnly = false;
 
-            while (items.Count < maxItems)
+            while (true)
             {
                 // Stremio v3 protocol uses .json extension and path-based skip
                 var typeStr = type.ToLowerInvariant();
@@ -1086,14 +1219,26 @@ namespace Baklava.Api
 
                 if (catalogResp?.Metas == null || catalogResp.Metas.Count == 0) break;
 
-                items.AddRange(catalogResp.Metas);
+                totalCount += catalogResp.Metas.Count;
+                
+                // Only add items until we reach maxItems
+                if (!countingOnly)
+                {
+                    items.AddRange(catalogResp.Metas);
+                    if (items.Count >= maxItems)
+                    {
+                        items = items.Take(maxItems).ToList();
+                        countingOnly = true; // Continue counting but don't add more items
+                    }
+                }
+                
                 skip += catalogResp.Metas.Count;
-
-                // Optimization: If we got 0 items, break (handled above).
-                // DO NOT break on count < 100 because some addons return small batches (e.g. 20)
+                
+                // Safety: stop after 10 pages of counting-only to avoid infinite loops
+                if (countingOnly && skip > maxItems + 1000) break;
             }
 
-            return items.Take(maxItems).ToList();
+            return (items, totalCount);
         }
 
         private static bool IsSearchOnly(StremioCatalogDto catalog)
@@ -1183,6 +1328,12 @@ namespace Baklava.Api
 
         [JsonPropertyName("existingCollectionId")]
         public string ExistingCollectionId { get; set; }
+
+        [JsonPropertyName("existingItemCount")]
+        public int ExistingItemCount { get; set; }
+
+        [JsonPropertyName("collectionName")]
+        public string CollectionName { get; set; }
     }
 
     public class CreateCollectionRequest
@@ -1229,7 +1380,7 @@ namespace Baklava.Api
 
     public class CreateLibraryRequest
     {
-        [JsonPropertyName("libraryName")]
+        [JsonPropertyName("collectionName")]
         public string LibraryName { get; set; }
 
         [JsonPropertyName("maxItems")]
@@ -1334,4 +1485,18 @@ namespace Baklava.Api
     }
 
     #endregion
+    
+    /// <summary>
+    /// Tracks import progress for a catalog
+    /// </summary>
+    public class ImportProgress
+    {
+        public string CatalogId { get; set; }
+        public string CatalogName { get; set; }
+        public int Total { get; set; }
+        public int Processed { get; set; }
+        public int Percent => Total > 0 ? (Processed * 100) / Total : 0;
+        public string Status { get; set; } = "queued"; // queued, running, complete, error
+        public bool IsComplete => Status == "complete" || Status == "error";
+    }
 }

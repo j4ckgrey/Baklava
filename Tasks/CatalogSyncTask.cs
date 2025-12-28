@@ -105,19 +105,36 @@ namespace Baklava.Tasks
 
                 try
                 {
-                    // Extract catalogId from providerId (format: "Stremio.{catalogId}")
+                    // Extract catalogId from providerId (format: "Stremio.{catalogId}" or "Stremio.{catalogId}.{type}")
                     var providerId = collection.ProviderIds["Stremio"];
-                    var catalogId = providerId.StartsWith("Stremio.")
+                    var idPart = providerId.StartsWith("Stremio.")
                         ? providerId.Substring(8)
                         : providerId;
 
-                    // Determine type from catalog ID 
-                    var type = catalogId.Contains("series") ? "series" : "movie";
+                    string catalogId = idPart;
+                    string? specificType = null;
 
-                    _logger.LogInformation("[Baklava] Syncing collection '{Name}' (CatalogId: {CatalogId})",
-                        collection.Name, catalogId);
+                    // Check for new format: catalogId.type
+                    var lastDotIndex = idPart.LastIndexOf('.');
+                    if (lastDotIndex > 0)
+                    {
+                        var potentialType = idPart.Substring(lastDotIndex + 1);
+                        if (potentialType == "movie" || potentialType == "series")
+                        {
+                            catalogId = idPart.Substring(0, lastDotIndex);
+                            specificType = potentialType;
+                        }
+                    }
 
-                    await SyncCatalogDirectly(collection, catalogId, type, aiostreamsUrl, maxItems, cancellationToken)
+                    // Determine type to try
+                    // If specific type is encoded in ID, use ONLY that. 
+                    // Otherwise rely on heuristic or try both.
+                    var type = specificType ?? (catalogId.Contains("series") ? "series" : "movie");
+
+                    _logger.LogInformation("[Baklava] Syncing collection '{Name}' (CatalogId: {CatalogId}, SpecificType: {SpecificType})",
+                        collection.Name, catalogId, specificType ?? "null");
+
+                     await SyncCatalogDirectly(collection, catalogId, type, aiostreamsUrl, maxItems, specificType, cancellationToken)
                         .ConfigureAwait(false);
                 }
                 catch (Exception ex)
@@ -132,14 +149,16 @@ namespace Baklava.Tasks
             _logger.LogInformation("[Baklava] CatalogSyncTask completed.");
         }
 
-        private async Task SyncCatalogDirectly(BoxSet collection, string catalogId, string type, string aiostreamsUrl, int maxItems, CancellationToken ct)
+        private async Task SyncCatalogDirectly(BoxSet collection, string catalogId, string type, string aiostreamsUrl, int maxItems, string? forcedType, CancellationToken ct)
         {
             using var scope = _scopeFactory.CreateScope();
             var libraryManager = scope.ServiceProvider.GetRequiredService<ILibraryManager>();
             var collectionManager = scope.ServiceProvider.GetRequiredService<ICollectionManager>();
 
-            // Try fetching with given type first, then fallback to other type
-            var typesToTry = new[] { type, type == "movie" ? "series" : "movie" };
+            // If forcedType is set, ONLY try that type. Otherwise try heuristic + fallback.
+            var typesToTry = forcedType != null 
+                ? new[] { forcedType }
+                : new[] { type, type == "movie" ? "series" : "movie" };
             
             foreach (var tryType in typesToTry)
             {
@@ -253,6 +272,15 @@ namespace Baklava.Tasks
 
             _logger.LogInformation("[Baklava] Collection has {Existing} items, catalog has {Total}, {Missing} missing.",
                 existingImdbIds.Count, items.Count, missing.Count);
+            
+            // Update stored catalog total if changed
+            var catalogTotal = items.Count.ToString();
+            if (!collection.ProviderIds.TryGetValue("Stremio.CatalogTotal", out var storedTotal) || storedTotal != catalogTotal)
+            {
+                collection.ProviderIds["Stremio.CatalogTotal"] = catalogTotal;
+                await collection.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
+                _logger.LogInformation("[Baklava] Updated catalog total: {Total}", catalogTotal);
+            }
 
             if (missing.Count == 0)
             {

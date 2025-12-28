@@ -580,36 +580,8 @@ namespace Baklava.Api
             if (cacheDict == null) cacheDict = new Dictionary<string, CachedStreamData>();
 
             // 4. Resolve URL (New for Kebap support)
-            // Always resolve fresh because links expire, even if metadata is cached.
+            // MOVED: Resolution now happens lazily after cache check to improve performance.
             string? resolvedUrl = null;
-            if (targetSource.Protocol == MediaBrowser.Model.MediaInfo.MediaProtocol.Http && !string.IsNullOrEmpty(targetSource.Path))
-            {
-                 var path = targetSource.Path;
-                 var isResolve = path.Contains("stremio.com/resolve/", StringComparison.OrdinalIgnoreCase) || 
-                                 path.Contains("/resolve/", StringComparison.OrdinalIgnoreCase);
-                 
-                 if (isResolve || path.StartsWith("stremio://", StringComparison.OrdinalIgnoreCase))
-                 {
-                     var cfg = Plugin.Instance?.Configuration;
-                     if (cfg != null && (!string.IsNullOrEmpty(cfg.DebridApiKey) || !string.IsNullOrEmpty(cfg.TorBoxApiKey)))
-                     {
-                         try
-                         {
-                             // Use helper to resolve (allowMagnetRevival = true)
-                             var res = await GetPlayableDebridUrl(path, cfg.DebridApiKey, true);
-                             if (res.HasValue)
-                             {
-                                 resolvedUrl = res.Value.Url;
-                                 _logger.LogInformation("[MetadataController] Resolved URL for {Id}: {Url}", targetSource.Id, resolvedUrl);
-                             }
-                         }
-                         catch (Exception ex)
-                         {
-                             _logger.LogError(ex, "[MetadataController] Failed to resolve URL for {Id}", targetSource.Id);
-                         }
-                     }
-                 }
-            }
 
             // 3. Check Cache for Target
             var pathHash = ComputePathHash(targetSource.Path);
@@ -666,7 +638,37 @@ namespace Baklava.Api
                  // User explicitly asked for this version -> PROBE it (0.3.1.0 behavior)
                  _logger.LogInformation("[Baklava] GetMediaStreams: Cache MISS for explicitly requested {SourceId} (Hash: {Hash}). Probing...", targetSource.Id, pathHash);
                  
-                 var result = await FetchMediaStreamsRaw(item, targetSource);
+                 // LAZY RESOLVE: Now we resolve the URL because we need to probe it
+            if (targetSource.Protocol == MediaBrowser.Model.MediaInfo.MediaProtocol.Http && !string.IsNullOrEmpty(targetSource.Path))
+            {
+                 var path = targetSource.Path;
+                 var isResolve = path.Contains("stremio.com/resolve/", StringComparison.OrdinalIgnoreCase) || 
+                                 path.Contains("/resolve/", StringComparison.OrdinalIgnoreCase);
+                 
+                 if (isResolve || path.StartsWith("stremio://", StringComparison.OrdinalIgnoreCase))
+                 {
+                     var cfg = Plugin.Instance?.Configuration;
+                     if (cfg != null && (!string.IsNullOrEmpty(cfg.DebridApiKey) || !string.IsNullOrEmpty(cfg.TorBoxApiKey)))
+                     {
+                         try
+                         {
+                             // Use helper to resolve (allowMagnetRevival = true)
+                             var res = await GetPlayableDebridUrl(path, cfg.DebridApiKey, true);
+                             if (res.HasValue)
+                             {
+                                 resolvedUrl = res.Value.Url;
+                                 _logger.LogInformation("[MetadataController] Resolved URL for {Id}: {Url}", targetSource.Id, resolvedUrl);
+                             }
+                         }
+                         catch (Exception ex)
+                         {
+                             _logger.LogError(ex, "[MetadataController] Failed to resolve URL for {Id}", targetSource.Id);
+                         }
+                     }
+                 }
+            }
+                 
+                 var result = await FetchMediaStreamsRaw(item, targetSource, resolvedUrl);
                  if (result == null) return NotFound(new { error = "Stream probe failed" });
 
                  // SAVE to Cache
@@ -804,7 +806,7 @@ namespace Baklava.Api
             }
         }
 
-        private async Task<CachedStreamData?> FetchMediaStreamsRaw(BaseItem item, MediaBrowser.Model.Dto.MediaSourceInfo targetSource)
+        private async Task<CachedStreamData?> FetchMediaStreamsRaw(BaseItem item, MediaBrowser.Model.Dto.MediaSourceInfo targetSource, string? preResolvedUrl = null)
         {
             // Re-fetch a fresh MediaSource from Jellyfin to ensure updated stream versions if possible.
             // But we already have targetSource passed in. To avoid complexity, we use targetSource.
@@ -852,7 +854,7 @@ namespace Baklava.Api
                 targetSource.Protocol == MediaBrowser.Model.MediaInfo.MediaProtocol.Http &&
                 !string.IsNullOrEmpty(targetSource.Path))
             {
-                var url = targetSource.Path;
+                var url = !string.IsNullOrEmpty(preResolvedUrl) ? preResolvedUrl : targetSource.Path;
                 
                 // CRITICAL: Handle stremio:// URLs by resolving them to actual stream URLs
                 // ffprobe cannot act on stremio:// directly, but we can ask the addon for the real URL
