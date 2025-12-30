@@ -9,13 +9,13 @@
     "imageUrl": "https://raw.githubusercontent.com/j4ckgrey/Baklava/main/Baklava.png",
     "versions": [
       {
-        "version": "0.6.8.0",
-        "changelog": "Removed all stream probing and caching logic. Leaner plugin focused on metadata and catalogs.",
+        "version": "0.6.9.0",
+        "changelog": "",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.6.8.0/baklava_0.6.8.0.zip",
-        "checksum": "e522888ebc2839f147fb7b7a3d8beaff",
+        "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.6.9.0/baklava_0.6.9.0.zip",
+        "checksum": "6be6b75fdf855d453a05a1198d67bfe6",
         "checksumType": "md5",
-        "timestamp": "2025-12-28T22:00:00Z"
+        "timestamp": "2025-12-30T12:00:00Z"
       },
       {
         "version": "0.6.7.0",
