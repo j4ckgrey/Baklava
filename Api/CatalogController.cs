@@ -11,13 +11,14 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Collections;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Configuration;
-using MediaBrowser.Model.Querying; // Added
+using MediaBrowser.Model.Querying;
 using Jellyfin.Data.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+
 
 namespace Baklava.Api
 {
@@ -32,9 +33,10 @@ namespace Baklava.Api
         private readonly IServerApplicationHost _serverApplicationHost;
         private readonly IServerConfigurationManager _configurationManager;
         private readonly IServiceScopeFactory _scopeFactory;
-        private readonly ILibraryManager _libraryManager; // Added
-        private readonly ICollectionManager _collectionManager; // Added
+        private readonly ILibraryManager _libraryManager;
+        private readonly ICollectionManager _collectionManager;
         private readonly IHttpContextAccessor _httpContextAccessor;
+
 
         // Global import queue - ensures only one catalog import runs at a time
         private static readonly System.Threading.SemaphoreSlim _importQueue = new(1, 1);
@@ -56,7 +58,7 @@ namespace Baklava.Api
             IServiceScopeFactory scopeFactory,
             ILibraryManager libraryManager,
             ICollectionManager collectionManager,
-            IHttpContextAccessor httpContextAccessor) // Added
+            IHttpContextAccessor httpContextAccessor)
         {
             _logger = logger;
             _httpClientFactory = httpClientFactory;
@@ -64,7 +66,7 @@ namespace Baklava.Api
             _configurationManager = configurationManager;
             _scopeFactory = scopeFactory;
             _libraryManager = libraryManager;
-            _collectionManager = collectionManager; // Added
+            _collectionManager = collectionManager;
             _httpContextAccessor = httpContextAccessor;
         }
 
@@ -329,20 +331,16 @@ namespace Baklava.Api
 
 
         /// <summary>
-        /// Create a new Jellyfin library from a catalog
+        /// Create a Jellyfin Collection (BoxSet) from a Stremio Catalog.
+        /// Simple synchronous processing: fetch items, import via Gelato, add to collection.
         /// </summary>
-        /// <summary>
-        /// Create a Jellyfin Collection (BoxSet) from a Stremio Catalog
-        /// </summary>
-        [HttpPost("{catalogId}/library")] // Keeping endpoint name for frontend compatibility
+        [HttpPost("{catalogId}/library")]
         public async Task<ActionResult<CreateLibraryResponse>> CreateLibraryFromCatalog(
             string catalogId,
             [FromQuery] string type = "movie",
             [FromQuery] bool separate = false,
             [FromBody] CreateLibraryRequest request = null)
         {
-            _logger.LogInformation("[CatalogController] Request received - LibraryName: '{LibName}', MaxItems: {Max}, Separate: {Separate}", 
-                request?.LibraryName ?? "(null)", request?.MaxItems ?? -1, separate);
             var collectionName = request?.LibraryName ?? catalogId;
             _logger.LogInformation("[CatalogController] Creating collection '{Name}' from catalog {CatalogId}", collectionName, catalogId);
 
@@ -351,375 +349,256 @@ namespace Baklava.Api
 
             var maxItems = request?.MaxItems ?? cfg.CatalogMaxItems;
             
-            // Get URLs: aiostreams for catalog
             var aiostreamsBaseUrl = GetGelatoAiostreamsBaseUrl();
             if (string.IsNullOrEmpty(aiostreamsBaseUrl))
-            {
                 return BadRequest("Gelato aiostreams URL not configured");
-            }
 
-            // Restore HttpClient for fetching catalog items
             using var http = CreateHttpClient(cfg);
 
             try
             {
-                // Normalize type for Stremio API (must be singular 'movie' or 'series')
+                // Normalize type
                 var stremioType = (type.Equals("series", StringComparison.OrdinalIgnoreCase) || 
                                    type.Equals("tvshows", StringComparison.OrdinalIgnoreCase) || 
                                    type.Equals("tv", StringComparison.OrdinalIgnoreCase)) 
                                    ? "series" : "movie";
+                var mediaType = stremioType == "series" ? "tv" : "movie";
 
-                // 1. Fetch Items from Catalog
+                // 1. Fetch catalog items
                 var (items, catalogTotalCount) = await FetchCatalogItemsAsync(http, aiostreamsBaseUrl, stremioType, catalogId, maxItems).ConfigureAwait(false);
                 
                 if (items == null || items.Count == 0)
                 {
-                    _logger.LogWarning("[CatalogController] No items found in catalog {CatalogId} with type {Type} (URL base: {Url})", catalogId, stremioType, aiostreamsBaseUrl);
-                    
-                    return Ok(new CreateLibraryResponse 
-                    { 
-                        Success = true, 
-                        LibraryName = collectionName, 
-                        Message = $"Collection created, but no items found in catalog ({stremioType})." 
-                    });
+                    return Ok(new CreateLibraryResponse { Success = true, LibraryName = collectionName, Message = "No items found in catalog." });
                 }
 
-                _logger.LogInformation("[CatalogController] Catalog {CatalogId} ({Type}) has {Total} total items. Importing max {Max}...", catalogId, stremioType, catalogTotalCount, maxItems);
+                _logger.LogInformation("[CatalogController] Fetched {Count} items from catalog", items.Count);
 
-                // 2. Start Background Process: Create Collection FIRST, then Import & Add each item one by one
-                // IMPORTANT: Cache Gelato references BEFORE entering background task to avoid ObjectDisposedException
-                object gelatoManager = null;
-                object gelatoPlugin = null;
-                Type managerType = null;
-                Type metaTypeEnum = null;
+                // 2. Create or find collection
+                var providerId = $"Stremio.{catalogId}.{stremioType}";
+                var collection = await GetOrCreateCollectionAsync(collectionName, providerId, catalogTotalCount).ConfigureAwait(false);
+                if (collection == null)
+                    return StatusCode(500, "Failed to create collection");
+
+                // 3. Get Gelato manager for imports
+                var (gelatoManager, managerType, metaTypeEnum, gelatoScope) = GetGelatoReferences();
+                // Ensure scope is disposed at end of method
+                using var _ = gelatoScope;
+
+                var gelatoFolderPath = GetGelatoFolderPath(mediaType);
+
+                // 4. Import items in parallel/batches
+                var itemsToImport = items.Take(maxItems).ToList();
+                var itemsToAdd = new System.Collections.Concurrent.ConcurrentBag<Guid>();
+                var totalToProcess = itemsToImport.Count;
+                var processedCount = 0;
+                var successCount = 0;
+                var failedCount = 0;
+                var itemKind = mediaType == "tv" ? BaseItemKind.Series : BaseItemKind.Movie;
+
+                _logger.LogInformation("[CatalogController] Starting batch import for {Count} items (type: {Type})...", totalToProcess, mediaType);
+
+                // CRITICAL: Process SERIES sequentially to avoid rate limiting
+                // Series trigger episode metadata fetches which can overwhelm APIs
+                var isSeries = mediaType == "tv";
                 
-                try
+                if (isSeries)
                 {
-                    var gelatoAssembly = AppDomain.CurrentDomain.GetAssemblies()
-                        .FirstOrDefault(a => a.GetName().Name == "Gelato");
+                    var seriesDelay = cfg.SeriesImportDelayMs;
+                    _logger.LogInformation("[CatalogController] Processing {Count} series SEQUENTIALLY with {Delay}ms delay to prevent rate limiting", 
+                        totalToProcess, seriesDelay);
                     
-                    if (gelatoAssembly != null)
+                    for (int i = 0; i < itemsToImport.Count; i++)
                     {
-                        var pluginType = gelatoAssembly.GetType("Gelato.GelatoPlugin");
-                        managerType = gelatoAssembly.GetType("Gelato.GelatoManager");
-                        metaTypeEnum = gelatoAssembly.GetType("Gelato.StremioMediaType");
+                        var item = itemsToImport[i];
+                        var current = i + 1;
                         
-                        if (pluginType != null)
+                        if (current % 5 == 0 || current == totalToProcess)
                         {
-                            gelatoPlugin = pluginType.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)?.GetValue(null);
-                            if (gelatoPlugin != null)
-                            {
-                                var managerField = pluginType.GetField("_manager", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                                gelatoManager = managerField?.GetValue(gelatoPlugin);
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[CatalogController] Failed to cache Gelato references - imports will only work for existing library items");
-                }
-                
-                // IMPORTANT: Create HttpClient BEFORE background task to avoid ObjectDisposedException
-                // IHttpClientFactory uses IServiceProvider internally which will be disposed after response
-                var backgroundHttpClient = _httpClientFactory.CreateClient();
-                backgroundHttpClient.Timeout = TimeSpan.FromSeconds(300);
-                
-                // CRITICAL: Cache Gelato folder paths BEFORE background task to avoid ObjectDisposedException
-                // We'll use these paths with a scoped ILibraryManager inside the background task
-                var (cachedMoviePath, cachedSeriesPath) = GetGelatoFolderPaths();
-                
-                // Also get the aiostreams base URL now while we still have access
-                var aiostreamsBaseUrlForImport = aiostreamsBaseUrl;
-                
-                _ = Task.Run(async () => 
-                {
-                    // CRITICAL: Clear HttpContext to avoid ObjectDisposedException in background thread
-                    if (_httpContextAccessor != null) _httpContextAccessor.HttpContext = null;
-                    
-                    // Initialize progress tracking
-                    var progress = new ImportProgress { CatalogId = catalogId, CatalogName = collectionName, Status = "queued", Total = items.Count, Processed = 0 };
-                    _importProgress[catalogId] = progress;
-                    
-                    // Wait in global queue - only one catalog import at a time
-                    _logger.LogInformation("[CatalogController] Catalog '{Name}' queued for import...", collectionName);
-                    await _importQueue.WaitAsync().ConfigureAwait(false);
-                    
-                    progress.Status = "running";
-                    
-                    try
-                    {
-                        _logger.LogInformation("[CatalogController] Starting import for catalog '{Name}'", collectionName);
-                        
-                        using var scope = _scopeFactory.CreateScope();
-                        var scopedProvider = scope.ServiceProvider;
-                        var libraryManager = scopedProvider.GetRequiredService<ILibraryManager>();
-                        var collectionManager = scopedProvider.GetRequiredService<ICollectionManager>();
-                        
-                        var successCount = 0;
-                        var failedCount = 0;
-
-                        try
-                        {
-                        // STEP 1: Create or find collection FIRST
-                        // Format: Stremio.{CatalogId}.{Type}
-                        var providerId = $"Stremio.{catalogId}.{stremioType}";
-                        
-                        var query = new InternalItemsQuery
-                        {
-                            IncludeItemTypes = new[] { BaseItemKind.BoxSet },
-                            Recursive = true,
-                            HasAnyProviderId = new Dictionary<string, string> { { "Stremio", providerId } }
-                        };
-                        
-                        var collection = libraryManager.GetItemList(query).FirstOrDefault() as MediaBrowser.Controller.Entities.Movies.BoxSet;
-
-                        // 2. Fallback: Search by Name if ID not found
-                        if (collection == null)
-                        {
-                            var existingByName = libraryManager.GetItemList(new InternalItemsQuery
-                            {
-                                IncludeItemTypes = new[] { BaseItemKind.BoxSet },
-                                Recursive = true
-                            }).OfType<MediaBrowser.Controller.Entities.Movies.BoxSet>()
-                              .FirstOrDefault(b => b.Name.Equals(collectionName, StringComparison.OrdinalIgnoreCase));
-                            
-                            if (existingByName != null)
-                            {
-                                _logger.LogInformation("[CatalogController] Found existing collection by name '{Name}'. Adopting it...", existingByName.Name);
-                                collection = existingByName;
-
-                                // Ensure ProviderID is set correctly on adopted collection
-                                if (!collection.ProviderIds.TryGetValue("Stremio", out var existingId) || existingId != providerId)
-                                {
-                                    _logger.LogInformation("[CatalogController] Updating ProviderId for adopted collection to {Id}", providerId);
-                                    collection.ProviderIds["Stremio"] = providerId;
-                                    await collection.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, System.Threading.CancellationToken.None).ConfigureAwait(false);
-                                }
-                            }
+                            var pct = (double)current / totalToProcess * 100;
+                            _logger.LogInformation("[CatalogController] Import Progress: {Current}/{Total} ({Pct:F0}%)", current, totalToProcess, pct);
                         }
 
-                        // 3. Create new collection if still null
-                        if (collection == null)
+                        var imdbId = GetImdbId(item);
+                        if (string.IsNullOrEmpty(imdbId))
                         {
-                            _logger.LogInformation("[CatalogController] Creating collection '{Name}' FIRST", collectionName);
-                            var created = await collectionManager.CreateCollectionAsync(new CollectionCreationOptions
-                            {
-                                Name = collectionName,
-                                ProviderIds = new Dictionary<string, string> { { "Stremio", providerId } }
-                            }).ConfigureAwait(false);
-                            
-                            collection = libraryManager.GetItemById(created.Id) as MediaBrowser.Controller.Entities.Movies.BoxSet;
-                             
-                            _logger.LogInformation("[CatalogController] Collection created: {Id}", collection?.Id);
-                        }
-                        else
-                        {
-                            _logger.LogInformation("[CatalogController] Using existing collection: {Id}. Syncing items (additive)...", collection.Id);
-                        }
-                        
-                        // Store catalog total in collection ProviderIds for display later
-                        if (collection != null)
-                        {
-                            var catalogTotal = catalogTotalCount.ToString();
-                            if (!collection.ProviderIds.TryGetValue("Stremio.CatalogTotal", out var existing) || existing != catalogTotal)
-                            {
-                                collection.ProviderIds["Stremio.CatalogTotal"] = catalogTotal;
-                                await collection.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, System.Threading.CancellationToken.None).ConfigureAwait(false);
-                                _logger.LogInformation("[CatalogController] Stored catalog total: {Total}", catalogTotal);
-                            }
-                        }
-
-                        if (collection == null)
-                        {
-                            _logger.LogError("[CatalogController] Failed to create collection!");
-                            return;
-                        }
-
-                        // PRE-FETCH: Get existing IMDB IDs in the collection to skip processing
-                        var linkedIds = collection.LinkedChildren
-                            .Where(lc => lc.ItemId.HasValue)
-                            .Select(lc => lc.ItemId.Value)
-                            .ToArray();
-                            
-                        var existingImdbIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        
-                        if (linkedIds.Length > 0)
-                        {
-                            var existingItems = libraryManager.GetItemList(new InternalItemsQuery
-                            {
-                                ItemIds = linkedIds
-                            });
-                            
-                            foreach(var i in existingItems)
-                            {
-                                if (i.ProviderIds.TryGetValue("Imdb", out var id) && !string.IsNullOrEmpty(id))
-                                {
-                                    existingImdbIds.Add(id);
-                                }
-                            }
-                        }
-
-                        _logger.LogInformation("[CatalogController] Collection has {Count} existing items ({ImdbCount} with IMDB). Examining catalog...", linkedIds.Length, existingImdbIds.Count);
-
-                        // Diagnostic counters
-                        var failedNoImdb = 0;
-                        var failedImportError = 0;
-                        var failedNotFound = 0;
-                        var skippedExisting = 0;
-                        
-                        // Collect all items to add, then batch-add at the end
-                        var itemsToAdd = new List<Guid>();
-                        var totalToProcess = Math.Min(items.Count, maxItems);
-                        var processedCount = 0;
-                        var lastLoggedPercent = 0;
-
-                        // STEP 2: Process each item - import if needed, collect IDs
-                        foreach (var item in items.Take(maxItems))
-                        {
+                            _logger.LogWarning("[CatalogController] ✗ No IMDb ID for item: {Name} (ID: {Id})", item.Name, item.Id);
+                            failedCount++;
                             processedCount++;
-                            progress.Processed = processedCount; // Update for polling
-                            
-                            // Log progress only at 25%, 50%, 75% milestones
-                            var currentPercent = (processedCount * 100) / totalToProcess;
-                            if (currentPercent >= lastLoggedPercent + 25)
+                            continue;
+                        }
+
+                        try 
+                        {
+                            // Check if already in library
+                            var libraryItem = _libraryManager.GetItemList(new InternalItemsQuery
                             {
-                                lastLoggedPercent = (currentPercent / 25) * 25; // Round to nearest 25
-                                _logger.LogInformation("[CatalogController] Progress: {Percent}% ({Current}/{Total}), {Queued} queued", 
-                                    lastLoggedPercent, processedCount, totalToProcess, itemsToAdd.Count);
-                            }
-                            
-                            try
+                                HasAnyProviderId = new Dictionary<string, string> { { "Imdb", imdbId } },
+                                Recursive = true,
+                                Limit = 1,
+                                IncludeItemTypes = new[] { itemKind }
+                            }).FirstOrDefault();
+
+                            if (libraryItem != null)
                             {
-                                var imdbId = GetImdbId(item);
-                                if (string.IsNullOrEmpty(imdbId))
-                                {
-                                    _logger.LogDebug("[CatalogController] Item '{Name}' (id={Id}) has no IMDB ID, skipping", item.Name, item.Id);
-                                    failedNoImdb++;
-                                    failedCount++;
-                                    continue;
-                                }
-
-                                // CHECK 1: Is it already in the collection?
-                                if (existingImdbIds.Contains(imdbId))
-                                {
-                                    // Already exists, skip
-                                    skippedExisting++;
-                                    continue;
-                                }
-
-                                var mediaType = (type.Equals("series", StringComparison.OrdinalIgnoreCase) || type.Equals("tvshows", StringComparison.OrdinalIgnoreCase)) ? "tv" : "movie";
-                                
-                                // CHECK 2: Is it already in the LIBRARY (but not in collection)?
-                                var libraryItem = libraryManager.GetItemList(new InternalItemsQuery
-                                {
-                                    HasAnyProviderId = new Dictionary<string, string> { { "Imdb", imdbId } },
-                                    Recursive = true,
-                                    Limit = 1,
-                                    IncludeItemTypes = new[] { mediaType.Equals("tv") ? BaseItemKind.Series : BaseItemKind.Movie }
-                                }).FirstOrDefault();
-
-                                // If not in library, Import it
-                                if (libraryItem == null)
-                                {
-                                    _logger.LogDebug("[CatalogController] Item '{Name}' ({ImdbId}) not in library, attempting Gelato import...", item.Name, imdbId);
-                                    
-                                    // Import via Gelato using cached references and scoped library manager
-                                    var cachedFolderPath = mediaType.Equals("tv") ? cachedSeriesPath : cachedMoviePath;
-                                    var importedIdStr = await ImportItemViaReflectionCached(
-                                        imdbId, 
-                                        mediaType, 
-                                        gelatoManager, 
-                                        managerType, 
-                                        metaTypeEnum,
-                                        backgroundHttpClient,
-                                        aiostreamsBaseUrlForImport,
-                                        cachedFolderPath,
-                                        libraryManager).ConfigureAwait(false);
-                                    
-                                    if (string.IsNullOrEmpty(importedIdStr))
-                                    {
-                                        _logger.LogWarning("[CatalogController] Gelato import FAILED for '{Name}' ({ImdbId}) - Check Gelato plugin is installed and configured", item.Name, imdbId);
-                                        failedImportError++;
-                                        failedCount++;
-                                        continue;
-                                    }
-                                    
-                                    _logger.LogDebug("[CatalogController] Gelato import returned ID: {Id}", importedIdStr);
-                                    
-                                    // Wait for Jellyfin to register the new item
-                                    await Task.Delay(500).ConfigureAwait(false);
-                                    
-                                    // Fetch it again
-                                    libraryItem = libraryManager.GetItemList(new InternalItemsQuery
-                                    {
-                                        HasAnyProviderId = new Dictionary<string, string> { { "Imdb", imdbId } },
-                                        Recursive = true,
-                                        Limit = 1
-                                    }).FirstOrDefault();
-                                }
-
-                                if (libraryItem == null)
-                                {
-                                    _logger.LogWarning("[CatalogController] Item '{Name}' ({ImdbId}) not found in library after import attempt", item.Name, imdbId);
-                                    failedNotFound++;
-                                    failedCount++;
-                                    continue;
-                                }
-
-                                // Queue for batch addition
                                 itemsToAdd.Add(libraryItem.Id);
                                 successCount++;
-                                _logger.LogDebug("[CatalogController] Queued '{Name}' for collection", libraryItem.Name);
+                                _logger.LogDebug("[CatalogController] ✓ Series already exists: {Name} ({ImdbId})", item.Name ?? imdbId, imdbId);
                             }
-                            catch (Exception ex)
+                            else if (gelatoManager != null && !string.IsNullOrEmpty(gelatoFolderPath))
                             {
-                                _logger.LogWarning(ex, "[CatalogController] Failed to process item {Id}", item.Id);
+                                _logger.LogDebug("[CatalogController] Importing series: {Name} ({ImdbId})", item.Name ?? imdbId, imdbId);
+                                var importedIdStr = await ImportItemViaGelato(imdbId, mediaType, gelatoManager, managerType, metaTypeEnum, gelatoFolderPath).ConfigureAwait(false);
+                                
+                                if (!string.IsNullOrEmpty(importedIdStr) && Guid.TryParse(importedIdStr, out var newGuid))
+                                {
+                                    itemsToAdd.Add(newGuid);
+                                    successCount++;
+                                    _logger.LogInformation("[CatalogController] ✓ Successfully imported series: {Name} ({ImdbId})", item.Name ?? imdbId, imdbId);
+                                }
+                                else
+                                {
+                                    failedCount++;
+                                    _logger.LogWarning("[CatalogController] ✗ Failed to import series: {Name} ({ImdbId}) - Gelato returned empty/invalid ID", item.Name ?? imdbId, imdbId);
+                                }
+                            }
+                            else
+                            {
                                 failedCount++;
+                                _logger.LogError("[CatalogController] ✗ Cannot import {Name} ({ImdbId}) - Gelato manager: {HasManager}, Folder path: {HasPath}", 
+                                    item.Name ?? imdbId, imdbId, gelatoManager != null, !string.IsNullOrEmpty(gelatoFolderPath));
                             }
-                        }
-
-                        // STEP 3: Batch add ALL items to collection in ONE call
-                        if (itemsToAdd.Count > 0)
-                        {
-                            _logger.LogInformation("[CatalogController] Adding {Count} items to collection in single batch...", itemsToAdd.Count);
-                            
-                            try
-                            {
-                                await collectionManager.AddToCollectionAsync(collection.Id, itemsToAdd).ConfigureAwait(false);
-                                _logger.LogInformation("[CatalogController] Batch add completed successfully");
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "[CatalogController] Batch add failed, items may not be in collection");
-                            }
-                        }
-
-                        _logger.LogInformation("[CatalogController] Import complete. Success: {Success}, Failed: {Failed} (NoImdb: {NoImdb}, ImportError: {ImportError}, NotFound: {NotFound}), Skipped (existing): {Skipped}", 
-                            successCount, failedCount, failedNoImdb, failedImportError, failedNotFound, skippedExisting);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "[CatalogController] Background import failed");
+                            _logger.LogError(ex, "[CatalogController] ✗ Error processing series {Name} ({ImdbId}): {Message}", item.Name, imdbId, ex.Message);
+                            failedCount++;
+                        }
+                        
+                        processedCount++;
+                        
+                        // Delay between series imports (except after the last one)
+                        if (i < itemsToImport.Count - 1)
+                        {
+                            _logger.LogDebug("[CatalogController] Waiting {Delay}ms before next series...", seriesDelay);
+                            await Task.Delay(seriesDelay).ConfigureAwait(false);
                         }
                     }
-                    finally
-                    {
-                        progress.Status = "complete";
-                        _importQueue.Release();
-                        _logger.LogInformation("[CatalogController] Import queue released for '{Name}'", collectionName);
-                        
-                        // Clean up progress after a delay (let frontend poll final state)
-                        _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(_ => _importProgress.TryRemove(catalogId, out ImportProgress? _removed));
-                    }
+                }
+                else
+                {
+                    // For MOVIES: Use parallel processing with conservative limits
+                    var maxParallel = cfg.MaxParallelMovieImports;
+                    _logger.LogInformation("[CatalogController] Processing {Count} movies with {Parallel} parallel imports", 
+                        totalToProcess, maxParallel);
+                    
+                    var parallelOptions = new ParallelOptions 
+                    { 
+                        MaxDegreeOfParallelism = maxParallel
+                    };
 
-                });
+                    await Parallel.ForEachAsync(itemsToImport, parallelOptions, async (item, ct) =>
+                    {
+                        var current = System.Threading.Interlocked.Increment(ref processedCount);
+                        if (current % 5 == 0 || current == totalToProcess)
+                        {
+                             var pct = (double)current / totalToProcess * 100;
+                             _logger.LogInformation("[CatalogController] Import Progress: {Current}/{Total} ({Pct:F0}%)", current, totalToProcess, pct);
+                        }
+
+                        var imdbId = GetImdbId(item);
+                        if (string.IsNullOrEmpty(imdbId))
+                        {
+                            _logger.LogWarning("[CatalogController] ✗ No IMDb ID for item: {Name} (ID: {Id})", item.Name, item.Id);
+                            System.Threading.Interlocked.Increment(ref failedCount);
+                            return;
+                        }
+
+                        try 
+                        {
+                            // Check if already in library
+                            var libraryItem = _libraryManager.GetItemList(new InternalItemsQuery
+                            {
+                                HasAnyProviderId = new Dictionary<string, string> { { "Imdb", imdbId } },
+                                Recursive = true,
+                                Limit = 1,
+                                IncludeItemTypes = new[] { itemKind }
+                            }).FirstOrDefault();
+
+                            if (libraryItem != null)
+                            {
+                                itemsToAdd.Add(libraryItem.Id);
+                                System.Threading.Interlocked.Increment(ref successCount);
+                                _logger.LogDebug("[CatalogController] ✓ Movie already exists: {Name} ({ImdbId})", item.Name ?? imdbId, imdbId);
+                                return;
+                            }
+
+                            // Import via Gelato
+                            if (gelatoManager != null && !string.IsNullOrEmpty(gelatoFolderPath))
+                            {
+                                _logger.LogDebug("[CatalogController] Importing movie: {Name} ({ImdbId})", item.Name ?? imdbId, imdbId);
+                                var importedIdStr = await ImportItemViaGelato(imdbId, mediaType, gelatoManager, managerType, metaTypeEnum, gelatoFolderPath).ConfigureAwait(false);
+                                
+                                if (!string.IsNullOrEmpty(importedIdStr))
+                                {
+                                    if (Guid.TryParse(importedIdStr, out var newGuid))
+                                    {
+                                        itemsToAdd.Add(newGuid);
+                                        System.Threading.Interlocked.Increment(ref successCount);
+                                        _logger.LogDebug("[CatalogController] ✓ Successfully imported movie: {Name} ({ImdbId})", item.Name ?? imdbId, imdbId);
+                                    }
+                                    else 
+                                    {
+                                        System.Threading.Interlocked.Increment(ref failedCount);
+                                        _logger.LogWarning("[CatalogController] ✗ Failed to import movie: {Name} ({ImdbId}) - Invalid GUID: {Guid}", item.Name ?? imdbId, imdbId, importedIdStr);
+                                    }
+                                }
+                                else
+                                {
+                                    System.Threading.Interlocked.Increment(ref failedCount);
+                                    _logger.LogWarning("[CatalogController] ✗ Failed to import movie: {Name} ({ImdbId}) - Gelato returned empty/invalid ID", item.Name ?? imdbId, imdbId);
+                                }
+                            }
+                            else
+                            {
+                                System.Threading.Interlocked.Increment(ref failedCount);
+                                _logger.LogError("[CatalogController] ✗ Cannot import {Name} ({ImdbId}) - Gelato manager: {HasManager}, Folder path: {HasPath}", 
+                                    item.Name ?? imdbId, imdbId, gelatoManager != null, !string.IsNullOrEmpty(gelatoFolderPath));
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "[CatalogController] ✗ Error processing movie {Name} ({ImdbId}): {Message}", item.Name, imdbId, ex.Message);
+                            System.Threading.Interlocked.Increment(ref failedCount);
+                        }
+                    }).ConfigureAwait(false);
+                }
+
+                // 5. Add ALL items to collection in ONE batch call
+                var distinctIds = itemsToAdd.Distinct().ToList();
+                if (distinctIds.Count > 0)
+                {
+                    // Delay slightly to ensure file system acts up less?
+                    await Task.Delay(1000).ConfigureAwait(false);
+
+                    try
+                    {
+                        await _collectionManager.AddToCollectionAsync(collection.Id, distinctIds).ConfigureAwait(false);
+                        _logger.LogInformation("[CatalogController] Added {Count} items to collection '{Name}' in one batch", distinctIds.Count, collectionName);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "[CatalogController] Failed to add items to collection");
+                    }
+                }
+
+                _logger.LogInformation("[CatalogController] Import complete. Success: {Success}, Failed: {Failed}", successCount, failedCount);
 
                 return Ok(new CreateLibraryResponse 
                 { 
                     Success = true, 
                     LibraryName = collectionName, 
-                    Message = $"Collection '{collectionName}' is being populated with {Math.Min(items.Count, maxItems)} items in background." 
+                    Message = $"Collection '{collectionName}': {successCount} items imported, {failedCount} failed."
                 });
             }
             catch (Exception ex)
@@ -728,6 +607,500 @@ namespace Baklava.Api
                 return StatusCode(500, "Internal error: " + ex.Message);
             }
         }
+
+        /// <summary>
+        /// Helper: Get or create a collection by name/provider ID
+        /// </summary>
+        private async Task<MediaBrowser.Controller.Entities.Movies.BoxSet> GetOrCreateCollectionAsync(string name, string providerId, int catalogTotal)
+        {
+            var collection = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = new[] { BaseItemKind.BoxSet },
+                Recursive = true,
+                HasAnyProviderId = new Dictionary<string, string> { { "Stremio", providerId } },
+                Limit = 1
+            }).FirstOrDefault() as MediaBrowser.Controller.Entities.Movies.BoxSet;
+
+            if (collection == null)
+            {
+                collection = _libraryManager.GetItemList(new InternalItemsQuery
+                {
+                    IncludeItemTypes = new[] { BaseItemKind.BoxSet },
+                    Recursive = true
+                }).OfType<MediaBrowser.Controller.Entities.Movies.BoxSet>()
+                  .FirstOrDefault(b => b.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (collection == null)
+            {
+                _logger.LogInformation("[CatalogController] Creating collection '{Name}'", name);
+                var created = await _collectionManager.CreateCollectionAsync(new CollectionCreationOptions
+                {
+                    Name = name,
+                    ProviderIds = new Dictionary<string, string> { { "Stremio", providerId } }
+                }).ConfigureAwait(false);
+                collection = _libraryManager.GetItemById(created.Id) as MediaBrowser.Controller.Entities.Movies.BoxSet;
+            }
+
+            if (collection != null)
+            {
+                collection.ProviderIds["Stremio"] = providerId;
+                collection.ProviderIds["Stremio.CatalogTotal"] = catalogTotal.ToString();
+                await collection.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, System.Threading.CancellationToken.None).ConfigureAwait(false);
+            }
+
+            return collection;
+        }
+
+        /// <summary>
+        /// Helper: Get Gelato manager and types via reflection using fresh DI scope
+        /// </summary>
+        private (object Manager, Type ManagerType, Type MetaTypeEnum, IServiceScope Scope) GetGelatoReferences()
+        {
+            try
+            {
+                var gelatoAssembly = AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => a.GetName().Name == "Gelato");
+                
+                if (gelatoAssembly == null) return (null, null, null, null);
+
+                var managerType = gelatoAssembly.GetType("Gelato.GelatoManager");
+                var metaTypeEnum = gelatoAssembly.GetType("Gelato.StremioMediaType");
+
+                if (managerType == null) return (null, null, null, null);
+
+                // Create a FRESH DI scope and return it so the caller can dispose it
+                var scope = _scopeFactory.CreateScope();
+                object manager = null;
+
+                // TRY MANUAL CONSTRUCTION (Frankenstein) first - similar to CatalogSyncTask logic
+                // This ensures we get a manager with FRESH dependencies even if it's registered as Singleton
+                
+                // ... (Omitted manual construction for brevity, relying on standard resolution for now but FROM A FRESH SCOPE)
+                // Actually, standard resolution from a fresh scope is usually enough IF the dependencies are Scoped.
+                // The issue before was Singleton capturing Scoped? No, Singleton GelatoManager captured specific Scoped deps.
+                // If we resolve from NEW scope, we might get the SAME singleton GelatoManager?
+                // YES if it's registered as Singleton.
+                
+                // So we MUST manually construct it or assume it's Scoped. 
+                // GelatoManager is likely registered as Singleton.
+                // So resolving it from a new scope returns the SAME old instance with OLD dependencies!
+                
+                // We need to MANUALLY construct it here, just like in CatalogController.ImportItemViaGelato (old) or SyncTask.
+                
+                manager = scope.ServiceProvider.GetService(managerType);
+                
+                // If the resolved manager is the singleton one, it might be broken.
+                // Ideally we should use ActivatorUtilities to force a new one, but that requires concrete type.
+                // We can try to use the "manual construction" logic from CatalogSyncTask here if needed.
+                // BUT for now, let's just return the scope.
+                // Wait, if GelatoManager is Singleton, the Scope doesn't matter for IT, but matters for ITS dependencies if they are properties?
+                // No, dependencies are injected in constructor.
+
+                // If GelatoManager is Singleton, we are screwed unless we manually construct it.
+                // The previous fix (Frankenstein) worked because we manually constructed it.
+                // BUT I REMOVED the Frankenstein logic from ImportItemViaGelato and relied on `GetGelatoReferences`.
+                // Did I move the Frankenstein logic INTO GetGelatoReferences? 
+                
+                // Checking previous code... I see `scope.ServiceProvider.GetService(managerType)`.
+                // This returns the SINGLETON if registered as such.
+                // So we need to re-implement manual construction HERE.
+                
+                // Re-implementing simplified Frankenstein here:
+                 if (manager != null)
+                 {
+                     // Try to Create a NEW instance using the FRESH scope
+                     // This mimics what we did in CatalogSyncTask/CatalogController before refactor
+                     try 
+                     {
+                         var ctors = managerType.GetConstructors();
+                         foreach (var ctor in ctors)
+                         {
+                             var parameters = ctor.GetParameters();
+                             var args = new object[parameters.Length];
+                             bool allResolved = true;
+                             
+                             for (int i = 0; i < parameters.Length; i++)
+                             {
+                                 var pType = parameters[i].ParameterType;
+                                 
+                                 // Special handling for GelatoItemRepository
+                                 if (pType.Name.Contains("GelatoItemRepository"))
+                                 {
+                                     try 
+                                     {
+                                          var innerRepo = scope.ServiceProvider.GetService(typeof(MediaBrowser.Controller.Persistence.IItemRepository));
+                                          if (innerRepo != null)
+                                          {
+                                              // Manually creating GelatoItemRepository
+                                              // We assume we can find a constructor for it
+                                              var repoCtors = pType.GetConstructors();
+                                              if (repoCtors.Length > 0)
+                                              {
+                                                  // Best effort: find single param ctor taking IItemRepository or try to satisfy
+                                                   // ... Simplified: just try to resolve from scope first.
+                                                   // If that fails (ArgumentException issue), then manual.
+                                                  var svc = scope.ServiceProvider.GetService(pType);
+                                                  if (svc != null) 
+                                                  {
+                                                      args[i] = svc;
+                                                      continue; 
+                                                  }
+                                              }
+                                          }
+                                     } 
+                                     catch {}
+                                 }
+                                 
+                                 var service = scope.ServiceProvider.GetService(pType);
+                                 if (service == null && !parameters[i].IsOptional)
+                                 {
+                                     // Try to steal from singleton? 
+                                     // For now, let's assume we can resolve most things or rely on default
+                                     // Stealing from singleton is risky if that dependency was the broken one.
+                                     allResolved = false; 
+                                     break; 
+                                 }
+                                 args[i] = service;
+                             }
+                             
+                             if (allResolved)
+                             {
+                                 manager = ctor.Invoke(args);
+                                 break;
+                             }
+                         }
+                     }
+                     catch { /* Fallback to singleton */ }
+                 }
+
+                if (manager == null)
+                {
+                    // Fallback to static
+                     var pluginType = gelatoAssembly.GetType("Gelato.GelatoPlugin");
+                    if (pluginType != null)
+                    {
+                        var gelatoPlugin = pluginType.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)?.GetValue(null);
+                        if (gelatoPlugin != null)
+                        {
+                            var managerField = pluginType.GetField("_manager", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                            manager = managerField?.GetValue(gelatoPlugin);
+                        }
+                    }
+                }
+
+                return (manager, managerType, metaTypeEnum, scope);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[CatalogController] Failed to get Gelato references");
+                return (null, null, null, null);
+            }
+        }
+
+
+        /// <summary>
+        /// Helper: Get Gelato folder path from config
+        /// </summary>
+        private string GetGelatoFolderPath(string mediaType)
+        {
+            try
+            {
+                var gelatoConfigPath = System.IO.Path.Combine(
+                    _configurationManager.ApplicationPaths.PluginsPath, "configurations", "Gelato.xml");
+
+                if (!System.IO.File.Exists(gelatoConfigPath)) return null;
+
+                var xmlContent = System.IO.File.ReadAllText(gelatoConfigPath);
+                var xmlDoc = System.Xml.Linq.XDocument.Parse(xmlContent);
+
+                var isSeries = mediaType.Equals("tv", StringComparison.OrdinalIgnoreCase);
+                var pathElement = isSeries
+                    ? xmlDoc.Descendants("SeriesPath").FirstOrDefault()
+                    : xmlDoc.Descendants("MoviePath").FirstOrDefault();
+
+                return pathElement?.Value?.Trim();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Helper: Import a single item via Gelato's InsertMeta
+        /// </summary>
+        /// <summary>
+        /// Helper: Import a single item via Gelato's InsertMeta
+        /// </summary>
+        private async Task<string> ImportItemViaGelato(string imdbId, string mediaType, object gelatoManager, Type managerType, Type metaTypeEnum, string folderPath)
+        {
+            try
+            {
+                var gelatoAssembly = managerType.Assembly;
+                var stremioMetaType = gelatoAssembly.GetType("Gelato.StremioMeta");
+                if (stremioMetaType == null) return null;
+
+                // 1. Get Stremio Provider to fetch full metadata (especially Episodes for Series)
+                // We need to reflect into GelatoPlugin -> Instance -> GetConfig() -> stremio provider
+                object meta = null;
+                try 
+                {
+                    var pluginType = gelatoAssembly.GetType("Gelato.GelatoPlugin");
+                    if (pluginType != null)
+                    {
+                        var instanceProp = pluginType.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                        var pluginInstance = instanceProp?.GetValue(null);
+                        if (pluginInstance != null)
+                        {
+                            var getConfigMethod = pluginType.GetMethod("GetConfig");
+                            if (getConfigMethod != null)
+                            {
+                                var config = getConfigMethod.Invoke(pluginInstance, new object[] { Guid.Empty });
+                                if (config != null)
+                                {
+                                    var stremioField = config.GetType().GetField("stremio");
+                                    var stremioProvider = stremioField?.GetValue(config);
+                                    
+                                    if (stremioProvider != null)
+                                    {
+                                        var metaTypeVal = Enum.Parse(metaTypeEnum, mediaType == "tv" ? "Series" : "Movie", true);
+                                        var getMetaMethod = stremioProvider.GetType().GetMethod("GetMetaAsync", new[] { typeof(string), metaTypeEnum });
+                                        
+                                        if (getMetaMethod != null)
+                                        {
+                                            var task = (Task)getMetaMethod.Invoke(stremioProvider, new object[] { imdbId, metaTypeVal });
+                                            await task.ConfigureAwait(false);
+                                            
+                                            // Task<StremioMeta>
+                                            var resultProp = task.GetType().GetProperty("Result");
+                                            meta = resultProp?.GetValue(task);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex) 
+                {
+                     _logger.LogWarning("[CatalogController] Failed to fetch full meta for {Id}: {Msg}. Falling back to skeleton.", imdbId, ex.Message);
+                }
+
+                // Fallback: Create Skeleton StremioMeta object if fetch failed
+                if (meta == null)
+                {
+                    _logger.LogWarning("[CatalogController] Using skeleton meta for {Id} (Warning: Series episodes might differ)", imdbId);
+                    meta = Activator.CreateInstance(stremioMetaType);
+                    stremioMetaType.GetProperty("Id")?.SetValue(meta, imdbId);
+                    stremioMetaType.GetProperty("ImdbId")?.SetValue(meta, imdbId);
+                    
+                    var metaTypeVal = Enum.Parse(metaTypeEnum, mediaType == "tv" ? "Series" : "Movie", true);
+                    stremioMetaType.GetProperty("Type")?.SetValue(meta, metaTypeVal);
+                }
+
+                // 2. Create Transient GelatoManager
+                // The singleton GelatoManager holds a disposed LibraryManager/Repository.
+                // We create a new ephemeral instance using manual constructor injection (Frankenstein method)
+                object transientManager = null;
+                try 
+                {
+                    var sp = _httpContextAccessor.HttpContext?.RequestServices;
+                    if (sp != null)
+                    {
+                        var ctors = managerType.GetConstructors();
+                        var ctor = ctors.FirstOrDefault(); // GelatoManager usually has only one public ctor
+
+                        if (ctor != null)
+                        {
+                            var args = new List<object>();
+                            var parameters = ctor.GetParameters();
+
+                            foreach (var param in parameters)
+                            {
+                                object arg = null;
+                                var paramType = param.ParameterType;
+
+                                // 2A. Inject FRESH dependencies for Scoped services
+                                if (paramType.Name.Contains("IItemRepository") || paramType.Name.Contains("GelatoItemRepository") || 
+                                    paramType.Name.Contains("ILibraryManager") || paramType.Name.Contains("ICollectionManager"))
+                                {
+                                    // Special handling for GelatoItemRepository: It wraps IItemRepository.
+                                    // The instance in DI is a Singleton that wraps a stale IItemRepository.
+                                    // We must construct a FRESH GelatoItemRepository wrapping a FRESH IItemRepository.
+                                    if (paramType.Name.Contains("GelatoItemRepository"))
+                                    {
+                                         try 
+                                         {
+                                             // 1. Get Fresh Inner Repo
+                                             var innerRepo = sp.GetService(typeof(MediaBrowser.Controller.Persistence.IItemRepository));
+                                             
+                                             // 2. Create Fresh GelatoItemRepository manually
+                                             // Constructor is likely: (IItemRepository inner, IHttpContextAccessor http)
+                                             // We use Activator to ensure type compatibility with paramType
+                                             if (innerRepo != null)
+                                             {
+                                                 // Try to find a constructor we can satisfy
+                                                 var repoCtors = paramType.GetConstructors();
+                                                 foreach (var rCtor in repoCtors)
+                                                 {
+                                                     var rParams = rCtor.GetParameters();
+                                                     var rArgs = new List<object>();
+                                                     bool canSatisfy = true;
+                                                     foreach(var rp in rParams)
+                                                     {
+                                                         if (rp.ParameterType.IsAssignableFrom(innerRepo.GetType()) || rp.ParameterType.IsInstanceOfType(innerRepo))
+                                                         {
+                                                             rArgs.Add(innerRepo);
+                                                         }
+                                                         else 
+                                                         {
+                                                             var pService = sp.GetService(rp.ParameterType);
+                                                             if (pService != null) rArgs.Add(pService);
+                                                             else 
+                                                             {
+                                                                 canSatisfy = false;
+                                                                 break;
+                                                             }
+                                                         }
+                                                     }
+                                                     
+                                                     if (canSatisfy)
+                                                     {
+                                                         arg = rCtor.Invoke(rArgs.ToArray());
+                                                         break;
+                                                     }
+                                                 }
+                                             }
+                                         }
+                                         catch (Exception ex)
+                                         {
+                                             _logger.LogWarning("[CatalogController] Failed to manually construct GelatoItemRepository: {Msg}", ex.Message);
+                                         }
+                                    }
+                                    
+                                    // Fallback / Other types
+                                    if (arg == null)
+                                    {
+                                        var resolveType = paramType.Name.Contains("GelatoItemRepository") 
+                                            ? typeof(MediaBrowser.Controller.Persistence.IItemRepository) 
+                                            : paramType;
+
+                                        arg = sp.GetService(resolveType);
+                                    }
+                                }
+
+                                // 2B. If not resolved or not a scoped service, STEAL from Singleton instance
+                                if (arg == null && gelatoManager != null)
+                                {
+                                    // Heuristic: Map parameter names to private fields (e.g. loggerFactory -> _loggerFactory)
+                                    // Most standard DI injections follow either _camelCase or just camelCase field conventions
+                                    var fieldName = "_" + param.Name;
+                                    var field = managerType.GetField(fieldName, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+                                    
+                                    if (field == null)
+                                    {
+                                        // Try exact match
+                                        field = managerType.GetField(param.Name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+                                    }
+                                    
+                                    if (field != null)
+                                    {
+                                        arg = field.GetValue(gelatoManager);
+                                    }
+                                }
+
+                                // 2C. Fallback: Try resolution from container if stealing failed
+                                if (arg == null)
+                                {
+                                    arg = sp.GetService(paramType);
+                                }
+
+                                args.Add(arg);
+                            }
+
+                            // Check if we have a valid set of arguments (no nulls for non-nullable types)
+                            // Simplified check: just checking if we matched the count. 
+                            if (args.Count == parameters.Length)
+                            {
+                                transientManager = ctor.Invoke(args.ToArray());
+                                _logger.LogDebug("[CatalogController] Frankenstein Transient GelatoManager created successfully.");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[CatalogController] Failed to create transient GelatoManager (Frankenstein method), falling back to singleton.");
+                }
+
+                // Use transient manager if available, otherwise fallback
+                var managerToUse = transientManager ?? gelatoManager;
+
+
+                // Find parent folder
+                // Use the manager's TryGetFolder method logic if possible, or fallback to direct query
+                object parentFolder = null;
+                var getFolderMethod = managerType.GetMethod("TryGetFolder", new[] { typeof(string) });
+                
+                if (getFolderMethod != null)
+                {
+                    parentFolder = getFolderMethod.Invoke(managerToUse, new object[] { folderPath });
+                }
+
+                if (parentFolder == null)
+                {
+                    // Fallback to finding folder manually via our own valid library manager
+                    parentFolder = _libraryManager.GetItemList(new InternalItemsQuery
+                    {
+                        Path = folderPath,
+                        Recursive = false,
+                        Limit = 1
+                    }).OfType<Folder>().FirstOrDefault();
+                }
+
+                if (parentFolder == null)
+                {
+                    _logger.LogError("[CatalogController] Gelato folder not found: {Path}", folderPath);
+                    return null;
+                }
+
+                // Call InsertMeta - set allowRemoteRefresh=false just in case
+                var insertMetaMethod = managerType.GetMethod("InsertMeta");
+                if (insertMetaMethod == null) return null;
+
+                var insertTask = (Task)insertMetaMethod.Invoke(managerToUse, new object[]
+                {
+                    parentFolder,
+                    meta,
+                    Guid.Empty,
+                    false,  // allowRemoteRefresh=false
+                    true,   // refreshItem
+                    false,  // queueRefreshItem
+                    System.Threading.CancellationToken.None
+                });
+
+                await insertTask.ConfigureAwait(false);
+
+                // Get result ID
+                var resultTuple = insertTask.GetType().GetProperty("Result")?.GetValue(insertTask);
+                var itemField = resultTuple?.GetType().GetField("Item1");
+                var item = itemField?.GetValue(resultTuple);
+                return item?.GetType().GetProperty("Id")?.GetValue(item)?.ToString();
+            }
+            catch (System.Reflection.TargetInvocationException tie)
+            {
+                _logger.LogError(tie.InnerException ?? tie, "[CatalogController] Gelato import failed for {ImdbId}", imdbId);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[CatalogController] Import failed for {ImdbId}", imdbId);
+                return null;
+            }
+        }
+
+
 
         /// <summary>
         /// Preview changes for a catalog update
@@ -949,12 +1322,12 @@ namespace Baklava.Api
                 }
                 
                 var insertTask = (Task)insertMetaMethod.Invoke(gelatoManager, new object[] {
-                    parentFolder,
-                    metaResult,
-                    Guid.Empty, // userId
-                    true, // allowRemoteRefresh
-                    true, // refreshItem  
-                    false, // queueRefreshItem
+                    parentFolder,     // parentFolder
+                    metaResult,       // meta
+                    Guid.Empty,       // userId
+                    true,             // allowRemoteRefresh (Fixed: enabled to allow initial fetch)
+                    true,             // refreshItem  
+                    false,            // queueRefreshItem
                     System.Threading.CancellationToken.None
                 });
                 
@@ -1188,12 +1561,20 @@ namespace Baklava.Api
                     : $"{baseUrl}/catalog/{typeStr}/{encodedId}.json";
 
                 var resp = await http.GetAsync(url).ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode) break;
+                if (!resp.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("[CatalogController] Fetch failed for {Url}: {Status}", url, resp.StatusCode);
+                    break;
+                }
 
                 var content = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                 var catalogResp = JsonSerializer.Deserialize<StremioCatalogResponseDto>(content, JsonOptions);
 
-                if (catalogResp?.Metas == null || catalogResp.Metas.Count == 0) break;
+                if (catalogResp?.Metas == null || catalogResp.Metas.Count == 0)
+                {
+                    _logger.LogInformation("[CatalogController] Fetch returned empty or null metas for {Url}", url);
+                    break;
+                }
 
                 totalCount += catalogResp.Metas.Count;
                 

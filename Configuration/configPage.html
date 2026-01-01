@@ -33,41 +33,26 @@
                             style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
                     </div>
 
-                    <h5 style="color: #ddd; margin-bottom: 12px;">Debrid Services</h5>
-                    <p style="margin: 0 0 12px 0; font-size: 12px; color: #999;">
-                        Configure API keys for your debrid services. Only fill in the services you use.
-                    </p>
-
-                    <div style="margin-bottom: 12px;">
-                        <label for="realDebridApiKey"
-                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">RealDebrid API
-                            Key</label>
-                        <input id="realDebridApiKey" type="text" placeholder="Enter RealDebrid API Key"
+                    <div style="margin-bottom: 16px;">
+                        <label for="traktClientId" style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Trakt
+                            Client ID (required for Trakt reviews)</label>
+                        <input id="traktClientId" type="text" placeholder="Enter Trakt Client ID"
                             style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                        <p style="margin: 4px 0 0 0; font-size: 11px; color: #888;">
+                            Get your free API key at <a href="https://trakt.tv/oauth/applications" target="_blank" style="color: #1e90ff;">trakt.tv/oauth/applications</a>
+                        </p>
                     </div>
 
-                    <div style="margin-bottom: 12px;">
-                        <label for="torboxApiKey"
-                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">TorBox API Key</label>
-                        <input id="torboxApiKey" type="text" placeholder="Enter TorBox API Key"
+                    <div style="margin-bottom: 16px;">
+                        <label for="rapidApiKey" style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">RapidAPI
+                            Key (required for IMDb reviews)</label>
+                        <input id="rapidApiKey" type="text" placeholder="Enter RapidAPI Key"
                             style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
+                        <p style="margin: 4px 0 0 0; font-size: 11px; color: #888;">
+                            Subscribe to <strong>MoviesDatabase</strong> API at <a href="https://rapidapi.com/SAdrian/api/moviesdatabase" target="_blank" style="color: #1e90ff;">RapidAPI</a> (free tier available)
+                        </p>
                     </div>
 
-                    <div style="margin-bottom: 12px;">
-                        <label for="alldebridApiKey"
-                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">AllDebrid API
-                            Key</label>
-                        <input id="alldebridApiKey" type="text" placeholder="Enter AllDebrid API Key"
-                            style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
-                    </div>
-
-                    <div style="margin-bottom: 12px;">
-                        <label for="premiumizeApiKey"
-                            style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Premiumize API
-                            Key</label>
-                        <input id="premiumizeApiKey" type="text" placeholder="Enter Premiumize API Key"
-                            style="width:420px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;">
-                    </div>
                 </div>
 
                 <!-- Search Filter Settings -->
@@ -232,6 +217,46 @@
                         <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
                             When enabled, a carousel of user reviews will be displayed above the Cast & Crew section on
                             movie and TV show details pages.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 16px; margin-left: 28px;">
+                        <label for="reviewSource" style="display:block;margin-bottom:6px;color:#ddd;font-weight:600;">Review Source</label>
+                        <select id="reviewSource" 
+                            style="width:200px;padding:6px;border-radius:4px;border:1px solid #444;background:#111;color:#fff;cursor:pointer;">
+                            <option value="tmdb">TMDB</option>
+                            <option value="trakt">Trakt</option>
+                            <option value="imdb">IMDb (via RapidAPI)</option>
+                        </select>
+                        <p style="margin: 4px 0 0 0; font-size: 11px; color: #888;">
+                            Choose where to fetch reviews from. Ensure the corresponding API key is configured above.
+                        </p>
+                        
+                        <!-- RapidAPI IMDb Help Section -->
+                        <div style="margin-top: 12px; padding: 12px; background: rgba(30,144,255,0.1); border-left: 3px solid #1e90ff; border-radius: 4px;">
+                            <p style="margin: 0 0 8px 0; font-size: 12px; color: #1e90ff; font-weight: 600;">📌 About IMDb Reviews (RapidAPI)</p>
+                            <p style="margin: 0 0 6px 0; font-size: 11px; color: #bbb;">
+                                To use IMDb reviews, you need to subscribe to the <strong>IMDb Scraper API</strong> on RapidAPI:
+                            </p>
+                            <ul style="margin: 6px 0 6px 16px; padding: 0; font-size: 11px; color: #bbb;">
+                                <li style="margin-bottom: 4px;">
+                                    <strong>API:</strong> <a href="https://rapidapi.com/brightapi-bright-api-dev/api/imdb-scraper4" target="_blank" style="color: #1e90ff;">IMDb Scraper by BrightAPI</a>
+                                </li>
+                                <li style="margin-bottom: 4px;">
+                                    <strong>Cost:</strong> Free tier (BASIC) - $0.00/month
+                                </li>
+                                <li style="margin-bottom: 4px;">
+                                    <strong>Quota:</strong> Free tier includes sufficient requests for personal use
+                                </li>
+                                <li>
+                                    <strong>Steps:</strong> Visit the link above → Click "Subscribe" → Choose BASIC (free) → Use your RapidAPI key above
+                                </li>
+                            </ul>
+                            <p style="margin: 6px 0 0 0; font-size: 10px; color: #999;">
+                                💡 Tip: You can also use Trakt for reviews, which doesn't require subscription (just OAuth token)
+                            </p>
+                        </div>
+                    </div>
                         </p>
                     </div>
 
@@ -407,53 +432,52 @@
                             let response = await window.ApiClient.ajax({ type: 'GET', url: window.ApiClient.getUrl('api/baklava/config'), dataType: 'json' });
                             if (response && response.constructor && response.constructor.name === 'Response') response = await response.json();
                             document.getElementById('tmdbApiKey').value = response?.tmdbApiKey || '';
+                            document.getElementById('traktClientId').value = response?.traktClientId || '';
+                            document.getElementById('rapidApiKey').value = response?.rapidApiKey || '';
                             document.getElementById('forceTVClientLocalSearch').checked = response?.forceTVClientLocalSearch === true;
                             document.getElementById('enableAutoImport').checked = response?.enableAutoImport === true;
                             document.getElementById('disableModal').checked = response?.disableModal === true;
                             document.getElementById('showReviewsCarousel').checked = response?.showReviewsCarousel !== false;
+                            document.getElementById('reviewSource').value = response?.reviewSource || 'tmdb';
                             document.getElementById('versionUiSelect').value = response?.versionUi || 'carousel';
                             document.getElementById('audioUiSelect').value = response?.audioUi || 'carousel';
+                            document.getElementById('audioUiSelect').value = response?.audioUi || 'carousel';
                             document.getElementById('subtitleUiSelect').value = response?.subtitleUi || 'carousel';
+                            document.getElementById('catalogsMaxItems').value = response?.catalogMaxItems || 100;
 
                             // UI Injection Toggle
                             const val = response?.enableBaklavaUI ?? response?.EnableBaklavaUI;
                             document.getElementById('enableBaklavaUI').checked = (val === undefined) ? true : val;
 
-                            // Multi-debrid API keys
-                            document.getElementById('realDebridApiKey').value = response?.realDebridApiKey || response?.debridApiKey || '';
-                            document.getElementById('torboxApiKey').value = response?.torboxApiKey || '';
-                            document.getElementById('alldebridApiKey').value = response?.alldebridApiKey || '';
-                            document.getElementById('premiumizeApiKey').value = response?.premiumizeApiKey || '';
                             console.log('[Baklava][Config] Loaded config:', response);
                             return;
                         }
 
                         const url = (window.ApiClient && window.ApiClient.getUrl) ? window.ApiClient.getUrl('api/baklava/config') : (window.location.origin + '/api/baklava/config');
-                        const res = await fetch(url, { credentials: 'same-origin' });
+                        const res = await fetch(url + '?v=' + new Date().getTime(), { credentials: 'same-origin' });
                         if (!res.ok) throw new Error('Failed to load config');
                         const json = await res.json();
                         console.log('[Baklava][Config] Raw config response:', json);
 
                         document.getElementById('tmdbApiKey').value = json.tmdbApiKey || '';
+                        document.getElementById('traktClientId').value = json.traktClientId || '';
+                        document.getElementById('rapidApiKey').value = json.rapidApiKey || '';
                         document.getElementById('forceTVClientLocalSearch').checked = json.forceTVClientLocalSearch === true;
                         document.getElementById('enableAutoImport').checked = json.enableAutoImport === true;
                         document.getElementById('disableModal').checked = json.disableModal === true;
                         document.getElementById('showReviewsCarousel').checked = json.showReviewsCarousel !== false;
+                        document.getElementById('reviewSource').value = json.reviewSource || 'tmdb';
                         document.getElementById('versionUiSelect').value = json.versionUi || 'carousel';
                         document.getElementById('audioUiSelect').value = json.audioUi || 'carousel';
+                        document.getElementById('audioUiSelect').value = json.audioUi || 'carousel';
                         document.getElementById('subtitleUiSelect').value = json.subtitleUi || 'carousel';
+                        document.getElementById('catalogsMaxItems').value = json.catalogMaxItems || 100;
 
 
                         // UI Injection Toggle
                         const val2 = json.enableBaklavaUI ?? json.EnableBaklavaUI;
                         console.log('[Baklava] Loaded raw EnableBaklavaUI:', val2);
                         document.getElementById('enableBaklavaUI').checked = (val2 === undefined) ? true : val2;
-
-                        // Multi-debrid API keys
-                        document.getElementById('realDebridApiKey').value = json.realDebridApiKey || json.debridApiKey || '';
-                        document.getElementById('torboxApiKey').value = json.torboxApiKey || '';
-                        document.getElementById('alldebridApiKey').value = json.alldebridApiKey || '';
-                        document.getElementById('premiumizeApiKey').value = json.premiumizeApiKey || '';
 
                         console.log('[Baklava][Config] Config loaded setup complete');
                     } catch (e) {
@@ -466,29 +490,37 @@
 
                 document.getElementById('saveConfigBtn').addEventListener('click', async () => {
                     const key = document.getElementById('tmdbApiKey').value;
+                    const traktClientId = document.getElementById('traktClientId').value;
+                    const rapidApiKey = document.getElementById('rapidApiKey').value;
                     const forceTVLocal = document.getElementById('forceTVClientLocalSearch').checked;
                     const enableAutoImport = document.getElementById('enableAutoImport').checked;
                     const disableModal = document.getElementById('disableModal').checked;
                     const showReviewsCarousel = document.getElementById('showReviewsCarousel').checked;
+                    const reviewSource = document.getElementById('reviewSource').value;
 
+
+                    const versionUi = document.getElementById('versionUiSelect').value;
+                    const audioUi = document.getElementById('audioUiSelect').value;
+                    const subtitleUi = document.getElementById('subtitleUiSelect').value;
+                    const enableBaklavaUI = document.getElementById('enableBaklavaUI').checked;
 
                     const configData = {
                         tmdbApiKey: key,
+                        traktClientId: traktClientId,
+                        rapidApiKey: rapidApiKey,
                         enableSearchFilter: false,
                         forceTVClientLocalSearch: forceTVLocal,
                         enableAutoImport: enableAutoImport,
                         disableModal: disableModal,
                         showReviewsCarousel: showReviewsCarousel,
+                        reviewSource: reviewSource,
                         versionUi: versionUi,
                         audioUi: audioUi,
                         subtitleUi: subtitleUi,
+                        audioUi: audioUi,
+                        subtitleUi: subtitleUi,
                         enableBaklavaUI: enableBaklavaUI,
-                        debridService: 'realdebrid',
-                        debridApiKey: realDebridApiKey,
-                        realDebridApiKey: realDebridApiKey,
-                        torboxApiKey: torboxApiKey,
-                        alldebridApiKey: alldebridApiKey,
-                        premiumizeApiKey: premiumizeApiKey
+                        catalogMaxItems: parseInt(document.getElementById('catalogsMaxItems').value) || 100
                     };
 
                     try {
@@ -766,22 +798,26 @@
 
                     // --- Global Options Header ---
                     const headerDiv = document.createElement('div');
-                    headerDiv.style.marginBottom = '15px';
-                    headerDiv.style.padding = '10px';
-                    headerDiv.style.background = 'rgba(30, 144, 255, 0.1)';
-                    headerDiv.style.border = '1px solid rgba(30, 144, 255, 0.3)';
-                    headerDiv.style.borderRadius = '6px';
-                    headerDiv.style.display = 'flex';
-                    headerDiv.style.alignItems = 'center';
-                    headerDiv.style.gap = '10px';
+                    headerDiv.style.marginBottom = '10px';
+                    headerDiv.innerHTML = '<p style="color:#aaa;font-size:12px;margin:0 0 5px 0;">Check "Merge" to combine items into the Global Collection. <strong>Leave unchecked</strong> to import as separate collections with their own names.</p>';
 
-                    headerDiv.innerHTML = '<span style="font-size:1.5em">📦</span>';
+                    const controlsDiv = document.createElement('div');
+                    controlsDiv.style.marginBottom = '15px';
+                    controlsDiv.style.padding = '10px';
+                    controlsDiv.style.background = 'rgba(30, 144, 255, 0.1)';
+                    controlsDiv.style.border = '1px solid rgba(30, 144, 255, 0.3)';
+                    controlsDiv.style.borderRadius = '6px';
+                    controlsDiv.style.display = 'flex';
+                    controlsDiv.style.alignItems = 'center';
+                    controlsDiv.style.gap = '10px';
+
+                    controlsDiv.innerHTML = '<span style="font-size:1.5em">📦</span>';
 
                     // Global Name Input
                     const globalNameInput = document.createElement('input');
                     globalNameInput.type = 'text';
                     globalNameInput.id = 'bulkImportGlobalName';
-                    globalNameInput.placeholder = 'Merged Collection Name (for checked items)';
+                    globalNameInput.placeholder = 'Merged Collection Name (only for checked items)';
                     globalNameInput.style.flex = '1';
                     globalNameInput.style.padding = '8px';
                     globalNameInput.style.background = '#111';
@@ -789,9 +825,10 @@
                     globalNameInput.style.borderRadius = '4px';
                     globalNameInput.style.color = '#fff';
                     globalNameInput.disabled = true; // Disabled strictly by default
-                    headerDiv.appendChild(globalNameInput);
+                    controlsDiv.appendChild(globalNameInput);
 
                     listContainer.appendChild(headerDiv);
+                    listContainer.appendChild(controlsDiv);
 
                     // --- Items List ---
                     const itemsContainer = document.createElement('div');
@@ -823,6 +860,16 @@
                         mergeCb.style.width = '16px';
                         mergeCb.style.height = '16px';
                         itemDiv.appendChild(mergeCb);
+
+                        itemDiv.appendChild(mergeCb);
+
+                        // Merge Label
+                        const mergeLabel = document.createElement('span');
+                        mergeLabel.textContent = 'Merge';
+                        mergeLabel.style.fontSize = '11px';
+                        mergeLabel.style.color = '#888';
+                        mergeLabel.style.marginRight = '8px';
+                        itemDiv.appendChild(mergeLabel);
 
                         // Icon
                         const iconSpan = document.createElement('span');

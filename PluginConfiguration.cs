@@ -46,6 +46,15 @@ namespace Baklava
         // Show TMDB reviews carousel on item details pages
         public bool ShowReviewsCarousel { get; set; } = true;
         
+        // Review source selection: "tmdb", "trakt", or "imdb"
+        public string ReviewSource { get; set; } = "tmdb";
+        
+        // Trakt API Client ID
+        public string TraktClientId { get; set; } = string.Empty;
+        
+        // RapidAPI Key for IMDb reviews (MoviesDatabase API)
+        public string RapidApiKey { get; set; } = string.Empty;
+        
         // Toggle for Baklava UI Injection (index.html override)
         public bool EnableBaklavaUI { get; set; } = true;
 
@@ -60,5 +69,14 @@ namespace Baklava
         
         // Catalog import timeout in seconds
         public int CatalogImportTimeout { get; set; } = 300;
+        
+        // Delay between series imports (in milliseconds) to prevent rate limiting
+        // When importing series, each series triggers episode imports which can cause rate limits
+        // Default: 2000ms (2 seconds) between each series
+        public int SeriesImportDelayMs { get; set; } = 2000;
+        
+        // Maximum parallel imports for movies (series are always sequential to prevent rate limiting)
+        // Default: 2 (reduced from 4 to be more conservative)
+        public int MaxParallelMovieImports { get; set; } = 2;
     }
 }

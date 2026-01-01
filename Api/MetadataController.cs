@@ -39,10 +39,14 @@ namespace Baklava.Api
         private readonly ISessionManager _sessionManager;
         private readonly MediaBrowser.Common.Plugins.IPluginManager _pluginManager;
         private const string TMDB_BASE = "https://api.themoviedb.org/3";
+        private const int REVIEWS_LIMIT = 15;
         
         // Simple in-memory cache (consider using IMemoryCache for production)
         private static readonly Dictionary<string, (DateTime Expiry, string Data)> _cache = new();
         private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromMinutes(1);
+        
+        // Reviews database file path
+        private string GetReviewsDbPath() => System.IO.Path.Combine(_appPaths.DataPath, "reviews_cache.json");
 
         public MetadataController(
             ILogger<MetadataController> logger, 
@@ -164,14 +168,15 @@ namespace Baklava.Api
         public async Task<ActionResult> GetTMDBMetadata(
             [FromQuery] string? tmdbId,
             [FromQuery] string? imdbId,
+            [FromQuery] string? jellyfinId,
             [FromQuery] string itemType,
             [FromQuery] string? title,
             [FromQuery] string? year,
             [FromQuery] bool includeCredits = true,
             [FromQuery] bool includeReviews = true)
         {
-            _logger.LogInformation("[MetadataController.GetTMDBMetadata] Called with: tmdbId={TmdbId}, imdbId={ImdbId}, itemType={ItemType}, title={Title}, year={Year}", 
-                tmdbId ?? "null", imdbId ?? "null", itemType ?? "null", title ?? "null", year ?? "null");
+            _logger.LogInformation("[MetadataController.GetTMDBMetadata] Called with: tmdbId={TmdbId}, imdbId={ImdbId}, jellyfinId={JellyfinId}, itemType={ItemType}, title={Title}, year={Year}", 
+                tmdbId ?? "null", imdbId ?? "null", jellyfinId ?? "null", itemType ?? "null", title ?? "null", year ?? "null");
             
             try
             {
@@ -187,6 +192,27 @@ namespace Baklava.Api
                 _logger.LogInformation("[MetadataController.GetTMDBMetadata] Using mediaType: {MediaType}", mediaType);
                 
                 JsonDocument? mainData = null;
+
+                // Check Jellyfin library first to get IMDb ID from Gelato
+                if (!string.IsNullOrEmpty(jellyfinId) && string.IsNullOrEmpty(imdbId))
+                {
+                    try
+                    {
+                        if (Guid.TryParse(jellyfinId, out var itemId))
+                        {
+                            var item = _libraryManager.GetItemById(itemId);
+                            if (item?.ProviderIds != null && item.ProviderIds.TryGetValue("Imdb", out var gelato_imdbId) && !string.IsNullOrEmpty(gelato_imdbId))
+                            {
+                                _logger.LogInformation("[MetadataController.GetTMDBMetadata] Found Jellyfin IMDb ID from Gelato: {ImdbId}", gelato_imdbId);
+                                imdbId = gelato_imdbId;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[MetadataController.GetTMDBMetadata] Failed to get Jellyfin item by ID");
+                    }
+                }
 
                 // Try TMDB ID first
                 if (!string.IsNullOrEmpty(tmdbId))
@@ -619,12 +645,6 @@ namespace Baklava.Api
                     else return null;
                 }
                 
-                if (url.Contains("/resolve/", StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogWarning("[Baklava] SKIPPING probe for {SourceId} - URL is a resolve URL: {Path}", targetSource.Id, url);
-                    return data;
-                }
-                
                 _logger.LogInformation("[Baklava] Probing remote path: {Path}", url);
                 try
                 {
@@ -705,6 +725,13 @@ namespace Baklava.Api
         {
             var root = mainData.RootElement;
             var tmdbId = root.GetProperty("id").GetInt32().ToString();
+            
+            // Get IMDb ID for non-TMDB review sources
+            string? imdbId = null;
+            if (root.TryGetProperty("imdb_id", out var imdbIdProp))
+            {
+                imdbId = imdbIdProp.GetString();
+            }
 
             var tasks = new List<Task<JsonDocument?>>();
             
@@ -714,7 +741,26 @@ namespace Baklava.Api
             }
             if (includeReviews)
             {
-                tasks.Add(FetchTMDBAsync($"/{mediaType}/{tmdbId}/reviews", apiKey));
+                var cfg = Plugin.Instance?.Configuration;
+                var reviewSource = cfg?.ReviewSource ?? "tmdb";
+                
+                if (reviewSource == "tmdb")
+                {
+                    tasks.Add(FetchTMDBReviewsCached(imdbId, tmdbId, mediaType, apiKey));
+                }
+                else if (reviewSource == "trakt" && !string.IsNullOrEmpty(imdbId))
+                {
+                    tasks.Add(FetchTraktReviews(imdbId, mediaType, cfg?.TraktClientId));
+                }
+                else if (reviewSource == "imdb" && !string.IsNullOrEmpty(imdbId))
+                {
+                    tasks.Add(FetchIMDbReviews(imdbId, cfg?.RapidApiKey));
+                }
+                else
+                {
+                    // Fallback to null if no valid source
+                    tasks.Add(Task.FromResult<JsonDocument?>(null));
+                }
             }
 
             var results = await Task.WhenAll(tasks);
@@ -816,6 +862,82 @@ namespace Baklava.Api
         
 
         #endregion
+        
+        // --- Reviews Database Storage ---
+        
+        private class ReviewsCacheDb
+        {
+            public Dictionary<string, ReviewsCacheEntry> Reviews { get; set; } = new();
+        }
+        
+        private class ReviewsCacheEntry
+        {
+            public string ImdbId { get; set; } = string.Empty;
+            public string Source { get; set; } = string.Empty;
+            public string ReviewsJson { get; set; } = string.Empty;
+            public DateTime CachedAt { get; set; }
+        }
+        
+        private async Task<JsonDocument?> GetCachedReviews(string imdbId, string source)
+        {
+            try
+            {
+                var dbPath = GetReviewsDbPath();
+                if (!System.IO.File.Exists(dbPath)) return null;
+                
+                var json = await System.IO.File.ReadAllTextAsync(dbPath);
+                var db = JsonSerializer.Deserialize<ReviewsCacheDb>(json);
+                
+                var key = $"{imdbId}_{source}";
+                if (db?.Reviews.TryGetValue(key, out var entry) == true)
+                {
+                    _logger.LogInformation("[MetadataController] Found cached reviews for {ImdbId} from {Source}", imdbId, source);
+                    return JsonDocument.Parse(entry.ReviewsJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[MetadataController] Error reading reviews cache");
+            }
+            return null;
+        }
+        
+        private async Task SaveReviewsToCache(string imdbId, string source, JsonDocument reviews)
+        {
+            try
+            {
+                var dbPath = GetReviewsDbPath();
+                ReviewsCacheDb db;
+                
+                if (System.IO.File.Exists(dbPath))
+                {
+                    var json = await System.IO.File.ReadAllTextAsync(dbPath);
+                    db = JsonSerializer.Deserialize<ReviewsCacheDb>(json) ?? new ReviewsCacheDb();
+                }
+                else
+                {
+                    db = new ReviewsCacheDb();
+                }
+                
+                var key = $"{imdbId}_{source}";
+                db.Reviews[key] = new ReviewsCacheEntry
+                {
+                    ImdbId = imdbId,
+                    Source = source,
+                    ReviewsJson = reviews.RootElement.GetRawText(),
+                    CachedAt = DateTime.UtcNow
+                };
+                
+                var updatedJson = JsonSerializer.Serialize(db, new JsonSerializerOptions { WriteIndented = true });
+                await System.IO.File.WriteAllTextAsync(dbPath, updatedJson);
+                
+                _logger.LogInformation("[MetadataController] Saved reviews to cache for {ImdbId} from {Source}", imdbId, source);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[MetadataController] Error saving reviews cache");
+            }
+        }
 
         // Minimal ffprobe helpers (used as a last-resort fallback)
         private class AudioStreamDto
@@ -1025,6 +1147,248 @@ namespace Baklava.Api
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[Baklava] FFprobe Parsing Error");
+                return null;
+            }
+        }
+
+        // --- Review Fetchers for Multiple Sources ---
+        
+        private async Task<JsonDocument?> FetchTMDBReviewsCached(string? imdbId, string tmdbId, string mediaType, string apiKey)
+        {
+            // Check cache first if we have imdbId
+            if (!string.IsNullOrEmpty(imdbId))
+            {
+                var cached = await GetCachedReviews(imdbId, "tmdb");
+                if (cached != null) return cached;
+            }
+            
+            // Fetch from TMDB API
+            var reviews = await FetchTMDBAsync($"/{mediaType}/{tmdbId}/reviews", apiKey);
+            if (reviews == null) return null;
+            
+            // Limit to 15 reviews
+            var root = reviews.RootElement;
+            if (root.TryGetProperty("results", out var results) && results.GetArrayLength() > REVIEWS_LIMIT)
+            {
+                var limitedReviews = new List<JsonElement>();
+                var count = 0;
+                foreach (var review in results.EnumerateArray())
+                {
+                    if (count >= REVIEWS_LIMIT) break;
+                    limitedReviews.Add(review);
+                    count++;
+                }
+                
+                var limitedJson = JsonSerializer.Serialize(new { results = limitedReviews });
+                reviews = JsonDocument.Parse(limitedJson);
+            }
+            
+            // Save to cache if we have imdbId
+            if (!string.IsNullOrEmpty(imdbId))
+            {
+                await SaveReviewsToCache(imdbId, "tmdb", reviews);
+            }
+            
+            return reviews;
+        }
+        
+        private async Task<JsonDocument?> FetchTraktReviews(string imdbId, string mediaType, string? clientId)
+        {
+            if (string.IsNullOrEmpty(clientId))
+            {
+                _logger.LogWarning("[MetadataController] Trakt Client ID not configured");
+                return null;
+            }
+            
+            // Check cache first
+            var cached = await GetCachedReviews(imdbId, "trakt");
+            if (cached != null) return cached;
+            
+            try
+            {
+                // Trakt uses "movies" or "shows" 
+                var traktType = mediaType == "tv" ? "shows" : "movies";
+                var url = $"https://api.trakt.tv/{traktType}/{imdbId}/comments?limit={REVIEWS_LIMIT}";
+                
+                using var client = new HttpClient();
+                client.DefaultRequestHeaders.Add("Content-Type", "application/json");
+                client.DefaultRequestHeaders.Add("trakt-api-version", "2");
+                client.DefaultRequestHeaders.Add("trakt-api-key", clientId);
+                
+                var response = await client.GetStringAsync(url);
+                
+                // Transform Trakt comments to TMDB-like review format
+                using var doc = JsonDocument.Parse(response);
+                var comments = doc.RootElement;
+                
+                var reviews = new List<object>();
+                foreach (var comment in comments.EnumerateArray())
+                {
+                    var user = comment.GetProperty("user").GetProperty("username").GetString();
+                    var content = comment.GetProperty("comment").GetString();
+                    var createdAt = comment.GetProperty("created_at").GetString();
+                    
+                    reviews.Add(new
+                    {
+                        author = user ?? "Anonymous",
+                        author_details = new { username = user, rating = (int?)null },
+                        content = content ?? "",
+                        created_at = createdAt ?? "",
+                        id = comment.GetProperty("id").GetInt32().ToString(),
+                        url = $"https://trakt.tv/comments/{comment.GetProperty("id").GetInt32()}"
+                    });
+                }
+                
+                var reviewsJson = JsonSerializer.Serialize(new { results = reviews });
+                var reviewsDoc = JsonDocument.Parse(reviewsJson);
+                
+                // Save to cache
+                await SaveReviewsToCache(imdbId, "trakt", reviewsDoc);
+                
+                return reviewsDoc;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[MetadataController] Failed to fetch Trakt reviews for {ImdbId}", imdbId);
+                return null;
+            }
+        }
+        
+        private string CleanHTMLContent(string content)
+        {
+            if (string.IsNullOrEmpty(content)) return content;
+            
+            // Replace HTML line breaks with newlines
+            content = System.Text.RegularExpressions.Regex.Replace(content, @"<br\s*/?>\s*", "\n", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            
+            // Decode HTML entities
+            content = System.Net.WebUtility.HtmlDecode(content);
+            
+            // Remove any remaining HTML tags
+            content = System.Text.RegularExpressions.Regex.Replace(content, @"<[^>]*>", "");
+            
+            // Clean up multiple spaces and newlines
+            content = System.Text.RegularExpressions.Regex.Replace(content, @"\s+", " ").Trim();
+            
+            return content;
+        }
+        
+        private async Task<JsonDocument?> FetchIMDbReviews(string imdbId, string? rapidApiKey)
+        {
+            if (string.IsNullOrEmpty(rapidApiKey))
+            {
+                _logger.LogWarning("[MetadataController] RapidAPI Key not configured");
+                return null;
+            }
+            
+            // Check cache first
+            var cached = await GetCachedReviews(imdbId, "imdb");
+            if (cached != null) return cached;
+            
+            try
+            {
+                // IMDb Scraper API endpoint
+                var url = $"https://imdb-scraper4.p.rapidapi.com/?work_type=reviews_imdb&keyword_1={imdbId}&keyword_2={REVIEWS_LIMIT}";
+                
+                using var client = new HttpClient();
+                client.DefaultRequestHeaders.Add("X-RapidAPI-Key", rapidApiKey);
+                client.DefaultRequestHeaders.Add("X-RapidAPI-Host", "imdb-scraper4.p.rapidapi.com");
+                
+                var response = await client.GetStringAsync(url);
+                using var reviewsDoc = JsonDocument.Parse(response);
+                var root = reviewsDoc.RootElement;
+                
+                // Transform IMDb Scraper response to TMDB-like format
+                var reviews = new List<object>();
+                
+                // IMDb Scraper returns an array directly
+                if (root.ValueKind == JsonValueKind.Array)
+                {
+                    var count = 0;
+                    foreach (var review in root.EnumerateArray())
+                    {
+                        if (count >= REVIEWS_LIMIT) break;
+                        
+                        // Extract author - try multiple field names
+                        var author = "Anonymous";
+                        if (review.TryGetProperty("author", out var authorProp) && authorProp.ValueKind != JsonValueKind.Null)
+                        {
+                            author = authorProp.GetString() ?? "Anonymous";
+                        }
+                        else if (review.TryGetProperty("username", out var usernameProp) && usernameProp.ValueKind != JsonValueKind.Null)
+                        {
+                            author = usernameProp.GetString() ?? "Anonymous";
+                        }
+                        else if (review.TryGetProperty("name", out var nameProp) && nameProp.ValueKind != JsonValueKind.Null)
+                        {
+                            author = nameProp.GetString() ?? "Anonymous";
+                        }
+                        
+                        // Extract content and decode HTML entities
+                        var content = "";
+                        if (review.TryGetProperty("comment", out var commentProp) && commentProp.ValueKind != JsonValueKind.Null)
+                        {
+                            content = commentProp.GetString() ?? "";
+                        }
+                        else if (review.TryGetProperty("text", out var textProp) && textProp.ValueKind != JsonValueKind.Null)
+                        {
+                            content = textProp.GetString() ?? "";
+                        }
+                        
+                        // Clean HTML content
+                        content = CleanHTMLContent(content);
+                        
+                        // Extract rating - handle both number and string
+                        string? rating = null;
+                        if (review.TryGetProperty("rating", out var ratingProp) && ratingProp.ValueKind != JsonValueKind.Null)
+                        {
+                            rating = ratingProp.ValueKind == JsonValueKind.Number 
+                                ? ratingProp.GetDouble().ToString("F1") 
+                                : ratingProp.GetString();
+                        }
+                        
+                        reviews.Add(new
+                        {
+                            author = author,
+                            author_details = new { username = author, rating = rating },
+                            content = content,
+                            created_at = DateTime.UtcNow.ToString("O"),
+                            id = Guid.NewGuid().ToString(),
+                            rating = rating,
+                            url = $"https://www.imdb.com/title/{imdbId}/reviews"
+                        });
+                        count++;
+                    }
+                }
+                // Fallback: if it's an object with description field
+                else if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("description", out var descElement) && descElement.ValueKind != JsonValueKind.Null)
+                {
+                    var descString = descElement.GetString();
+                    if (!string.IsNullOrEmpty(descString))
+                    {
+                        reviews.Add(new
+                        {
+                            author = "IMDb Scraper",
+                            author_details = new { username = "IMDb Scraper", rating = (string?)null },
+                            content = descString,
+                            created_at = DateTime.UtcNow.ToString("O"),
+                            id = Guid.NewGuid().ToString(),
+                            url = $"https://www.imdb.com/title/{imdbId}/reviews"
+                        });
+                    }
+                }
+                
+                var reviewsJson = JsonSerializer.Serialize(new { results = reviews });
+                var reviewsDocFinal = JsonDocument.Parse(reviewsJson);
+                
+                // Save to cache
+                await SaveReviewsToCache(imdbId, "imdb", reviewsDocFinal);
+                
+                return reviewsDocFinal;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[MetadataController] Failed to fetch IMDb reviews for {ImdbId}", imdbId);
                 return null;
             }
         }

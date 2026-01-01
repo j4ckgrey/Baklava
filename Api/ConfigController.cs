@@ -35,17 +35,21 @@ namespace Baklava.Api
                 return Ok(new { 
                     defaultTmdbId = cfg.DefaultTmdbId, 
                     tmdbApiKey = cfg.TmdbApiKey,
+                    traktClientId = cfg.TraktClientId,
+                    rapidApiKey = cfg.RapidApiKey,
                     enableSearchFilter = cfg.EnableSearchFilter,
                     forceTVClientLocalSearch = cfg.ForceTVClientLocalSearch,
                     disableNonAdminRequests = cfg.DisableNonAdminRequests,
                     enableAutoImport = cfg.EnableAutoImport,
                     disableModal = cfg.DisableModal,
                     showReviewsCarousel = cfg.ShowReviewsCarousel,
+                    reviewSource = cfg.ReviewSource,
                     versionUi = cfg.VersionUi,
                     audioUi = cfg.AudioUi,
                     subtitleUi = cfg.SubtitleUi,
                     enableExternalSubtitles = cfg.EnableExternalSubtitles,
-                    enableBaklavaUI = cfg.EnableBaklavaUI
+                    enableBaklavaUI = cfg.EnableBaklavaUI,
+                    catalogMaxItems = cfg.CatalogMaxItems
                 });
             }
 
@@ -55,10 +59,12 @@ namespace Baklava.Api
                 enableAutoImport = cfg.EnableAutoImport,
                 disableModal = cfg.DisableModal,
                 showReviewsCarousel = cfg.ShowReviewsCarousel,
+                reviewSource = cfg.ReviewSource,
                 versionUi = cfg.VersionUi,
                 audioUi = cfg.AudioUi,
                 subtitleUi = cfg.SubtitleUi,
-                enableBaklavaUI = cfg.EnableBaklavaUI
+                enableBaklavaUI = cfg.EnableBaklavaUI,
+                catalogMaxItems = cfg.CatalogMaxItems
             });
         }
 
@@ -91,6 +97,14 @@ namespace Baklava.Api
 
             cfg.DefaultTmdbId = dto?.defaultTmdbId?.Trim();
             cfg.TmdbApiKey = dto?.tmdbApiKey?.Trim();
+            cfg.TraktClientId = dto?.traktClientId?.Trim();
+            cfg.RapidApiKey = dto?.rapidApiKey?.Trim();
+            
+            // Update review source
+            if (!string.IsNullOrWhiteSpace(dto.reviewSource))
+            {
+                cfg.ReviewSource = dto.reviewSource.Trim();
+            }
             
             // Update search filter settings
             if (dto.enableSearchFilter.HasValue)
@@ -142,6 +156,12 @@ namespace Baklava.Api
                 cfg.EnableExternalSubtitles = dto.enableExternalSubtitles.Value;
             }
             
+            if (dto.catalogMaxItems.HasValue)
+            {
+                cfg.CatalogMaxItems = dto.catalogMaxItems.Value;
+                _logger.LogInformation("[ConfigController] CatalogMaxItems updated to: {Value}", cfg.CatalogMaxItems);
+            }
+            
             Plugin.Instance.SaveConfiguration();
             _logger.LogInformation("[ConfigController] Configuration saved.");
             return Ok();
@@ -152,6 +172,9 @@ namespace Baklava.Api
     {
         public string defaultTmdbId { get; set; }
         public string tmdbApiKey { get; set; }
+        public string traktClientId { get; set; }
+        public string rapidApiKey { get; set; }
+        public string reviewSource { get; set; }
         public bool? enableSearchFilter { get; set; }
         public bool? forceTVClientLocalSearch { get; set; }
         public bool? disableNonAdminRequests { get; set; }
@@ -163,5 +186,6 @@ namespace Baklava.Api
         public string subtitleUi { get; set; }
         public bool? enableExternalSubtitles { get; set; }
         public bool? enableBaklavaUI { get; set; }
+        public int? catalogMaxItems { get; set; }
     }
 }

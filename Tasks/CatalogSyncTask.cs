@@ -51,7 +51,7 @@ namespace Baklava.Tasks
             _httpContextAccessor = httpContextAccessor;
         }
 
-        public string Name => "Sync Stremio Catalogs";
+        public string Name => "Update Catalogs";
         public string Key => "BaklavaCatalogSync";
         public string Description => "Syncs all Stremio catalog collections with their source catalogs. Adds new items from the catalog.";
         public string Category => "Baklava";
@@ -228,17 +228,23 @@ namespace Baklava.Tasks
                     var response = await http.GetStringAsync(url, ct).ConfigureAwait(false);
                     var page = JsonSerializer.Deserialize<CatalogResponse>(response);
 
-                    if (page?.Metas == null || page.Metas.Count == 0)
+                if (page?.Metas == null || page.Metas.Count == 0)
                         break;
 
-                    items.AddRange(page.Metas.Select(m => new CatalogItem
+                    // Strictly limit the number of items added to respect maxItems
+                    var remaining = maxItems - items.Count;
+                    if (remaining <= 0) break;
+
+                    var batch = page.Metas.Take(remaining).ToList();
+
+                    items.AddRange(batch.Select(m => new CatalogItem
                     {
                         Id = m.Id,
                         ImdbId = GetImdbId(m.Id),
                         Name = m.Name
                     }));
 
-                    skip += page.Metas.Count;
+                    skip += page.Metas.Count; // Increment skip by full page count to maintain pagination alignment
                 }
                 catch (Exception ex)
                 {
@@ -293,72 +299,152 @@ namespace Baklava.Tasks
                 return;
             }
 
-            // Import missing items (same logic as CatalogController)
-            var mediaType = type.Equals("series", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie";
-            var imported = 0;
-            var failed = 0;
-
-            foreach (var item in missing.Take(maxItems - linkedIds.Length))
+            // Strict Limit Check
+            if (linkedIds.Length >= maxItems)
             {
-                ct.ThrowIfCancellationRequested();
+                _logger.LogInformation("[Baklava] Collection has reached max items limit ({Limit}). Stopping sync.", maxItems);
+                return;
+            }
 
-                try
+            // Import missing items with rate limiting for series
+            var mediaType = type.Equals("series", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie";
+            var importedIds = new System.Collections.Concurrent.ConcurrentBag<Guid>();
+            var failed = 0;
+            
+            // Limit the number of items we will try to add
+            var itemsToProcess = missing.Take(maxItems - linkedIds.Length).ToList();
+            
+            _logger.LogInformation("[Baklava] Starting batch import for {Count} items (type: {Type})...", itemsToProcess.Count, mediaType);
+
+            var isSeries = mediaType.Equals("tv", StringComparison.OrdinalIgnoreCase);
+            var cfg = Plugin.Instance?.Configuration;
+            
+            // For SERIES: Process sequentially with delays to prevent rate limiting
+            // Each series import triggers episode metadata fetches, which can overwhelm APIs
+            if (isSeries)
+            {
+                var seriesDelay = cfg?.SeriesImportDelayMs ?? 2000;
+                _logger.LogInformation("[Baklava] Processing {Count} series SEQUENTIALLY with {Delay}ms delay between each to prevent rate limiting", 
+                    itemsToProcess.Count, seriesDelay);
+                
+                for (int i = 0; i < itemsToProcess.Count; i++)
                 {
-                    var imdbId = item.ImdbId!;
-
-                    // CHECK 1: Already in library (but not in collection)?
-                    var libraryItem = libraryManager.GetItemList(new InternalItemsQuery
+                    ct.ThrowIfCancellationRequested();
+                    var item = itemsToProcess[i];
+                    
+                    try
                     {
-                        HasAnyProviderId = new Dictionary<string, string> { { "Imdb", imdbId } },
-                        Recursive = true,
-                        Limit = 1,
-                        IncludeItemTypes = new[] { mediaType.Equals("tv") ? BaseItemKind.Series : BaseItemKind.Movie }
-                    }).FirstOrDefault();
+                        var imdbId = item.ImdbId!;
+                        _logger.LogInformation("[Baklava] [{Current}/{Total}] Processing series: {Name} ({ImdbId})", 
+                            i + 1, itemsToProcess.Count, item.Name ?? imdbId, imdbId);
 
-                    // If not in library, import it
-                    if (libraryItem == null)
-                    {
-                        var importedIdStr = await ImportItemViaReflection(imdbId, mediaType).ConfigureAwait(false);
-                        
-                        if (string.IsNullOrEmpty(importedIdStr))
-                        {
-                            _logger.LogWarning("[Baklava] Import failed for {ImdbId}", imdbId);
-                            failed++;
-                            continue;
-                        }
-                        
-                        // Fetch it again after import
-                        libraryItem = libraryManager.GetItemList(new InternalItemsQuery
+                        // Check if already in library
+                        var libraryItem = libraryManager.GetItemList(new InternalItemsQuery
                         {
                             HasAnyProviderId = new Dictionary<string, string> { { "Imdb", imdbId } },
                             Recursive = true,
-                            Limit = 1
+                            Limit = 1,
+                            IncludeItemTypes = new[] { BaseItemKind.Series }
                         }).FirstOrDefault();
-                    }
 
-                    if (libraryItem == null)
+                        if (libraryItem == null)
+                        {
+                            var importedIdStr = await ImportItemViaReflection(imdbId, mediaType).ConfigureAwait(false);
+                            
+                            if (!string.IsNullOrEmpty(importedIdStr) && Guid.TryParse(importedIdStr, out var newGuid))
+                            {
+                                importedIds.Add(newGuid);
+                                _logger.LogInformation("[Baklava] ✓ Successfully imported series: {Name}", item.Name ?? imdbId);
+                            }
+                            else
+                            {
+                                failed++;
+                                _logger.LogWarning("[Baklava] ✗ Failed to import series: {Name}", item.Name ?? imdbId);
+                            }
+                        }
+                        else
+                        {
+                            importedIds.Add(libraryItem.Id);
+                            _logger.LogDebug("[Baklava] ✓ Series already exists: {Name}", item.Name ?? imdbId);
+                        }
+                        
+                        // Delay between series imports (except after the last one)
+                        if (i < itemsToProcess.Count - 1)
+                        {
+                            _logger.LogDebug("[Baklava] Waiting {Delay}ms before next series...", seriesDelay);
+                            await Task.Delay(seriesDelay, ct).ConfigureAwait(false);
+                        }
+                    }
+                    catch (Exception ex)
                     {
-                        _logger.LogWarning("[Baklava] Could not find item by IMDB {ImdbId} even after import", imdbId);
+                        _logger.LogError(ex, "[Baklava] Failed to process series {ImdbId}: {Message}", item.ImdbId, ex.Message);
                         failed++;
-                        continue;
                     }
+                }
+            }
+            else
+            {
+                // For MOVIES: Use parallel processing (but limit parallelism to avoid rate limits)
+                var maxParallel = cfg?.MaxParallelMovieImports ?? 2;
+                _logger.LogInformation("[Baklava] Processing {Count} movies with {Parallel} parallel imports", 
+                    itemsToProcess.Count, maxParallel);
+                
+                await Parallel.ForEachAsync(itemsToProcess, new ParallelOptions { MaxDegreeOfParallelism = maxParallel, CancellationToken = ct }, async (item, token) =>
+                {
+                    try
+                    {
+                        var imdbId = item.ImdbId!;
 
-                    // Add to collection
-                    _logger.LogInformation("[Baklava] Adding '{Name}' to collection", libraryItem.Name);
-                    await collectionManager.AddToCollectionAsync(collection.Id, new[] { libraryItem.Id }).ConfigureAwait(false);
-                    imported++;
+                        // Check if already in library
+                        var libraryItem = libraryManager.GetItemList(new InternalItemsQuery
+                        {
+                            HasAnyProviderId = new Dictionary<string, string> { { "Imdb", imdbId } },
+                            Recursive = true,
+                            Limit = 1,
+                            IncludeItemTypes = new[] { BaseItemKind.Movie }
+                        }).FirstOrDefault();
 
-                    // 2 second delay to let Jellyfin fully release file locks
-                    await Task.Delay(2000, ct).ConfigureAwait(false);
+                        if (libraryItem == null)
+                        {
+                            var importedIdStr = await ImportItemViaReflection(imdbId, mediaType).ConfigureAwait(false);
+                            
+                            if (!string.IsNullOrEmpty(importedIdStr) && Guid.TryParse(importedIdStr, out var newGuid))
+                            {
+                                importedIds.Add(newGuid);
+                            }
+                            else
+                            {
+                                failed++;
+                            }
+                        }
+                        else
+                        {
+                            importedIds.Add(libraryItem.Id);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[Baklava] Failed to process movie {ImdbId}", item.ImdbId);
+                        failed++;
+                    }
+                }).ConfigureAwait(false);
+            }
+
+            if (!importedIds.IsEmpty)
+            {
+                try 
+                {
+                    _logger.LogInformation("[Baklava] Adding {Count} items to collection '{Name}' in one batch...", importedIds.Count, collection.Name);
+                    await collectionManager.AddToCollectionAsync(collection.Id, importedIds.Distinct().ToArray()).ConfigureAwait(false);
+                    _logger.LogInformation("[Baklava] Batch add successful.");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[Baklava] Failed to process item {ImdbId}", item.ImdbId);
-                    failed++;
+                     _logger.LogError(ex, "[Baklava] Failed to batch add items to collection.");
                 }
             }
 
-            _logger.LogInformation("[Baklava] Import complete. Success: {Success}, Failed: {Failed}", imported, failed);
+            _logger.LogInformation("[Baklava] Import complete. Success: {Success}, Failed: {Failed}", importedIds.Count, failed);
         }
 
         private async Task<string?> ImportItemViaReflection(string imdbId, string type)
@@ -385,37 +471,182 @@ namespace Baklava.Tasks
                     return null;
                 }
                 
-                // Get Manager Instance
+                // Get Singleton Manager Instance (to steal dependencies from)
                 using var scope = _scopeFactory.CreateScope();
-                var manager = scope.ServiceProvider.GetService(managerType);
-                if (manager == null)
+                var singletonManager = scope.ServiceProvider.GetService(managerType);
+                if (singletonManager == null)
                 {
                     _logger.LogError("[Baklava] GelatoManager service not found");
                     return null;
                 }
 
-                // 1. Create stub StremioMeta object via reflection - Gelato will fill it "naturally"
-                var stremioMetaType = gelatoAssembly.GetType("Gelato.StremioMeta");
-                if (stremioMetaType == null)
+                // --- FRANKENSTEIN START ---
+                // Create Transient GelatoManager using manual constructor injection
+                // We steal singletons from the existing manager and inject FRESH scoped services (Repository/Library)
+                
+                object managerToUse = singletonManager;
+                object? transientManager = null;
+
+                try 
                 {
-                    _logger.LogError("[Baklava] StremioMeta type not found in Gelato assembly");
-                    return null;
+                    var ctors = managerType.GetConstructors();
+                    var ctor = ctors.FirstOrDefault(); 
+
+                    if (ctor != null)
+                    {
+                        var args = new List<object>();
+                        var parameters = ctor.GetParameters();
+
+                        foreach (var param in parameters)
+                        {
+                            object? arg = null;
+                            var paramType = param.ParameterType;
+
+                            // 1. Inject FRESH scoped dependencies
+                            if (paramType.Name.Contains("IItemRepository") || paramType.Name.Contains("GelatoItemRepository") || 
+                                paramType.Name.Contains("ILibraryManager") || paramType.Name.Contains("ICollectionManager"))
+                            {
+                                 // Special handling for GelatoItemRepository to ensure fresh inner repo
+                                 if (paramType.Name.Contains("GelatoItemRepository"))
+                                 {
+                                     try 
+                                     {
+                                         var innerRepo = scope.ServiceProvider.GetService(typeof(MediaBrowser.Controller.Persistence.IItemRepository));
+                                         if (innerRepo != null)
+                                         {
+                                             var repoCtors = paramType.GetConstructors();
+                                             foreach (var rCtor in repoCtors)
+                                             {
+                                                 var rParams = rCtor.GetParameters();
+                                                 var rArgs = new List<object>();
+                                                 bool canSatisfy = true;
+                                                 foreach(var rp in rParams)
+                                                 {
+                                                     if (rp.ParameterType.IsInstanceOfType(innerRepo))
+                                                         rArgs.Add(innerRepo);
+                                                     else 
+                                                     {
+                                                         var pService = scope.ServiceProvider.GetService(rp.ParameterType);
+                                                         if (pService != null) rArgs.Add(pService);
+                                                         else { canSatisfy = false; break; }
+                                                     }
+                                                 }
+                                                 if (canSatisfy) { arg = rCtor.Invoke(rArgs.ToArray()); break; }
+                                             }
+                                         }
+                                     }
+                                     catch (Exception ex) { _logger.LogWarning("[Baklava] Failed to manually construct GelatoItemRepository in SyncTask: {Msg}", ex.Message); }
+                                 }
+
+                                if (arg == null)
+                                {
+                                    var resolveType = paramType.Name.Contains("GelatoItemRepository") 
+                                        ? typeof(MediaBrowser.Controller.Persistence.IItemRepository) 
+                                        : paramType;
+
+                                    arg = scope.ServiceProvider.GetService(resolveType);
+                                }
+                            }
+
+                            // 2. Steal from Singleton if not resolved
+                            if (arg == null)
+                            {
+                                var fieldName = "_" + param.Name;
+                                var field = managerType.GetField(fieldName, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+                                
+                                if (field == null)
+                                    field = managerType.GetField(param.Name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+                                
+                                if (field != null)
+                                    arg = field.GetValue(singletonManager);
+                            }
+
+                            // 3. Fallback resolve
+                            if (arg == null)
+                                arg = scope.ServiceProvider.GetService(paramType);
+
+                            args.Add(arg!);
+                        }
+
+                        if (args.Count == parameters.Length)
+                        {
+                            transientManager = ctor.Invoke(args.ToArray());
+                            _logger.LogDebug("[Baklava] Frankenstein Transient GelatoManager created for SyncTask.");
+                        }
+                    }
                 }
-                
-                var metaResult = Activator.CreateInstance(stremioMetaType);
-                
-                // Set ID and ImdbId
-                stremioMetaType.GetProperty("Id")?.SetValue(metaResult, imdbId);
-                stremioMetaType.GetProperty("ImdbId")?.SetValue(metaResult, imdbId);
-                
-                // Set Type
-                var metaTypeVal = Enum.Parse(metaTypeEnum, type.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "Series" : "Movie", true);
-                stremioMetaType.GetProperty("Type")?.SetValue(metaResult, metaTypeVal);
-                
-                // Clear Videos for series to ensure Gelato fetches them
-                if (type.Equals("tv", StringComparison.OrdinalIgnoreCase))
+                catch (Exception ex)
                 {
-                    stremioMetaType.GetProperty("Videos")?.SetValue(metaResult, null);
+                    _logger.LogWarning(ex, "[Baklava] Failed to create transient GelatoManager in SyncTask, using singleton.");
+                }
+
+                if (transientManager != null) managerToUse = transientManager;
+                // --- FRANKENSTEIN END ---
+
+                object metaResult = null;
+
+                 // 1. Try to Fetch Full Metadata via StremioProvider
+                try 
+                {
+                    object pluginInstance = null;
+                    var instanceProp = pluginType.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    if (instanceProp != null) pluginInstance = instanceProp.GetValue(null);
+
+                    if (pluginInstance != null)
+                    {
+                        var getConfigMethod = pluginType.GetMethod("GetConfig");
+                        if (getConfigMethod != null)
+                        {
+                            var config = getConfigMethod.Invoke(pluginInstance, new object[] { Guid.Empty });
+                            if (config != null)
+                            {
+                                var stremioField = config.GetType().GetField("stremio");
+                                var stremioProvider = stremioField?.GetValue(config);
+                                
+                                if (stremioProvider != null)
+                                {
+                                    var metaTypeValForFetch = Enum.Parse(metaTypeEnum, type.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "Series" : "Movie", true);
+                                    var getMetaMethod = stremioProvider.GetType().GetMethod("GetMetaAsync", new[] { typeof(string), metaTypeEnum });
+                                    
+                                    if (getMetaMethod != null)
+                                    {
+                                        var task = (Task)getMetaMethod.Invoke(stremioProvider, new object[] { imdbId, metaTypeValForFetch });
+                                        await task.ConfigureAwait(false);
+                                        
+                                        var resultProp = task.GetType().GetProperty("Result");
+                                        metaResult = resultProp?.GetValue(task);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("[Baklava] Failed to fetch full meta for {Id} in SyncTask: {Msg}", imdbId, ex.Message);
+                }
+
+                // 2. Fallback: Create stub StremioMeta object
+                if (metaResult == null)
+                {
+                     var stremioMetaType = gelatoAssembly.GetType("Gelato.StremioMeta");
+                    if (stremioMetaType == null) return null;
+                    
+                    metaResult = Activator.CreateInstance(stremioMetaType);
+                    if (metaResult == null) return null;
+
+                    // Set ID and ImdbId
+                    stremioMetaType.GetProperty("Id")?.SetValue(metaResult, imdbId);
+                    stremioMetaType.GetProperty("ImdbId")?.SetValue(metaResult, imdbId);
+                    
+                    // Set Type
+                    var metaTypeVal = Enum.Parse(metaTypeEnum, type.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "Series" : "Movie", true);
+                    stremioMetaType.GetProperty("Type")?.SetValue(metaResult, metaTypeVal);
+                    
+                    if (type.Equals("tv", StringComparison.OrdinalIgnoreCase))
+                    {
+                        stremioMetaType.GetProperty("Videos")?.SetValue(metaResult, null);
+                    }
                 }
 
                 // Determine Parent Folder
@@ -423,7 +654,7 @@ namespace Baklava.Tasks
                 var folderMethodName = isSeries ? "TryGetSeriesFolder" : "TryGetMovieFolder";
                 var getFolderMethod = managerType.GetMethod(folderMethodName, new Type[] { typeof(Guid) });
                 
-                var parentFolder = getFolderMethod?.Invoke(manager, new object[] { Guid.Empty });
+                var parentFolder = getFolderMethod?.Invoke(managerToUse, new object[] { Guid.Empty });
                 if (parentFolder == null)
                 {
                     _logger.LogError("[Baklava] Root folder not found for {Type}", type);
@@ -432,17 +663,13 @@ namespace Baklava.Tasks
 
                 // Insert Meta
                 var insertMetaMethod = managerType.GetMethod("InsertMeta");
-                if (insertMetaMethod == null)
-                {
-                    _logger.LogError("[Baklava] InsertMeta method not found");
-                    return null;
-                }
+                if (insertMetaMethod == null) return null;
                 
-                var insertTask = (Task)insertMetaMethod.Invoke(manager, new object[] {
+                var insertTask = (Task)insertMetaMethod.Invoke(managerToUse, new object[] {
                     parentFolder,
                     metaResult,
                     Guid.Empty, // userId
-                    true, // allowRemoteRefresh
+                    true, // allowRemoteRefresh (Enabled for initial fetch)
                     true, // refreshItem
                     false, // queueRefreshItem
                     System.Threading.CancellationToken.None
