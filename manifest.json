@@ -13,9 +13,9 @@
         "changelog": "Enhanced logging for catalog import, added IMDb reviews feature",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/j4ckgrey/Baklava/releases/download/v0.8.0.0/baklava_0.8.0.0.zip",
-        "checksum": "e9e2acf56e83e88e9a521cf58d2a1312",
+        "checksum": "91671529382cf788b3d5a3b47f5affee",
         "checksumType": "md5",
-        "timestamp": "2026-01-01T22:20:00Z"
+        "timestamp": "2026-01-01T22:35:00Z"
       },
       {
         "version": "0.7.0.0",
