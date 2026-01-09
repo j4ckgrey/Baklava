@@ -27,7 +27,7 @@
 
             const tmdbId = item.ProviderIds?.Tmdb;
             const imdbId = item.ProviderIds?.Imdb;
-            const itemType = item.Type === 'Series' ? 'series' : 'movie';
+            const itemType = item.Type;
 
             if (!tmdbId && !imdbId) {
                 console.log('[ReviewsCarousel] No TMDB/IMDB ID found');
@@ -36,21 +36,15 @@
 
             console.log('[ReviewsCarousel] Fetching reviews for itemType:', itemType, 'tmdbId:', tmdbId, 'imdbId:', imdbId);
 
-            const params = new URLSearchParams();
-            if (tmdbId) params.append('tmdbId', tmdbId);
-            if (imdbId) params.append('imdbId', imdbId);
-            params.append('itemType', itemType);
-            params.append('includeCredits', 'false');
-            params.append('includeReviews', 'true');
-
-            const url = window.ApiClient.getUrl('api/baklava/metadata/tmdb') + '?' + params;
+            // Use new ReviewsController endpoint
+            const url = window.ApiClient.getUrl(`api/baklava/reviews/${itemId}`);
             const response = await window.ApiClient.ajax({
                 type: 'GET',
                 url: url,
                 dataType: 'json'
             });
 
-            const reviews = response?.reviews?.results || [];
+            const reviews = response?.results || [];
             console.log('[ReviewsCarousel] Found', reviews.length, 'reviews');
             return reviews;
         } catch (err) {

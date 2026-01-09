@@ -19,6 +19,14 @@ namespace Baklava
             // Register IStartupFilter to inject UI middleware
             services.AddTransient<Microsoft.AspNetCore.Hosting.IStartupFilter, Baklava.Api.UIInjectionStartupFilter>();
 
+            // Register Baklava Database Service as a singleton
+            services.AddSingleton<BaklavaDbService>();
+            
+            // Register Refactored Services
+
+            services.AddSingleton<StreamService>();
+            services.AddSingleton<SubtitleService>();
+
             // Register Scheduled Tasks
             services.AddSingleton<MediaBrowser.Model.Tasks.IScheduledTask, Baklava.Tasks.CatalogSyncTask>();
         }

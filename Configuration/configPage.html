@@ -105,13 +105,23 @@
                     style="margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 8px; box-sizing: border-box;">
                     <h4 style="margin-top: 0; color: #1e90ff;">External Subtitles</h4>
                     <div style="margin-bottom: 12px;">
-                        <label style="display: flex; align-items: center; cursor: not-allowed; opacity: 0.6;">
-                            <input id="enableExternalSubtitles" type="checkbox" style="margin-right: 8px;" disabled>
-                            <span style="color:#ddd;">Enable External Subtitles (Disabled)</span>
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input id="enableExternalSubtitles" type="checkbox" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
+                            <span style="color:#ddd; font-weight: 600;">Enable External Subtitles from Gelato</span>
                         </label>
-                        <p style="margin: 4px 0 0 28px; font-size: 12px; color: #999;">
-                            This feature is currently disabled for stability.
+                        <p style="margin: 8px 0 0 28px; font-size: 12px; color: #aaa; line-height: 1.5;">
+                            When enabled, Baklava will automatically fetch external subtitles from Gelato/Stremio and cache them permanently.
+                            Subtitles are served through Baklava's proxy to prevent Jellyfin from disposing them.
                         </p>
+                        <div style="margin: 12px 0 0 28px; padding: 12px; background: rgba(30,144,255,0.1); border-left: 3px solid #1e90ff; border-radius: 4px;">
+                            <p style="margin: 0 0 6px 0; font-size: 12px; color: #1e90ff; font-weight: 600;">ℹ️ How It Works</p>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 11px; color: #bbb; line-height: 1.6;">
+                                <li>External subtitles from Gelato are cached in Baklava's database</li>
+                                <li>Subtitles are proxied through <code>/api/baklava/subtitles/proxy</code></li>
+                                <li>Cache persists across server restarts (no disposal)</li>
+                                <li>Automatically fetched when you play videos</li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
 
@@ -302,6 +312,55 @@
                         </p>
                     </div>
                 </div>
+
+                <!-- Cache Settings -->
+                <div
+                    style="margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 8px; box-sizing: border-box;">
+                    <h4 style="margin-top: 0; margin-bottom: 16px; color: #1e90ff;">Cache Settings</h4>
+                    
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="useBaklavaCache"
+                                style="width: 18px; height: 18px; margin-right: 10px; cursor: pointer;" />
+                            <span style="color: #ddd; font-weight: 600;">Enable Baklava Stream Cache</span>
+                        </label>
+                        <p style="margin: 8px 0 0 28px; font-size: 12px; color: #aaa; line-height: 1.5;">
+                            When enabled, Baklava will cache stream information (URLs, probed data) to its own database.
+                            This prevents Jellyfin's cache disposal issues and improves performance. Cached data persists
+                            permanently until manually deleted via the API.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Staging Settings -->
+                <div
+                    style="margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 8px; box-sizing: border-box;">
+                    <h4 style="margin-top: 0; margin-bottom: 16px; color: #1e90ff;">Catalog Staging Settings</h4>
+                    
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="useBaklavaStaging"
+                                style="width: 18px; height: 18px; margin-right: 10px; cursor: pointer;" />
+                            <span style="color: #ddd; font-weight: 600;">Enable Baklava Staging (Two-Phase Import)</span>
+                        </label>
+                        <p style="margin: 8px 0 0 28px; font-size: 12px; color: #aaa; line-height: 1.5;">
+                            When enabled, catalog imports are staged in Baklava's database first, then gradually synced
+                            to Jellyfin in the background (20 items every 5 minutes). This prevents database lock issues
+                            when importing large catalogs. The Collection will be created immediately, but items appear
+                            progressively as they sync.
+                        </p>
+                        <div style="margin: 12px 0 0 28px; padding: 12px; background: rgba(30,144,255,0.1); border-left: 3px solid #1e90ff; border-radius: 4px;">
+                            <p style="margin: 0 0 6px 0; font-size: 12px; color: #1e90ff; font-weight: 600;">ℹ️ How It Works</p>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 11px; color: #bbb; line-height: 1.6;">
+                                <li>Catalog items are saved to Baklava's staging table instantly</li>
+                                <li>A background task syncs 20 items to Jellyfin every 5 minutes</li>
+                                <li>Progress is tracked (pending → synced → failed)</li>
+                                <li>Prevents "database is locked" errors on large imports</li>
+                                <li>Failed items are retried up to 3 times automatically</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
             </div>
 
 
@@ -444,6 +503,9 @@
                             document.getElementById('audioUiSelect').value = response?.audioUi || 'carousel';
                             document.getElementById('subtitleUiSelect').value = response?.subtitleUi || 'carousel';
                             document.getElementById('catalogsMaxItems').value = response?.catalogMaxItems || 100;
+                            document.getElementById('useBaklavaCache').checked = response?.useBaklavaCache === true;
+                            document.getElementById('useBaklavaStaging').checked = response?.useBaklavaStaging !== false;
+                            document.getElementById('enableExternalSubtitles').checked = response?.enableExternalSubtitles === true;
 
                             // UI Injection Toggle
                             const val = response?.enableBaklavaUI ?? response?.EnableBaklavaUI;
@@ -472,6 +534,9 @@
                         document.getElementById('audioUiSelect').value = json.audioUi || 'carousel';
                         document.getElementById('subtitleUiSelect').value = json.subtitleUi || 'carousel';
                         document.getElementById('catalogsMaxItems').value = json.catalogMaxItems || 100;
+                        document.getElementById('useBaklavaCache').checked = json.useBaklavaCache === true;
+                        document.getElementById('useBaklavaStaging').checked = json.useBaklavaStaging !== false;
+                        document.getElementById('enableExternalSubtitles').checked = json.enableExternalSubtitles === true;
 
 
                         // UI Injection Toggle
@@ -503,6 +568,9 @@
                     const audioUi = document.getElementById('audioUiSelect').value;
                     const subtitleUi = document.getElementById('subtitleUiSelect').value;
                     const enableBaklavaUI = document.getElementById('enableBaklavaUI').checked;
+                    const useBaklavaCache = document.getElementById('useBaklavaCache').checked;
+                    const useBaklavaStaging = document.getElementById('useBaklavaStaging').checked;
+                    const enableExternalSubtitles = document.getElementById('enableExternalSubtitles').checked;
 
                     const configData = {
                         tmdbApiKey: key,
@@ -520,7 +588,10 @@
                         audioUi: audioUi,
                         subtitleUi: subtitleUi,
                         enableBaklavaUI: enableBaklavaUI,
-                        catalogMaxItems: parseInt(document.getElementById('catalogsMaxItems').value) || 100
+                        catalogMaxItems: parseInt(document.getElementById('catalogsMaxItems').value) || 100,
+                        useBaklavaCache: useBaklavaCache,
+                        useBaklavaStaging: useBaklavaStaging,
+                        enableExternalSubtitles: enableExternalSubtitles
                     };
 
                     try {

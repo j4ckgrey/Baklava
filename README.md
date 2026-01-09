@@ -32,7 +32,14 @@ Baklava ensures your Jellyfin experience stays fast, reliable, and visually poli
 #### 🔁 Adaptive Caching & Stream Handling
 Baklava enhances Jellyfin’s caching layer, allowing it to **adapt dynamically to remote streams** (ideal for Gelato users).  
 It reduces redundant probing and improves playback stability across all platforms — even TV clients.
+#### 💾 Persistent Stream Caching
+Baklava now includes **persistent database caching** for Gelato streams. Unlike Jellyfin which disposes streams quickly, Baklava stores stream information in SQLite for up to 7 days. This provides:
+- **Faster playback**: No need to re-query aiostreams every time
+- **Reduced API load**: Less strain on Stremio addon infrastructure  
+- **Better reliability**: Fallback when remote services are slow or unavailable
+- **User-specific caching**: Different users get personalized stream preferences
 
+See [STREAM_CACHING.md](./STREAM_CACHING.md) for detailed documentation.
 #### 🧩 Smart Probing for Tracks
 Automatically fetches **audio and subtitle tracks** from remote streams for every platform, including Android TV and Fire TV.  
 Baklava ensures your playback options are complete before the media even starts loading.

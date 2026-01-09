@@ -12,6 +12,7 @@ namespace Baklava.Api
             {
                 // Register our middleware early in the pipeline
                 builder.UseMiddleware<UIInjectionMiddleware>();
+                builder.UseMiddleware<Filters.PlaybackInfoMiddleware>();
                 next(builder);
             };
         }

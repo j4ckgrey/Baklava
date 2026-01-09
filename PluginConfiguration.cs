@@ -78,5 +78,14 @@ namespace Baklava
         // Maximum parallel imports for movies (series are always sequential to prevent rate limiting)
         // Default: 2 (reduced from 4 to be more conservative)
         public int MaxParallelMovieImports { get; set; } = 2;
+        
+        // Use Baklava as stream/metadata cache middleware (bypasses Jellyfin's cache)
+        // When enabled, streams and metadata are permanently cached in Baklava's SQLite database
+        public bool UseBaklavaCache { get; set; } = false;
+        
+        // Use Baklava staging for catalog imports (two-phase import)
+        // When enabled, catalog items are saved to Baklava DB first, then synced to Jellyfin gradually
+        // This prevents database lock issues during large catalog imports
+        public bool UseBaklavaStaging { get; set; } = true;
     }
 }

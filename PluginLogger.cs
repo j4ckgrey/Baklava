@@ -4,12 +4,15 @@ namespace Baklava
 {
     public static class PluginLogger
     {
+        private const string RedColor = "\u001b[31m";
+        private const string ResetColor = "\u001b[0m";
+
         public static void Log(string message)
         {
             try
             {
                 // Keep the Console.WriteLine for containers that capture stdout
-                Console.WriteLine($"[Baklava] {message}");
+                Console.WriteLine($"[Baklava] 🟢 {message}");
 
                 // Also append to a dedicated log file in Jellyfin's config/log so we can
                 // reliably see plugin activity even if Console output isn't routed the

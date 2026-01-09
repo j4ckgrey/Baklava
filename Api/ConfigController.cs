@@ -49,6 +49,8 @@ namespace Baklava.Api
                     subtitleUi = cfg.SubtitleUi,
                     enableExternalSubtitles = cfg.EnableExternalSubtitles,
                     enableBaklavaUI = cfg.EnableBaklavaUI,
+                    useBaklavaCache = cfg.UseBaklavaCache,
+                    useBaklavaStaging = cfg.UseBaklavaStaging,
                     catalogMaxItems = cfg.CatalogMaxItems
                 });
             }
@@ -64,6 +66,8 @@ namespace Baklava.Api
                 audioUi = cfg.AudioUi,
                 subtitleUi = cfg.SubtitleUi,
                 enableBaklavaUI = cfg.EnableBaklavaUI,
+                useBaklavaCache = cfg.UseBaklavaCache,
+                useBaklavaStaging = cfg.UseBaklavaStaging,
                 catalogMaxItems = cfg.CatalogMaxItems
             });
         }
@@ -156,6 +160,18 @@ namespace Baklava.Api
                 cfg.EnableExternalSubtitles = dto.enableExternalSubtitles.Value;
             }
             
+            if (dto.useBaklavaCache.HasValue)
+            {
+                cfg.UseBaklavaCache = dto.useBaklavaCache.Value;
+                _logger.LogInformation("[ConfigController] UseBaklavaCache updated to: {Value}", cfg.UseBaklavaCache);
+            }
+            
+            if (dto.useBaklavaStaging.HasValue)
+            {
+                cfg.UseBaklavaStaging = dto.useBaklavaStaging.Value;
+                _logger.LogInformation("[ConfigController] UseBaklavaStaging updated to: {Value}", cfg.UseBaklavaStaging);
+            }
+            
             if (dto.catalogMaxItems.HasValue)
             {
                 cfg.CatalogMaxItems = dto.catalogMaxItems.Value;
@@ -186,6 +202,8 @@ namespace Baklava.Api
         public string subtitleUi { get; set; }
         public bool? enableExternalSubtitles { get; set; }
         public bool? enableBaklavaUI { get; set; }
+        public bool? useBaklavaCache { get; set; }
+        public bool? useBaklavaStaging { get; set; }
         public int? catalogMaxItems { get; set; }
     }
 }

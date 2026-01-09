@@ -26,6 +26,10 @@
       <ExcludeAssets>runtime</ExcludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <!-- SQLite for Baklava database -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <!-- After publish, remove server/core assemblies that should not be shipped with a Jellyfin plugin.

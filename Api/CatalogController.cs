@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using Baklava.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
@@ -36,6 +37,7 @@ namespace Baklava.Api
         private readonly ILibraryManager _libraryManager;
         private readonly ICollectionManager _collectionManager;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly BaklavaDbService _dbService;
 
 
         // Global import queue - ensures only one catalog import runs at a time
@@ -58,7 +60,8 @@ namespace Baklava.Api
             IServiceScopeFactory scopeFactory,
             ILibraryManager libraryManager,
             ICollectionManager collectionManager,
-            IHttpContextAccessor httpContextAccessor)
+            IHttpContextAccessor httpContextAccessor,
+            BaklavaDbService dbService)
         {
             _logger = logger;
             _httpClientFactory = httpClientFactory;
@@ -68,6 +71,7 @@ namespace Baklava.Api
             _libraryManager = libraryManager;
             _collectionManager = collectionManager;
             _httpContextAccessor = httpContextAccessor;
+            _dbService = dbService;
         }
 
         /// <summary>
@@ -168,6 +172,29 @@ namespace Baklava.Api
                 }
 
                 _logger.LogInformation("[CatalogController] Found {Count} catalogs", catalogs.Count);
+
+                // Save catalogs to database
+                foreach (var cat in catalogs)
+                {
+                    try
+                    {
+                        await _dbService.SaveCatalogAsync(
+                            cat.Id,
+                            cat.Name,
+                            cat.Type,
+                            cat.ItemCount,
+                            cat.AddonName,
+                            cat.SourceUrl,
+                            cat.IsSearchCapable,
+                            cat.CollectionName,
+                            cat.ExistingCollectionId
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[CatalogController] Failed to save catalog {Id} to database", cat.Id);
+                    }
+                }
 
                 // Note: Skipping item count fetching as it times out with many catalogs
                 // Counts can be fetched on-demand if needed via the /count endpoint
@@ -374,7 +401,27 @@ namespace Baklava.Api
 
                 _logger.LogInformation("[CatalogController] Fetched {Count} items from catalog", items.Count);
 
-                // 2. Create or find collection
+                // 2. Check if Baklava staging is enabled
+                if (cfg.UseBaklavaStaging)
+                {
+                    _logger.LogInformation("[CatalogController] Using Baklava staging mode - saving {Count} items to DB", items.Count);
+                    
+                    // Save all items to Baklava staging
+                    var savedCount = await SaveCatalogItemsToStagingAsync(items, catalogId, stremioType).ConfigureAwait(false);
+                    
+                    // Create or find collection (still need it for eventual sync)
+                    var stagingProviderId = $"Stremio.{catalogId}.{stremioType}";
+                    var stagingCollection = await GetOrCreateCollectionAsync(collectionName, stagingProviderId, catalogTotalCount).ConfigureAwait(false);
+                    
+                    return Ok(new CreateLibraryResponse
+                    {
+                        Success = true,
+                        LibraryName = collectionName,
+                        Message = $"Staged {savedCount} items in Baklava. Items will sync to Jellyfin automatically via scheduled task."
+                    });
+                }
+
+                // 3. Original flow: Direct Jellyfin import
                 var providerId = $"Stremio.{catalogId}.{stremioType}";
                 var collection = await GetOrCreateCollectionAsync(collectionName, providerId, catalogTotalCount).ConfigureAwait(false);
                 if (collection == null)
@@ -444,6 +491,9 @@ namespace Baklava.Api
                                 itemsToAdd.Add(libraryItem.Id);
                                 successCount++;
                                 _logger.LogDebug("[CatalogController] ✓ Series already exists: {Name} ({ImdbId})", item.Name ?? imdbId, imdbId);
+                                
+                                // Cache streams in background for existing items
+                                Task.Run(() => CacheStreamsInBackground(libraryItem.Id.ToString(), imdbId, item.Id, mediaType));
                             }
                             else if (gelatoManager != null && !string.IsNullOrEmpty(gelatoFolderPath))
                             {
@@ -455,6 +505,9 @@ namespace Baklava.Api
                                     itemsToAdd.Add(newGuid);
                                     successCount++;
                                     _logger.LogInformation("[CatalogController] ✓ Successfully imported series: {Name} ({ImdbId})", item.Name ?? imdbId, imdbId);
+                                    
+                                    // Cache streams in background for newly imported items
+                                    Task.Run(() => CacheStreamsInBackground(importedIdStr, imdbId, item.Id, mediaType));
                                 }
                                 else
                                 {
@@ -530,6 +583,9 @@ namespace Baklava.Api
                                 itemsToAdd.Add(libraryItem.Id);
                                 System.Threading.Interlocked.Increment(ref successCount);
                                 _logger.LogDebug("[CatalogController] ✓ Movie already exists: {Name} ({ImdbId})", item.Name ?? imdbId, imdbId);
+                                
+                                // Cache streams in background for existing items
+                                CacheStreamsInBackground(libraryItem.Id.ToString(), imdbId, item.Id, mediaType).ConfigureAwait(false);
                                 return;
                             }
 
@@ -546,6 +602,9 @@ namespace Baklava.Api
                                         itemsToAdd.Add(newGuid);
                                         System.Threading.Interlocked.Increment(ref successCount);
                                         _logger.LogDebug("[CatalogController] ✓ Successfully imported movie: {Name} ({ImdbId})", item.Name ?? imdbId, imdbId);
+                                        
+                                        // Cache streams in background for newly imported items
+                                        Task.Run(() => CacheStreamsInBackground(importedIdStr, imdbId, item.Id, mediaType));
                                     }
                                     else 
                                     {
@@ -647,9 +706,42 @@ namespace Baklava.Api
                 collection.ProviderIds["Stremio"] = providerId;
                 collection.ProviderIds["Stremio.CatalogTotal"] = catalogTotal.ToString();
                 await collection.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, System.Threading.CancellationToken.None).ConfigureAwait(false);
+                
+                // Save collection to Baklava database
+                await SaveCollectionToBaklava(collection, providerId).ConfigureAwait(false);
             }
 
             return collection;
+        }
+
+        /// <summary>
+        /// Save collection information to Baklava database
+        /// </summary>
+        private async Task SaveCollectionToBaklava(MediaBrowser.Controller.Entities.Movies.BoxSet collection, string catalogId)
+        {
+            try
+            {
+                var collectionInfo = new Baklava.Services.CollectionInfo
+                {
+                    CollectionId = collection.Id.ToString(),
+                    Name = collection.Name,
+                    Overview = collection.Overview,
+                    Path = collection.Path,
+                    ParentId = collection.ParentId.ToString(),
+                    ItemCount = collection.GetLinkedChildren().Count(),
+                    BackdropUrl = collection.GetImagePath(MediaBrowser.Model.Entities.ImageType.Backdrop, 0),
+                    PosterUrl = collection.GetImagePath(MediaBrowser.Model.Entities.ImageType.Primary, 0),
+                    SourceCatalogId = catalogId,
+                    DateCreated = collection.DateCreated
+                };
+
+                await _dbService.SaveCollectionAsync(collectionInfo).ConfigureAwait(false);
+                _logger.LogInformation("[CatalogController] ✓ Saved collection to Baklava: {Name} ({CollectionId})", collection.Name, collection.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[CatalogController] Failed to save collection to Baklava: {CollectionId}", collection.Id);
+            }
         }
 
         /// <summary>
@@ -1654,6 +1746,273 @@ namespace Baklava.Api
                 _ => null
             };
         }
+
+        #region Catalog Staging (Baklava-First Import)
+
+        /// <summary>
+        /// Save catalog items to Baklava staging (fast import without Jellyfin DB writes)
+        /// </summary>
+        private async Task<int> SaveCatalogItemsToStagingAsync(List<StremioMetaDto> items, string catalogId, string itemType)
+        {
+            var savedCount = 0;
+            foreach (var item in items)
+            {
+                try
+                {
+                    var imdbId = GetImdbId(item);
+                    if (string.IsNullOrEmpty(imdbId)) continue;
+
+                    var catalogItem = new Baklava.Services.CatalogItemInfo
+                    {
+                        CatalogId = catalogId,
+                        ImdbId = imdbId,
+                        TmdbId = item.Id?.StartsWith("tmdb:") == true ? item.Id.Replace("tmdb:", "") : null,
+                        ItemType = itemType,
+                        Title = item.Name ?? imdbId,
+                        Status = "pending",
+                        ImportedAt = DateTime.UtcNow
+                    };
+
+                    if (await _dbService.SaveCatalogItemAsync(catalogItem))
+                    {
+                        savedCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[CatalogController] Failed to save catalog item to staging: {ImdbId}", item.Id);
+                }
+            }
+
+            _logger.LogInformation("[CatalogController] Saved {Count}/{Total} catalog items to Baklava staging", savedCount, items.Count);
+            return savedCount;
+        }
+
+        #endregion
+
+        #region Stream and Metadata Caching
+        
+        /// <summary>
+        /// Caches streams for an imported item in the background without blocking import
+        /// </summary>
+        private async Task CacheStreamsInBackground(string itemId, string imdbId, string catalogItemId, string mediaType)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Check if Baklava cache is enabled
+                    var cfg = Plugin.Instance!.Configuration;
+                    if (!cfg.UseBaklavaCache)
+                    {
+                        _logger.LogDebug("[CatalogController] Baklava cache disabled, skipping background cache for ItemId={ItemId}", itemId);
+                        return;
+                    }
+                    
+                    _logger.LogDebug("[CatalogController] Starting background data cache for ItemId={ItemId}, ImdbId={ImdbId}", itemId, imdbId);
+                    
+                    // Get the Jellyfin item to extract metadata
+                    if (Guid.TryParse(itemId, out var guid))
+                    {
+                        var item = _libraryManager.GetItemById(guid);
+                        if (item != null)
+                        {
+                            // Save complete metadata to Baklava
+                            await SaveItemMetadataToBaklava(item).ConfigureAwait(false);
+                        }
+                    }
+                    
+                    // Call Gelato to get streams (via HTTP since we don't have direct dependency)
+                    var gelatoBaseUrl = "http://localhost:8096/Gelato"; // Adjust if different
+                    var streamUrl = $"{gelatoBaseUrl}/stream/{mediaType}/{imdbId}.json";
+                    
+                    using var httpClient = new HttpClient();
+                    httpClient.Timeout = TimeSpan.FromSeconds(30);
+                    
+                    var response = await httpClient.GetAsync(streamUrl).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _logger.LogWarning("[CatalogController] Failed to fetch streams from Gelato for {ImdbId}: {Status}", imdbId, response.StatusCode);
+                        return;
+                    }
+                    
+                    var streamsJson = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    var streams = JsonSerializer.Deserialize<GelatoStreamsResponse>(streamsJson);
+                    
+                    if (streams?.Streams == null || streams.Streams.Count == 0)
+                    {
+                        _logger.LogDebug("[CatalogController] No streams found for {ImdbId}", imdbId);
+                        return;
+                    }
+                    
+                    // Convert GelatoStreamDto to StreamInfo
+                    var streamInfoList = streams.Streams.Select(s => new Baklava.Services.StreamInfo
+                    {
+                        Title = s.Title,
+                        Name = s.Name,
+                        StreamUrl = s.Url,
+                        InfoHash = s.InfoHash,
+                        FileIdx = s.FileIdx
+                    }).ToList();
+                    
+                    // Save to Baklava database
+                    await _dbService.SaveStreamsAsync(itemId, null, imdbId, null, mediaType, null, streamInfoList).ConfigureAwait(false);
+                    _logger.LogInformation("[CatalogController] ✓ Cached {Count} streams for ItemId={ItemId}, ImdbId={ImdbId}", 
+                        streamInfoList.Count, itemId, imdbId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[CatalogController] Failed to cache data for ItemId={ItemId}, ImdbId={ImdbId}", itemId, imdbId);
+                }
+            });
+            
+            await Task.CompletedTask; // Return immediately, don't block
+        }
+
+        /// <summary>
+        /// Save complete Jellyfin item metadata to Baklava database
+        /// </summary>
+        private async Task SaveItemMetadataToBaklava(MediaBrowser.Controller.Entities.BaseItem item)
+        {
+            try
+            {
+                var metadata = new Baklava.Services.CompleteItemMetadata
+                {
+                    ItemId = item.Id.ToString(),
+                    ImdbId = item.ProviderIds.TryGetValue("Imdb", out var imdb) ? imdb : null,
+                    TmdbId = item.ProviderIds.TryGetValue("Tmdb", out var tmdb) ? tmdb : null,
+                    TvdbId = item.ProviderIds.TryGetValue("Tvdb", out var tvdb) ? tvdb : null,
+                    ItemType = item.GetClientTypeName(),
+                    Name = item.Name,
+                    OriginalTitle = item.OriginalTitle,
+                    Overview = item.Overview,
+                    Tagline = item.Tagline,
+                    Year = item.ProductionYear,
+                    PremiereDate = item.PremiereDate,
+                    EndDate = item.EndDate,
+                    OfficialRating = item.OfficialRating,
+                    CommunityRating = item.CommunityRating,
+                    CriticRating = item.CriticRating,
+                    Runtime = item.RunTimeTicks,
+                    Genres = item.Genres?.ToList(),
+                    Studios = item.Studios?.ToList(),
+                    Tags = item.Tags?.ToList(),
+                    BackdropUrl = item.GetImagePath(MediaBrowser.Model.Entities.ImageType.Backdrop, 0),
+                    PosterUrl = item.GetImagePath(MediaBrowser.Model.Entities.ImageType.Primary, 0),
+                    LogoUrl = item.GetImagePath(MediaBrowser.Model.Entities.ImageType.Logo, 0),
+                    ParentId = item.ParentId.ToString(),
+                    CollectionId = null,
+                    Path = item.Path,
+                    FileName = System.IO.Path.GetFileName(item.Path),
+                    DateCreated = item.DateCreated,
+                    DateModified = item.DateModified,
+                    ProviderIds = item.ProviderIds
+                };
+
+                // Add series/episode specific data
+                if (item is MediaBrowser.Controller.Entities.TV.Episode episode)
+                {
+                    metadata.SeasonNumber = episode.ParentIndexNumber;
+                    metadata.EpisodeNumber = episode.IndexNumber;
+                    metadata.SeriesId = episode.SeriesId.ToString();
+                    metadata.SeriesName = episode.SeriesName;
+                }
+                else if (item is MediaBrowser.Controller.Entities.TV.Season season)
+                {
+                    metadata.SeasonNumber = season.IndexNumber;
+                    metadata.SeriesId = season.SeriesId.ToString();
+                    metadata.SeriesName = season.SeriesName;
+                }
+
+                // Add media stream info if available
+                if (item is MediaBrowser.Controller.Entities.IHasMediaSources hasMediaSources)
+                {
+                    var mediaSources = hasMediaSources.GetMediaSources(false);
+                    var firstSource = mediaSources?.FirstOrDefault();
+                    if (firstSource != null)
+                    {
+                        metadata.Container = firstSource.Container;
+                        metadata.Bitrate = firstSource.Bitrate;
+                        metadata.FileSize = firstSource.Size;
+                        
+                        var videoStream = firstSource.MediaStreams?.FirstOrDefault(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Video);
+                        if (videoStream != null)
+                        {
+                            metadata.VideoCodec = videoStream.Codec;
+                            metadata.Width = videoStream.Width;
+                            metadata.Height = videoStream.Height;
+                            metadata.AspectRatio = videoStream.AspectRatio;
+                            metadata.Framerate = videoStream.RealFrameRate ?? videoStream.AverageFrameRate;
+                        }
+                        
+                        var audioStream = firstSource.MediaStreams?.FirstOrDefault(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Audio);
+                        if (audioStream != null)
+                        {
+                            metadata.AudioCodec = audioStream.Codec;
+                        }
+                    }
+                }
+
+//                 // Add people (cast/crew) - would need to query from database
+//                 var people = new List<Baklava.Services.PersonInfo>();
+//                 // Note: People data would need to be queried separately from Jellyfin database
+//                 if (false) // Disabled until proper people query is added
+//                 {
+//                     // foreach (var person in item.People)
+//                     {
+//                         people.Add(new Baklava.Services.PersonInfo
+//                         {
+//                             Name = person.Name,
+//                             Role = person.Role,
+//                             Type = person.Type.ToString(),
+//                             ImageUrl = person.ImageUrl,
+//                             SortOrder = person.SortOrder
+//                         });
+//                     }
+//                 }
+//                 metadata.People = people.Count > 0 ? people : null;
+// 
+                metadata.People = null;
+//                 await _dbService.SaveCompleteItemMetadataAsync(metadata).ConfigureAwait(false);
+//                 _logger.LogInformation("[CatalogController] ✓ Saved complete metadata to Baklava for {Name} ({ItemId})", item.Name, item.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[CatalogController] Failed to save metadata to Baklava for {ItemId}", item.Id);
+            }
+        }
+
+        /// <summary>
+        /// DTO for Gelato stream response
+        /// </summary>
+        private class GelatoStreamsResponse
+        {
+            [JsonPropertyName("streams")]
+            public List<GelatoStreamDto> Streams { get; set; }
+        }
+        
+        private class GelatoStreamDto
+        {
+            [JsonPropertyName("name")]
+            public string Name { get; set; }
+            
+            [JsonPropertyName("title")]
+            public string Title { get; set; }
+            
+            [JsonPropertyName("url")]
+            public string Url { get; set; }
+            
+            [JsonPropertyName("infoHash")]
+            public string InfoHash { get; set; }
+            
+            [JsonPropertyName("fileIdx")]
+            public int? FileIdx { get; set; }
+            
+            [JsonPropertyName("behaviorHints")]
+            public Dictionary<string, object> BehaviorHints { get; set; }
+        }
+
+        #endregion
 
         #endregion
     }
